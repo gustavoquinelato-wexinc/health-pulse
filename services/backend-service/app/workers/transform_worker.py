@@ -306,6 +306,11 @@ class TransformWorker(BaseWorker):
                 if result['wits_to_update']:
                     self._queue_entities_for_embedding(tenant_id, 'wits', result['wits_to_update'], job_id)
 
+                # ✅ Queue next extraction step: statuses and relationships (after projects are in database)
+                if job_id:
+                    logger.info(f"🔄 Projects processing complete, queuing next step: jira_statuses_and_relationships")
+                    self._queue_next_extraction_step(tenant_id, integration_id, job_id, 'jira_statuses_and_relationships')
+
                 logger.info(f"Successfully processed Jira project search data for raw_data_id={raw_data_id}")
                 return True
 

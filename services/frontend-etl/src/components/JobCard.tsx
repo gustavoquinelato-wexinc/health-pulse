@@ -48,10 +48,46 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
   const [realTimeStatus, setRealTimeStatus] = useState<string>(job.status)
   const [wsVersion, setWsVersion] = useState<number>(etlWebSocketService.getInitializationVersion())
 
+  // Queue stage tracking
+  const [queueStages, setQueueStages] = useState({
+    extraction: 'ready',    // ready, in-progress, done
+    transform: 'ready',     // ready, in-progress, done
+    embedding: 'ready'      // ready, in-progress, done
+  })
+
   // Throttle state updates to prevent UI freezing from rapid WebSocket messages
   const lastUpdateRef = useRef<number>(0)
   // Track WebSocket connection to prevent React StrictMode double connections
   const wsConnectionRef = useRef<(() => void) | null>(null)
+
+  // Update queue stages based on message flags
+  const updateQueueStages = (message: any) => {
+    if (message.first_item) {
+      // First item starts extraction stage
+      setQueueStages(prev => ({
+        ...prev,
+        extraction: 'in-progress',
+        transform: 'ready',
+        embedding: 'ready'
+      }))
+    } else if (message.last_issue_changelog_item) {
+      // Last changelog item completes extraction, starts transform
+      setQueueStages(prev => ({
+        ...prev,
+        extraction: 'done',
+        transform: 'in-progress',
+        embedding: 'ready'
+      }))
+    } else if (message.last_item) {
+      // Last item completes transform, starts embedding
+      setQueueStages(prev => ({
+        ...prev,
+        extraction: 'done',
+        transform: 'done',
+        embedding: 'in-progress'
+      }))
+    }
+  }
   const THROTTLE_MS = 500 // Only update UI every 500ms max
 
   // Get status icon and color
@@ -259,6 +295,9 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
         if (realTimeStatus !== 'RUNNING') {
           setRealTimeStatus('RUNNING')
         }
+
+        // Update queue stages based on message flags
+        updateQueueStages(data)
       },
       onStatus: (data: StatusUpdate) => {
 
@@ -275,6 +314,22 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
         setRealTimeStatus(data.success ? 'FINISHED' : 'FAILED')
         setProgressPercentage(null)
         setCurrentStep(null)
+
+        // Complete all queue stages on job completion
+        if (data.success) {
+          setQueueStages({
+            extraction: 'done',
+            transform: 'done',
+            embedding: 'done'
+          })
+        } else {
+          // Reset queue stages on failure
+          setQueueStages({
+            extraction: 'ready',
+            transform: 'ready',
+            embedding: 'ready'
+          })
+        }
 
         // Notify parent component to refresh jobs
         if (typeof window !== 'undefined') {
@@ -317,6 +372,12 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
       setProgressPercentage(null)
       setCurrentStep(null)
       setRealTimeStatus(job.status) // Reset to actual job status
+      // Reset queue stages when job becomes inactive
+      setQueueStages({
+        extraction: 'ready',
+        transform: 'ready',
+        embedding: 'ready'
+      })
     }
   }, [job.active, job.status])
 
@@ -512,6 +573,57 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
                 {Math.round(progressPercentage)}%
               </div>
             )}
+          </div>
+
+          {/* Queue Status Display */}
+          <div className="mt-3 flex items-center justify-between text-xs">
+            {/* Extraction Stage */}
+            <div className="flex items-center space-x-2">
+              <div className={`w-2 h-2 rounded-full ${
+                queueStages.extraction === 'done' ? 'bg-green-500' :
+                queueStages.extraction === 'in-progress' ? 'bg-blue-500 animate-pulse' :
+                'bg-gray-300'
+              }`} />
+              <span className={`${
+                queueStages.extraction === 'done' ? 'text-green-600' :
+                queueStages.extraction === 'in-progress' ? 'text-blue-600' :
+                'text-gray-500'
+              }`}>
+                Extraction
+              </span>
+            </div>
+
+            {/* Transform Stage */}
+            <div className="flex items-center space-x-2">
+              <div className={`w-2 h-2 rounded-full ${
+                queueStages.transform === 'done' ? 'bg-green-500' :
+                queueStages.transform === 'in-progress' ? 'bg-blue-500 animate-pulse' :
+                'bg-gray-300'
+              }`} />
+              <span className={`${
+                queueStages.transform === 'done' ? 'text-green-600' :
+                queueStages.transform === 'in-progress' ? 'text-blue-600' :
+                'text-gray-500'
+              }`}>
+                Transform
+              </span>
+            </div>
+
+            {/* Embedding Stage */}
+            <div className="flex items-center space-x-2">
+              <div className={`w-2 h-2 rounded-full ${
+                queueStages.embedding === 'done' ? 'bg-green-500' :
+                queueStages.embedding === 'in-progress' ? 'bg-blue-500 animate-pulse' :
+                'bg-gray-300'
+              }`} />
+              <span className={`${
+                queueStages.embedding === 'done' ? 'text-green-600' :
+                queueStages.embedding === 'in-progress' ? 'text-blue-600' :
+                'text-gray-500'
+              }`}>
+                Embedding
+              </span>
+            </div>
           </div>
         </div>
       )}

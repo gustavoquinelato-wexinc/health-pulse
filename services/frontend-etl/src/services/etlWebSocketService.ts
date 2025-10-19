@@ -12,6 +12,10 @@ export interface ProgressUpdate {
   percentage: number
   step: string
   timestamp: string
+  // Queue tracking flags
+  first_item?: boolean
+  last_issue_changelog_item?: boolean
+  last_item?: boolean
 }
 
 export interface StatusUpdate {
@@ -155,7 +159,11 @@ class ETLWebSocketService {
         handlers.onProgress?.({
           percentage: message.percentage,
           step: message.step,
-          timestamp: message.timestamp
+          timestamp: message.timestamp,
+          // Pass through queue tracking flags
+          first_item: message.first_item,
+          last_issue_changelog_item: message.last_issue_changelog_item,
+          last_item: message.last_item
         })
         break
 
