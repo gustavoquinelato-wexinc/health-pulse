@@ -56,7 +56,7 @@ async def login(login_request: LoginRequest, request: Request):
                     "password": login_request.password,
                     "include_ml_fields": getattr(login_request, 'include_ml_fields', False)
                 },
-                timeout=10.0
+                timeout=30.0  # Increased for heavy ETL operations
             )
 
             if response.status_code != 200:
@@ -83,7 +83,7 @@ async def login(login_request: LoginRequest, request: Request):
                     "password": login_request.password,
                     "include_ml_fields": getattr(login_request, 'include_ml_fields', False)
                 },
-                timeout=10.0
+                timeout=30.0  # Increased for heavy ETL operations
             )
 
             if gen_resp.status_code != 200:
@@ -293,11 +293,18 @@ async def validate_token(request: Request):
             auth_service_url = getattr(settings, 'AUTH_SERVICE_URL', 'http://localhost:4000')
 
             async with httpx.AsyncClient() as client:
-                response = await client.post(
-                    f"{auth_service_url}/api/v1/token/validate",
-                    headers={"Authorization": f"Bearer {token}"},
-                    timeout=5.0
-                )
+                try:
+                    response = await client.post(
+                        f"{auth_service_url}/api/v1/token/validate",
+                        headers={"Authorization": f"Bearer {token}"},
+                        timeout=30.0  # Increased timeout for heavy ETL operations
+                    )
+                except httpx.ReadTimeout:
+                    logger.warning("Token validation timeout during heavy load")
+                    return {"valid": False, "user": None}
+                except httpx.ConnectError:
+                    logger.error(f"Cannot connect to auth service at {auth_service_url}")
+                    return {"valid": False, "user": None}
 
                 if response.status_code == 200:
                     token_data = response.json()
@@ -368,11 +375,25 @@ async def refresh_token(request: Request):
         auth_service_url = getattr(settings, 'AUTH_SERVICE_URL', 'http://localhost:4000')
 
         async with httpx.AsyncClient() as client:
-            response = await client.post(
-                f"{auth_service_url}/api/v1/token/refresh",
-                headers={"Authorization": f"Bearer {token}"},
-                timeout=10.0
-            )
+            try:
+                response = await client.post(
+                    f"{auth_service_url}/api/v1/token/refresh",
+                    headers={"Authorization": f"Bearer {token}"},
+                    timeout=60.0  # Extended timeout during heavy ETL operations
+                )
+            except httpx.ReadTimeout:
+                logger.warning(f"Auth service timeout during heavy load - database may be busy with ETL operations")
+                # Return 401 to trigger frontend token refresh retry instead of 503
+                raise HTTPException(
+                    status_code=401,
+                    detail="Token refresh timeout - please try again"
+                )
+            except httpx.ConnectError:
+                logger.error(f"Cannot connect to auth service at {auth_service_url}")
+                raise HTTPException(
+                    status_code=503,
+                    detail="Authentication service unavailable"
+                )
 
             if response.status_code == 200:
                 token_data = response.json()

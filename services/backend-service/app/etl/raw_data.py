@@ -102,16 +102,15 @@ class RawDataListResponse(BaseModel):
 async def store_raw_data(
     request: RawDataStoreRequest,
     tenant_id: int = Query(..., description="Tenant ID"),
-    queue_transform: bool = Query(True, description="Queue for transformation"),
     db: Session = Depends(get_db_session)
 ):
     """
-    Store raw extraction data and optionally queue for transformation.
-    
+    Store raw extraction data and queue for transformation.
+
     This endpoint:
     1. Stores complete API response in raw_extraction_data table
-    2. Optionally publishes transform job to RabbitMQ queue
-    
+    2. Publishes transform job to RabbitMQ queue
+
     Batch Processing:
     - 1 API call = 1 database record = 1 queue message
     - raw_data contains ALL items in the batch (e.g., 1000 Jira issues)
@@ -151,24 +150,25 @@ async def store_raw_data(
         db.commit()
         
         logger.info(f"Raw data stored: ID={raw_data_id}, tenant={tenant_id}, type={request.entity_type}")
-        
-        # Queue for transformation if requested
-        queued = False
-        if queue_transform:
-            try:
-                queue_manager = get_queue_manager()
-                queued = queue_manager.publish_transform_job(
-                    tenant_id=tenant_id,
-                    integration_id=request.integration_id,
-                    raw_data_id=raw_data_id,
-                    data_type=request.entity_type
-                )
-                if queued:
-                    logger.info(f"Transform job queued for raw_data_id={raw_data_id}")
-            except Exception as e:
-                logger.error(f"Failed to queue transform job: {e}")
-                # Don't fail the request if queuing fails
-        
+
+        # Always queue for transformation (queue-based architecture)
+        try:
+            queue_manager = get_queue_manager()
+            queued = queue_manager.publish_transform_job(
+                tenant_id=tenant_id,
+                integration_id=request.integration_id,
+                raw_data_id=raw_data_id,
+                data_type=request.entity_type
+            )
+            if queued:
+                logger.info(f"Transform job queued for raw_data_id={raw_data_id}")
+            else:
+                logger.error(f"Failed to queue transform job for raw_data_id={raw_data_id}")
+        except Exception as e:
+            logger.error(f"Failed to queue transform job: {e}")
+            # Don't fail the request if queuing fails, but log the error
+            queued = False
+
         return RawDataStoreResponse(
             success=True,
             raw_data_id=raw_data_id,

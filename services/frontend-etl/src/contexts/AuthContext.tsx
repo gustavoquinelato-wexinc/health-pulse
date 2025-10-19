@@ -2,7 +2,7 @@ import axios from 'axios'
 import { createContext, ReactNode, useContext, useEffect, useState } from 'react'
 import { colorDataService, type ColorData } from '../services/colorDataService'
 import { getColorSchemaMode } from '../utils/colorSchemaService'
-import { etlWebSocketService } from '../services/websocketService'
+import { etlWebSocketService } from '../services/etlWebSocketService'
 import { sessionWebSocketService } from '../services/sessionWebSocketService'
 
 interface ColorSchema {
@@ -280,7 +280,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
     const handleStorageChange = (event: StorageEvent) => {
       if (event.key === 'pulse_logout_event') {
         // Another tab on same origin logged out, logout this one too
-        etlWebSocketService.disconnectAll()
+        etlWebSocketService.shutdown()
         sessionWebSocketService.disconnect()
         setUser(null)
         localStorage.clear()
@@ -424,7 +424,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
               localStorage.clear()
               sessionStorage.clear()
               delete axios.defaults.headers.common['Authorization']
-              etlWebSocketService.disconnectAll()
+              etlWebSocketService.shutdown()
               window.location.replace('/login')
               return
             }
@@ -440,7 +440,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
                 localStorage.clear()
                 sessionStorage.clear()
                 delete axios.defaults.headers.common['Authorization']
-                etlWebSocketService.disconnectAll()
+                etlWebSocketService.shutdown()
                 window.location.replace('/login')
                 return
               }
@@ -473,7 +473,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
               localStorage.clear()
               sessionStorage.clear()
               delete axios.defaults.headers.common['Authorization']
-              etlWebSocketService.disconnectAll()
+              etlWebSocketService.shutdown()
               window.location.replace('/login')
             }
           } catch (validationError: any) {
@@ -485,7 +485,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
               localStorage.clear()
               sessionStorage.clear()
               delete axios.defaults.headers.common['Authorization']
-              etlWebSocketService.disconnectAll()
+              etlWebSocketService.shutdown()
               window.location.replace('/login')
             } else if (validationError?.name === 'AbortError' || validationError?.name === 'CanceledError') {
               // Request was aborted due to timeout - don't logout, no logging needed (normal during heavy operations)
@@ -896,7 +896,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
 
     // Disconnect all WebSocket connections
     try {
-      etlWebSocketService.disconnectAll()
+      etlWebSocketService.shutdown()
       sessionWebSocketService.disconnect()
       // WebSocket services disconnected - only log errors
     } catch (error) {

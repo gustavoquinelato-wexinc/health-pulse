@@ -412,7 +412,6 @@ def apply(connection):
                 custom_field_18 VARCHAR,
                 custom_field_19 VARCHAR,
                 custom_field_20 VARCHAR,
-                custom_fields_overflow JSONB,
                 integration_id INTEGER NOT NULL,
                 tenant_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
@@ -1310,21 +1309,7 @@ def apply(connection):
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_work_items_updated ON work_items(updated);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_work_items_parent_external_id ON work_items(parent_external_id);")
 
-        # Custom fields overflow GIN index for JSON queries (skip if column doesn't exist)
-        try:
-            # First check if the column exists
-            cursor.execute("""
-                SELECT column_name
-                FROM information_schema.columns
-                WHERE table_name = 'work_items' AND column_name = 'custom_fields_overflow';
-            """)
-            if cursor.fetchone():
-                cursor.execute("CREATE INDEX IF NOT EXISTS idx_work_items_custom_fields_overflow_gin ON work_items USING GIN (custom_fields_overflow);")
-                print("✅ Custom fields overflow GIN index created")
-            else:
-                print("⚠️ Skipping custom_fields_overflow index: column does not exist")
-        except Exception as e:
-            print(f"⚠️ Skipping custom_fields_overflow index: {e}")
+
 
         # Custom fields indexes
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_custom_fields_tenant_id ON custom_fields(tenant_id);")

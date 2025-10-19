@@ -187,7 +187,6 @@ graph TD
     %% Storage Strategy
     subgraph "Storage Strategy"
         DEDICATED[Dedicated Columns<br/>custom_field_01<br/>custom_field_02<br/>...<br/>custom_field_20]
-        OVERFLOW[JSON Overflow<br/>custom_fields_overflow<br/>JSONB Column<br/>Unlimited Fields]
     end
 
     %% Processing Pipeline
@@ -451,7 +450,6 @@ erDiagram
         string custom_field_01
         string custom_field_02
         string custom_field_20
-        jsonb custom_fields_overflow
         timestamp created_at
         timestamp updated_at
     }
