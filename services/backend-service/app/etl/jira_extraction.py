@@ -13,7 +13,6 @@ from sqlalchemy import text
 from app.core.database import get_db_session, get_read_session
 from app.core.logging_config import get_logger
 from app.etl.jira_client import JiraAPIClient
-from app.api.websocket_routes import get_websocket_manager
 from app.models.unified_models import Integration
 
 logger = get_logger(__name__)
@@ -28,7 +27,6 @@ class JiraExtractionProgressTracker:
         self.tenant_id = tenant_id
         self.job_id = job_id
         self.total_steps = total_steps
-        self.websocket_manager = get_websocket_manager()
 
     async def update_step_progress(self, step_index: int, step_progress: float, message: str):
         """Update progress using step-based system (like old ETL service)."""
@@ -44,11 +42,6 @@ class JiraExtractionProgressTracker:
 
             # Log progress (no database update - progress is tracked in UI only)
             logger.info(f"[JIRA EXTRACTION] Step {step_index + 1}/{self.total_steps} - {overall_percentage:.1f}% - {message}")
-
-            # Send WebSocket update
-            await self.websocket_manager.send_progress_update(
-                self.tenant_id, "Jira", overall_percentage, message
-            )
 
         except Exception as e:
             logger.error(f"Failed to update progress: {e}")
@@ -167,9 +160,6 @@ async def execute_complete_jira_extraction(
 
         # Update job status to FAILED
         try:
-            await progress_tracker.websocket_manager.send_progress_update(
-                tenant_id, "Jira", 100.0, f"[ERROR] Jira extraction failed: {str(e)}"
-            )
 
             from app.core.utils import DateTimeHelper
             from datetime import timedelta
@@ -271,9 +261,6 @@ async def execute_projects_and_issue_types_extraction(
 
         # Update job status to FAILED
         try:
-            await progress_tracker.websocket_client.send_progress_update(
-                "Jira", 100.0, f"[ERROR] Jira extraction failed: {str(e)}"
-            )
             
             from app.core.utils import DateTimeHelper
             from datetime import timedelta
@@ -446,7 +433,7 @@ async def reset_job_countdown(tenant_id: int, job_id: int, message: str, job_sta
             # Step 1: Set status to FINISHED and update last_sync_date
             update_finished_query = text("""
                 UPDATE etl_jobs
-                SET status = 'FINISHED',
+                SET status = jsonb_set(status, ARRAY['overall'], to_jsonb('FINISHED'::text)),
                     last_run_finished_at = :now,
                     last_sync_date = :sync_time,
                     error_message = NULL,
@@ -463,18 +450,6 @@ async def reset_job_countdown(tenant_id: int, job_id: int, message: str, job_sta
             # Commit happens automatically
 
         logger.info(f"✅ Jira job marked as FINISHED")
-
-        # Step 2: Send WebSocket status update to FINISHED
-        from app.api.websocket_routes import get_websocket_manager
-        websocket_manager = get_websocket_manager()
-        await websocket_manager.send_status_update(tenant_id, "Jira", "FINISHED", message)
-
-        # Step 3: Send WebSocket completion update with success summary
-        await websocket_manager.send_completion_update(tenant_id, "Jira", True, {
-            "message": message,
-            "schedule_interval_minutes": schedule_interval_minutes
-        })
-
         logger.info(f"Job {job_id} completed successfully for tenant {tenant_id}: {message}")
 
         # Step 4: Wait a moment for frontend to process completion, then set to READY
@@ -484,7 +459,7 @@ async def reset_job_countdown(tenant_id: int, job_id: int, message: str, job_sta
         with database.get_write_session_context() as db:
             update_ready_query = text("""
                 UPDATE etl_jobs
-                SET status = 'READY',
+                SET status = jsonb_set(status, ARRAY['overall'], to_jsonb('READY'::text)),
                     next_run = :next_run,
                     last_updated_at = :now
                 WHERE id = :job_id AND tenant_id = :tenant_id
@@ -499,9 +474,6 @@ async def reset_job_countdown(tenant_id: int, job_id: int, message: str, job_sta
 
         logger.info(f"✅ Jira job set to READY - next run scheduled for {next_run}")
         logger.info(f"Next run will be calculated as: last_updated_at + {schedule_interval_minutes} minutes")
-
-        # Step 5: Send final status update to READY
-        await websocket_manager.send_status_update(tenant_id, "Jira", "READY", f"Next run at {next_run}")
 
     except Exception as e:
         logger.error(f"Error updating job completion: {e}")
@@ -1333,7 +1305,7 @@ async def execute_issues_changelogs_dev_status_extraction(
         with database.get_write_session_context() as db:
             update_query = text("""
                 UPDATE etl_jobs
-                SET status = 'FINISHED',
+                SET status = jsonb_set(status, ARRAY['overall'], to_jsonb('FINISHED'::text)),
                     last_run_completed_at = NOW(),
                     last_updated_at = NOW()
                 WHERE id = :job_id AND tenant_id = :tenant_id
@@ -1345,11 +1317,7 @@ async def execute_issues_changelogs_dev_status_extraction(
             3, 1.0, "Issues extraction completed successfully"
         )
 
-        # Send WebSocket completion update
-        websocket_manager = get_websocket_manager()
-        await websocket_manager.send_status_update(
-            tenant_id, "Jira", "FINISHED", "Issues extraction completed"
-        )
+
 
         logger.info(f"Issues extraction completed for integration {integration_id}")
 
@@ -1377,11 +1345,7 @@ async def execute_issues_changelogs_dev_status_extraction(
             db.execute(update_query, {'job_id': job_id, 'tenant_id': tenant_id})
             # Commit happens automatically
 
-        # Send WebSocket error update
-        websocket_manager = get_websocket_manager()
-        await websocket_manager.send_status_update(
-            tenant_id, "Jira", "FINISHED", f"Issues extraction failed: {str(e)}"
-        )
+
 
         raise
 
@@ -1743,7 +1707,7 @@ async def extract_projects_and_issue_types_endpoint(
         # Set job to RUNNING
         update_query = text("""
             UPDATE etl_jobs
-            SET status = 'RUNNING',
+            SET status = jsonb_set(status, ARRAY['overall'], to_jsonb('RUNNING'::text)),
                 last_run_started_at = NOW(),
                 last_updated_at = NOW()
             WHERE id = :job_id AND tenant_id = :tenant_id
@@ -1751,10 +1715,7 @@ async def extract_projects_and_issue_types_endpoint(
         db.execute(update_query, {'job_id': job_id, 'tenant_id': tenant_id})
         db.commit()
 
-        # Send WebSocket status update
-        from app.api.websocket_routes import get_websocket_manager
-        websocket_manager = get_websocket_manager()
-        await websocket_manager.send_status_update(tenant_id, "Jira", "RUNNING", "Job started")
+
 
         # Log before adding background task
         logger.info(f"📋 Adding background task: execute_complete_jira_extraction(integration_id={integration_id}, tenant_id={tenant_id}, job_id={job_id})")
@@ -1841,7 +1802,7 @@ async def extract_issues_changelogs_dev_status_endpoint(
         # Set job to RUNNING
         update_query = text("""
             UPDATE etl_jobs
-            SET status = 'RUNNING',
+            SET status = jsonb_set(status, ARRAY['overall'], to_jsonb('RUNNING'::text)),
                 last_run_started_at = NOW(),
                 last_updated_at = NOW()
             WHERE id = :job_id AND tenant_id = :tenant_id
@@ -1849,10 +1810,7 @@ async def extract_issues_changelogs_dev_status_endpoint(
         db.execute(update_query, {'job_id': job_id, 'tenant_id': tenant_id})
         db.commit()
 
-        # Send WebSocket status update
-        from app.api.websocket_routes import get_websocket_manager
-        websocket_manager = get_websocket_manager()
-        await websocket_manager.send_status_update(tenant_id, "Jira", "RUNNING", "Issues extraction started")
+
 
         # Add background task for issues extraction
         background_tasks.add_task(

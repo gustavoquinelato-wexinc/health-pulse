@@ -11,7 +11,7 @@ import {
   Settings
 } from 'lucide-react'
 import IntegrationLogo from './IntegrationLogo'
-import { etlWebSocketService, type ProgressUpdate, type StatusUpdate, type CompletionUpdate } from '../services/etlWebSocketService'
+import { etlWebSocketService, type WorkerStatusUpdate, type JobProgress } from '../services/etlWebSocketService'
 import { useTheme } from '../contexts/ThemeContext'
 
 interface JobCardProps {
@@ -42,50 +42,149 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
   const [isToggling, setIsToggling] = useState(false)
   const [countdown, setCountdown] = useState<string>('Calculating...')
 
-  // Real-time progress tracking
-  const [progressPercentage, setProgressPercentage] = useState<number | null>(null)
-  const [currentStep, setCurrentStep] = useState<string | null>(null)
+  // Real-time worker status tracking
+  const [jobProgress, setJobProgress] = useState<JobProgress | null>(null)
   const [realTimeStatus, setRealTimeStatus] = useState<string>(job.status)
   const [wsVersion, setWsVersion] = useState<number>(etlWebSocketService.getInitializationVersion())
-
-  // Queue stage tracking
-  const [queueStages, setQueueStages] = useState({
-    extraction: 'ready',    // ready, in-progress, done
-    transform: 'ready',     // ready, in-progress, done
-    embedding: 'ready'      // ready, in-progress, done
-  })
-
+  const [isJobRunning, setIsJobRunning] = useState<boolean>(false)
+  const [isWebSocketConnected, setIsWebSocketConnected] = useState<boolean>(false)
   // Throttle state updates to prevent UI freezing from rapid WebSocket messages
   const lastUpdateRef = useRef<number>(0)
   // Track WebSocket connection to prevent React StrictMode double connections
   const wsConnectionRef = useRef<(() => void) | null>(null)
 
-  // Update queue stages based on message flags
-  const updateQueueStages = (message: any) => {
-    if (message.first_item) {
-      // First item starts extraction stage
-      setQueueStages(prev => ({
-        ...prev,
-        extraction: 'in-progress',
-        transform: 'ready',
-        embedding: 'ready'
-      }))
-    } else if (message.last_issue_changelog_item) {
-      // Last changelog item completes extraction, starts transform
-      setQueueStages(prev => ({
-        ...prev,
-        extraction: 'done',
-        transform: 'in-progress',
-        embedding: 'ready'
-      }))
-    } else if (message.last_item) {
-      // Last item completes transform, starts embedding
-      setQueueStages(prev => ({
-        ...prev,
-        extraction: 'done',
-        transform: 'done',
-        embedding: 'in-progress'
-      }))
+  // Get display name for step from step data or fallback
+  const getStepDisplayName = (stepName: string) => {
+    if (jobProgress?.steps && jobProgress.steps[stepName]?.display_name) {
+      return jobProgress.steps[stepName].display_name
+    }
+    // Fallback: format step name nicely
+    return stepName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
+  }
+
+  // Get available steps from job progress data, sorted by order
+  const getAvailableSteps = () => {
+    if (jobProgress?.steps) {
+      // Sort steps by order field
+      return Object.entries(jobProgress.steps)
+        .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0))
+        .map(([stepName]) => stepName)
+    }
+
+    // Fallback to default Jira steps if no step data available
+    return ['jira_projects_and_issue_types', 'jira_statuses_and_relationships', 'jira_issues_with_changelogs', 'jira_dev_status']
+  }
+
+  // Helper function to get current step being processed
+  const getCurrentStep = () => {
+    if (!jobProgress?.isActive) return null
+
+    // Check which worker is currently running and return a user-friendly step name
+    if (jobProgress.extraction.status === 'running' && jobProgress.extraction.step) {
+      return `Extracting ${getStepDisplayName(jobProgress.extraction.step)}...`
+    }
+    if (jobProgress.transform.status === 'running' && jobProgress.transform.step) {
+      return `Transforming ${getStepDisplayName(jobProgress.transform.step)}...`
+    }
+    if (jobProgress.embedding.status === 'running' && jobProgress.embedding.step) {
+      return `Creating embeddings for ${getStepDisplayName(jobProgress.embedding.step)}...`
+    }
+
+    // Fallback to generic messages
+    if (jobProgress.extraction.status === 'running') {
+      return 'Extracting data...'
+    }
+    if (jobProgress.transform.status === 'running') {
+      return 'Transforming data...'
+    }
+    if (jobProgress.embedding.status === 'running') {
+      return 'Creating embeddings...'
+    }
+
+    return null
+  }
+
+  // Helper function to get step status from WebSocket data
+  const getStepStatus = (stepName: string, workerType: 'extraction' | 'transform' | 'embedding') => {
+    // Use detailed step data if available
+    if (jobProgress?.steps && jobProgress.steps[stepName]) {
+      return jobProgress.steps[stepName][workerType]
+    }
+
+    // Fallback to current worker status matching
+    if (!jobProgress) return 'idle'
+
+    const worker = jobProgress[workerType]
+    if (worker.step === stepName) {
+      return worker.status
+    }
+
+    return 'idle'
+  }
+
+  // Helper function to get step progress overview
+  const getStepProgress = (stepName: string) => {
+    const extraction = getStepStatus(stepName, 'extraction')
+    const transform = getStepStatus(stepName, 'transform')
+    const embedding = getStepStatus(stepName, 'embedding')
+
+    // Determine overall step status
+    if ([extraction, transform, embedding].includes('running')) return 'running'
+    if ([extraction, transform, embedding].includes('failed')) return 'failed'
+    if ([extraction, transform, embedding].every(s => s === 'finished')) return 'finished'
+    if ([extraction, transform, embedding].some(s => s === 'finished')) return 'partial'
+
+    return 'idle'
+  }
+
+  // Helper function to get worker status display info
+  const getWorkerStatusInfo = (workerType: 'extraction' | 'transform' | 'embedding') => {
+    if (!jobProgress) {
+      return {
+        status: 'idle',
+        color: 'bg-gray-300',
+        textColor: 'text-gray-500',
+        displayText: 'Idle',
+        stepText: ''
+      }
+    }
+
+    const worker = jobProgress[workerType]
+    const stepText = worker.step ? ` (${getStepDisplayName(worker.step)})` : ''
+
+    switch (worker.status) {
+      case 'running':
+        return {
+          status: 'running',
+          color: 'bg-blue-500 animate-pulse',
+          textColor: 'text-blue-600',
+          displayText: 'Running',
+          stepText
+        }
+      case 'finished':
+        return {
+          status: 'finished',
+          color: 'bg-green-500',
+          textColor: 'text-green-600',
+          displayText: 'Finished',
+          stepText: ''
+        }
+      case 'failed':
+        return {
+          status: 'failed',
+          color: 'bg-red-500',
+          textColor: 'text-red-600',
+          displayText: 'Failed',
+          stepText: ''
+        }
+      default:
+        return {
+          status: 'idle',
+          color: 'bg-gray-300',
+          textColor: 'text-gray-500',
+          displayText: 'Idle',
+          stepText: ''
+        }
     }
   }
   const THROTTLE_MS = 500 // Only update UI every 500ms max
@@ -192,7 +291,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
   // Calculate countdown timer
   useEffect(() => {
     // Don't show countdown if job is not active or is currently running
-    if (!job.active || ['RUNNING', 'EXTRACTING', 'QUEUED', 'QUEUED_TRANSFORM', 'TRANSFORMING', 'QUEUED_EMBEDDING', 'EMBEDDING'].includes(realTimeStatus)) {
+    if (!job.active || realTimeStatus === 'RUNNING' || isJobRunning) {
       setCountdown('—')
       return
     }
@@ -280,73 +379,60 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
         return () => {} // Return empty cleanup function
       }
 
-      const cleanup = etlWebSocketService.connectToJob(job.job_name, {
-      onProgress: (data: ProgressUpdate) => {
-        // Throttle progress updates to prevent UI freezing
-        const now = Date.now()
-        if (now - lastUpdateRef.current < THROTTLE_MS) {
-          return // Skip this update
+      // Get tenant ID from job or context (assuming it's available)
+      const tenantId = 1 // TODO: Get from context or job data
+
+      console.log(`[JobCard] Connecting to WebSocket for job ${job.id}, tenant ${tenantId}`)
+
+      const cleanup = etlWebSocketService.connectToJob(tenantId, job.id, {
+        onWorkerStatus: (data: WorkerStatusUpdate) => {
+          console.log(`[JobCard] Received worker status:`, data)
+
+          // Throttle updates to prevent UI freezing
+          const now = Date.now()
+          if (now - lastUpdateRef.current < THROTTLE_MS) {
+            return
+          }
+          lastUpdateRef.current = now
+
+          // Update real-time status based on worker activity
+          if (data.status === 'running') {
+            setRealTimeStatus('RUNNING')
+            setIsJobRunning(true)
+          } else if (data.status === 'failed') {
+            setRealTimeStatus('FAILED')
+            setIsJobRunning(false)
+          }
+        },
+        onJobProgress: (data: JobProgress) => {
+          console.log(`[JobCard] Received job progress:`, data)
+
+          setJobProgress(data)
+          setIsJobRunning(data.isActive)
+          setIsWebSocketConnected(true) // Mark as connected when receiving data
+
+          // Update overall status based on job progress
+          if (data.isActive) {
+            setRealTimeStatus('RUNNING')
+          } else {
+            // Check if all workers finished successfully
+            const allFinished = data.extraction.status === 'finished' &&
+                              data.transform.status === 'finished' &&
+                              data.embedding.status === 'finished'
+            const anyFailed = data.extraction.status === 'failed' ||
+                            data.transform.status === 'failed' ||
+                            data.embedding.status === 'failed'
+
+            if (anyFailed) {
+              setRealTimeStatus('FAILED')
+            } else if (allFinished) {
+              setRealTimeStatus('FINISHED')
+            }
+          }
         }
-        lastUpdateRef.current = now
-
-        setProgressPercentage(data.percentage)
-        setCurrentStep(data.step)
-        // Update status to RUNNING when we receive progress updates (if not already running)
-        if (realTimeStatus !== 'RUNNING') {
-          setRealTimeStatus('RUNNING')
-        }
-
-        // Update queue stages based on message flags
-        updateQueueStages(data)
-      },
-      onStatus: (data: StatusUpdate) => {
-
-        setRealTimeStatus(data.status)
-
-        // Clear progress when job finishes
-        if (!['EXTRACTING', 'QUEUED', 'QUEUED_TRANSFORM', 'TRANSFORMING', 'QUEUED_EMBEDDING', 'EMBEDDING'].includes(data.status)) {
-          setProgressPercentage(null)
-          setCurrentStep(null)
-        }
-      },
-      onCompletion: (data: CompletionUpdate) => {
-
-        setRealTimeStatus(data.success ? 'FINISHED' : 'FAILED')
-        setProgressPercentage(null)
-        setCurrentStep(null)
-
-        // Complete all queue stages on job completion
-        if (data.success) {
-          setQueueStages({
-            extraction: 'done',
-            transform: 'done',
-            embedding: 'done'
-          })
-        } else {
-          // Reset queue stages on failure
-          setQueueStages({
-            extraction: 'ready',
-            transform: 'ready',
-            embedding: 'ready'
-          })
-        }
-
-        // Notify parent component to refresh jobs
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('etl-job-completed', {
-            detail: { jobId: job.id, success: data.success }
-          }))
-        }
-      }
-    })
+      })
 
       return cleanup
-    }
-
-    // Clear progress if job is not running
-    if (!['EXTRACTING', 'QUEUED', 'QUEUED_TRANSFORM', 'TRANSFORMING', 'QUEUED_EMBEDDING', 'EMBEDDING'].includes(realTimeStatus)) {
-      setProgressPercentage(null)
-      setCurrentStep(null)
     }
 
     const cleanup = connectWithRetry()
@@ -359,25 +445,19 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
         wsConnectionRef.current = null
       }
     }
-  }, [job.job_name, job.active, wsVersion]) // Include wsVersion to reconnect when service reinitializes
+  }, [job.id, job.active, wsVersion]) // Include wsVersion to reconnect when service reinitializes
 
   // Update real-time status when job status changes
   useEffect(() => {
     setRealTimeStatus(job.status)
   }, [job.status])
 
-  // Clear progress when job becomes inactive
+  // Clear state when job becomes inactive
   useEffect(() => {
     if (!job.active) {
-      setProgressPercentage(null)
-      setCurrentStep(null)
       setRealTimeStatus(job.status) // Reset to actual job status
-      // Reset queue stages when job becomes inactive
-      setQueueStages({
-        extraction: 'ready',
-        transform: 'ready',
-        embedding: 'ready'
-      })
+      setJobProgress(null) // Clear worker progress
+      setIsJobRunning(false)
     }
   }, [job.active, job.status])
 
@@ -483,7 +563,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
               onClick={() => onRunNow(job.id)}
               className="btn-crud-create px-4 py-2 rounded-lg flex items-center space-x-2"
               title="Manually trigger job"
-              disabled={['EXTRACTING', 'QUEUED', 'QUEUED_TRANSFORM', 'TRANSFORMING', 'QUEUED_EMBEDDING', 'EMBEDDING'].includes(realTimeStatus)}
+              disabled={isJobRunning || realTimeStatus === 'RUNNING'}
             >
               <Play className="w-4 h-4" />
               <span>Run Now</span>
@@ -545,84 +625,107 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
         </div>
       </div>
 
-      {/* Progress Bar (if running) */}
-      {['EXTRACTING', 'QUEUED', 'QUEUED_TRANSFORM', 'TRANSFORMING', 'QUEUED_EMBEDDING', 'EMBEDDING'].includes(realTimeStatus) && (
+      {/* Worker Status Display (show when job is running or has worker progress) */}
+      {(realTimeStatus === 'RUNNING' || isJobRunning || jobProgress) && (
         <div className="mt-4">
-          {/* Progress Bar */}
-          <div className="w-full bg-tertiary rounded-full h-2 overflow-hidden">
-            <motion.div
-              className="h-full bg-gradient-to-r from-blue-500 to-blue-600"
-              initial={{ width: '0%' }}
-              animate={{
-                width: progressPercentage !== null ? `${progressPercentage}%` : '0%'
-              }}
-              transition={{ duration: 0.5, ease: 'easeOut' }}
-            />
-          </div>
+          {/* Current Step Message */}
+          {getCurrentStep() && (
+            <div className="text-xs text-secondary mb-2">
+              {getCurrentStep()}
+            </div>
+          )}
 
-          {/* Progress Info Row */}
-          <div className="flex justify-between items-center mt-1">
-            {/* Current Step Message (left) */}
-            <div className="text-xs text-secondary flex-1">
-              {currentStep || 'Processing...'}
+          {/* Step-Based Progress Display */}
+          <div className="mt-3 space-y-1.5">
+            {/* Steps Grid - Dynamic Layout */}
+            <div className={`grid gap-2 text-xs ${getAvailableSteps().length <= 2 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+              {getAvailableSteps().map((stepName) => {
+                const stepProgress = getStepProgress(stepName)
+                const stepDisplayName = getStepDisplayName(stepName)
+
+                return (
+                  <div key={stepName} className="flex items-center justify-between p-2 bg-background/50 rounded border border-border/30">
+                    {/* Step Name */}
+                    <span className="text-secondary font-medium text-xs leading-tight truncate flex-1 mr-2" title={stepDisplayName}>
+                      {stepDisplayName}
+                    </span>
+
+                    {/* Worker Status Grid */}
+                    <div className="flex flex-col space-y-0.5">
+                      <div className="flex items-center space-x-0.5">
+                        {/* Extraction */}
+                        <div
+                          className={`w-1.5 h-1.5 rounded-sm ${
+                            getStepStatus(stepName, 'extraction') === 'running' ? 'bg-blue-500 animate-pulse' :
+                            getStepStatus(stepName, 'extraction') === 'finished' ? 'bg-green-500' :
+                            getStepStatus(stepName, 'extraction') === 'failed' ? 'bg-red-500' :
+                            'bg-gray-300'
+                          }`}
+                          title={`Extraction: ${getStepStatus(stepName, 'extraction')}`}
+                        />
+                        {/* Transform */}
+                        <div
+                          className={`w-1.5 h-1.5 rounded-sm ${
+                            getStepStatus(stepName, 'transform') === 'running' ? 'bg-blue-500 animate-pulse' :
+                            getStepStatus(stepName, 'transform') === 'finished' ? 'bg-green-500' :
+                            getStepStatus(stepName, 'transform') === 'failed' ? 'bg-red-500' :
+                            'bg-gray-300'
+                          }`}
+                          title={`Transform: ${getStepStatus(stepName, 'transform')}`}
+                        />
+                        {/* Embedding */}
+                        <div
+                          className={`w-1.5 h-1.5 rounded-sm ${
+                            getStepStatus(stepName, 'embedding') === 'running' ? 'bg-blue-500 animate-pulse' :
+                            getStepStatus(stepName, 'embedding') === 'finished' ? 'bg-green-500' :
+                            getStepStatus(stepName, 'embedding') === 'failed' ? 'bg-red-500' :
+                            'bg-gray-300'
+                          }`}
+                          title={`Embedding: ${getStepStatus(stepName, 'embedding')}`}
+                        />
+                      </div>
+
+                      {/* Overall Step Status */}
+                      <div className="flex justify-center">
+                        <div className={`text-xs font-bold ${
+                          stepProgress === 'running' ? 'text-blue-600' :
+                          stepProgress === 'finished' ? 'text-green-600' :
+                          stepProgress === 'failed' ? 'text-red-600' :
+                          stepProgress === 'partial' ? 'text-yellow-600' :
+                          'text-gray-400'
+                        }`}>
+                          {stepProgress === 'running' ? '⚡' :
+                           stepProgress === 'finished' ? '✓' :
+                           stepProgress === 'failed' ? '✗' :
+                           stepProgress === 'partial' ? '◐' :
+                           '○'}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
 
-            {/* Progress Percentage (right) */}
-            {progressPercentage !== null && (
-              <div className="text-xs text-secondary ml-2">
-                {Math.round(progressPercentage)}%
+            {/* Compact Legend */}
+            <div className="flex items-center justify-between pt-1.5 border-t border-border/30">
+              <div className="flex items-center space-x-2 text-[10px] text-secondary">
+                <div className="flex items-center space-x-0.5">
+                  <div className="w-1.5 h-1.5 bg-gray-300 rounded-sm" />
+                  <span>Idle</span>
+                </div>
+                <div className="flex items-center space-x-0.5">
+                  <div className="w-1.5 h-1.5 bg-blue-500 rounded-sm" />
+                  <span>Run</span>
+                </div>
+                <div className="flex items-center space-x-0.5">
+                  <div className="w-1.5 h-1.5 bg-green-500 rounded-sm" />
+                  <span>Done</span>
+                </div>
               </div>
-            )}
-          </div>
-
-          {/* Queue Status Display */}
-          <div className="mt-3 flex items-center justify-between text-xs">
-            {/* Extraction Stage */}
-            <div className="flex items-center space-x-2">
-              <div className={`w-2 h-2 rounded-full ${
-                queueStages.extraction === 'done' ? 'bg-green-500' :
-                queueStages.extraction === 'in-progress' ? 'bg-blue-500 animate-pulse' :
-                'bg-gray-300'
-              }`} />
-              <span className={`${
-                queueStages.extraction === 'done' ? 'text-green-600' :
-                queueStages.extraction === 'in-progress' ? 'text-blue-600' :
-                'text-gray-500'
-              }`}>
-                Extraction
-              </span>
-            </div>
-
-            {/* Transform Stage */}
-            <div className="flex items-center space-x-2">
-              <div className={`w-2 h-2 rounded-full ${
-                queueStages.transform === 'done' ? 'bg-green-500' :
-                queueStages.transform === 'in-progress' ? 'bg-blue-500 animate-pulse' :
-                'bg-gray-300'
-              }`} />
-              <span className={`${
-                queueStages.transform === 'done' ? 'text-green-600' :
-                queueStages.transform === 'in-progress' ? 'text-blue-600' :
-                'text-gray-500'
-              }`}>
-                Transform
-              </span>
-            </div>
-
-            {/* Embedding Stage */}
-            <div className="flex items-center space-x-2">
-              <div className={`w-2 h-2 rounded-full ${
-                queueStages.embedding === 'done' ? 'bg-green-500' :
-                queueStages.embedding === 'in-progress' ? 'bg-blue-500 animate-pulse' :
-                'bg-gray-300'
-              }`} />
-              <span className={`${
-                queueStages.embedding === 'done' ? 'text-green-600' :
-                queueStages.embedding === 'in-progress' ? 'text-blue-600' :
-                'text-gray-500'
-              }`}>
-                Embedding
-              </span>
+              <div className="text-[10px] text-secondary font-mono">
+                E·T·V
+              </div>
             </div>
           </div>
         </div>

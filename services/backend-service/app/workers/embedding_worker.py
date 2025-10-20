@@ -83,7 +83,94 @@ class EmbeddingWorker(BaseWorker):
         super().__init__(queue_name)
         self.tier = tier
         self.hybrid_provider = None
-        
+
+    async def _send_worker_status(self, worker_type: str, tenant_id: int, job_id: int,
+                                 status: str, step: str, error_message: str = None):
+        """Send WebSocket status update for worker progress and update database."""
+        try:
+            # Update database worker status
+            self._update_worker_status_in_db(worker_type, tenant_id, job_id, status, step, error_message)
+
+            # Send WebSocket notification
+            from app.api.websocket_routes import get_job_websocket_manager
+
+            job_websocket_manager = get_job_websocket_manager()
+            await job_websocket_manager.send_worker_status(
+                worker_type=worker_type,
+                tenant_id=tenant_id,
+                job_id=job_id,
+                status=status,
+                step=step,
+                error_message=error_message
+            )
+            logger.info(f"[WS] Sent {worker_type} status '{status}' for step '{step}' (tenant {tenant_id}, job {job_id})")
+
+        except Exception as e:
+            logger.error(f"Error sending worker status: {e}")
+
+    def _update_worker_status_in_db(self, worker_type: str, tenant_id: int, job_id: int, status: str, step: str, error_message: str = None):
+        """Update worker status in JSON status structure"""
+        try:
+            from app.core.database import get_write_session
+            from sqlalchemy import text
+
+            with get_write_session() as session:
+                # Update JSON status structure: status->steps->{step}->{worker_type} = status
+                update_query = text("""
+                    UPDATE etl_jobs
+                    SET status = jsonb_set(
+                        status,
+                        ARRAY['steps', :step, :worker_type],
+                        to_jsonb(:worker_status::text)
+                    ),
+                    last_updated_at = NOW()
+                    WHERE id = :job_id AND tenant_id = :tenant_id
+                """)
+
+                session.execute(update_query, {
+                    'step': step,
+                    'worker_type': worker_type,
+                    'worker_status': status,
+                    'job_id': job_id,
+                    'tenant_id': tenant_id
+                })
+                session.commit()
+
+                logger.info(f"Updated {worker_type} worker status to {status} for step {step} in job {job_id}")
+
+        except Exception as e:
+            logger.error(f"Failed to update worker status in database: {e}")
+
+    def _complete_etl_job_on_final_step(self, job_id: int, tenant_id: int):
+        """Complete ETL job when embedding worker finishes the final step."""
+        try:
+            from app.core.database import get_write_session
+            from sqlalchemy import text
+            from datetime import datetime, timezone
+
+            with get_write_session() as session:
+                # Update job status to FINISHED
+                update_query = text("""
+                    UPDATE etl_jobs
+                    SET status = 'FINISHED',
+                        last_run_completed_at = :completed_at,
+                        updated_at = :updated_at
+                    WHERE id = :job_id AND tenant_id = :tenant_id
+                """)
+
+                session.execute(update_query, {
+                    'job_id': job_id,
+                    'tenant_id': tenant_id,
+                    'completed_at': datetime.now(timezone.utc),
+                    'updated_at': datetime.now(timezone.utc)
+                })
+
+                session.commit()
+                logger.info(f"✅ ETL job {job_id} completed successfully by embedding worker")
+
+        except Exception as e:
+            logger.error(f"Error completing ETL job: {e}")
+
     def process_message(self, message: Dict[str, Any]) -> bool:
         """
         Process a single embedding message from the queue.
@@ -101,17 +188,49 @@ class EmbeddingWorker(BaseWorker):
             if self.hybrid_provider is None:
                 self._initialize_hybrid_provider_sync()
 
-            # Update job status to EMBEDDING
+            # Extract message data
             job_id = message.get('job_id')
             tenant_id = message.get('tenant_id')
             table_name = message.get('table_name')
             external_id = message.get('external_id')
+            first_item = message.get('first_item', False)
+            last_item = message.get('last_item', False)
+            message_type = message.get('type', table_name)
 
+            # Send WebSocket status: embedding worker starting (on first_item)
+            if job_id and first_item:
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(self._send_worker_status("embedding", tenant_id, job_id, "running", message_type))
+                finally:
+                    loop.close()
+
+            # Update job status to EMBEDDING
             if job_id:
                 self._update_job_status(job_id, "RUNNING", f"Creating embeddings for {table_name}")
 
             # Process the embedding message synchronously
-            return self._process_embedding_message_sync(message)
+            result = self._process_embedding_message_sync(message)
+
+            # Send WebSocket status: embedding worker finished (on last_item)
+            if job_id and last_item:
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    if result:
+                        loop.run_until_complete(self._send_worker_status("embedding", tenant_id, job_id, "finished", message_type))
+                        # Complete the ETL job on final last_item
+                        self._complete_etl_job_on_final_step(job_id, tenant_id)
+                    else:
+                        loop.run_until_complete(self._send_worker_status("embedding", tenant_id, job_id, "failed", message_type,
+                                                           error_message="Embedding processing failed"))
+                finally:
+                    loop.close()
+
+            return result
 
         except Exception as e:
             import traceback
@@ -154,7 +273,12 @@ class EmbeddingWorker(BaseWorker):
 
         try:
             # Run the async embedding process
-            return asyncio.run(self._process_embedding_message(message))
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                return loop.run_until_complete(self._process_embedding_message(message))
+            finally:
+                loop.close()
         except Exception as e:
             logger.error(f"❌ EMBEDDING WORKER: Error in sync wrapper: {e}")
             return False

@@ -320,10 +320,10 @@ class IndividualJobTimer:
                 # Use atomic update with WHERE clause to prevent race conditions
                 update_query = text("""
                     UPDATE etl_jobs
-                    SET status = 'RUNNING',
+                    SET status = jsonb_set(status, ARRAY['overall'], to_jsonb('RUNNING'::text)),
                         last_run_started_at = :now,
                         last_updated_at = :now
-                    WHERE id = :job_id AND tenant_id = :tenant_id AND status = 'READY'
+                    WHERE id = :job_id AND tenant_id = :tenant_id AND status->>'overall' = 'READY'
                 """)
 
                 rows_updated = session.execute(update_query, {
@@ -563,7 +563,7 @@ class IndividualJobTimer:
 
                 update_query = text("""
                     UPDATE etl_jobs
-                    SET status = 'QUEUED',
+                    SET status = jsonb_set(status, ARRAY['overall'], to_jsonb('QUEUED'::text)),
                         last_updated_at = :now,
                         error_message = NULL
                     WHERE id = :job_id AND tenant_id = :tenant_id

@@ -166,6 +166,23 @@ class JobSettingsResponse(BaseModel):
     retry_interval_minutes: int
 
 
+class StepWorkerStatus(BaseModel):
+    """Worker status for a specific step."""
+    order: int = 0
+    display_name: str = ""
+    extraction: str = "idle"
+    transform: str = "idle"
+    embedding: str = "idle"
+
+
+class JobStatusResponse(BaseModel):
+    """Response for job status (JSON structure)."""
+    job_id: int
+    overall: str  # 'READY', 'RUNNING', 'FINISHED', 'FAILED'
+    steps: Dict[str, StepWorkerStatus]
+    last_updated: datetime
+
+
 # ============================================================================
 # Helper Functions
 # ============================================================================
@@ -259,7 +276,7 @@ async def get_job_cards(
 
         query = text("""
             SELECT
-                id, job_name, status, active,
+                id, job_name, status->>'overall' as status, active,
                 schedule_interval_minutes, retry_interval_minutes,
                 integration_id, last_run_started_at, last_run_finished_at,
                 error_message, retry_count, last_updated_at
@@ -508,10 +525,10 @@ async def run_job_now(
         # Use atomic update with WHERE clause to prevent race conditions
         update_query = text("""
             UPDATE etl_jobs
-            SET status = 'RUNNING',
+            SET status = jsonb_set(status, ARRAY['overall'], to_jsonb('RUNNING'::text)),
                 last_run_started_at = :now,
                 last_updated_at = :now
-            WHERE id = :job_id AND tenant_id = :tenant_id AND status != 'RUNNING'
+            WHERE id = :job_id AND tenant_id = :tenant_id AND status->>'overall' != 'RUNNING'
         """)
 
         rows_updated = db.execute(update_query, {
@@ -751,4 +768,71 @@ async def _queue_jira_extraction_job(tenant_id: int, integration_id: int, job_id
         import traceback
         logger.error(f"Full traceback: {traceback.format_exc()}")
         return False
+
+
+@router.get("/jobs/{job_id}/worker-status", response_model=JobStatusResponse)
+async def get_job_worker_status(
+    job_id: int,
+    tenant_id: int = Query(..., description="Tenant ID"),
+    db: Session = Depends(get_db_session),
+    auth_result: dict = Depends(verify_hybrid_auth)
+):
+    """
+    Get current worker status for a job (hybrid approach fallback).
+
+    This endpoint provides database-backed worker status for cases where
+    WebSocket connections fail or when users login after a job has started.
+
+    Args:
+        job_id: Job ID to get worker status for
+        tenant_id: Tenant ID from auth
+        db: Database session
+
+    Returns:
+        JobWorkerStatusResponse: Current worker status from database
+    """
+    try:
+        from sqlalchemy import text
+
+        # Query current JSON status from database
+        query = text("""
+            SELECT status, last_updated_at
+            FROM etl_jobs
+            WHERE id = :job_id AND tenant_id = :tenant_id
+        """)
+
+        result = db.execute(query, {'job_id': job_id, 'tenant_id': tenant_id}).fetchone()
+
+        if not result:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+        (status_json, last_updated_at) = result
+
+        # Parse JSON status
+        import json
+        status_data = json.loads(status_json) if isinstance(status_json, str) else status_json
+
+        # Convert steps to StepWorkerStatus objects
+        steps = {}
+        for step_name, step_data in status_data.get('steps', {}).items():
+            steps[step_name] = StepWorkerStatus(
+                order=step_data.get('order', 0),
+                display_name=step_data.get('display_name', step_name),
+                extraction=step_data.get('extraction', 'idle'),
+                transform=step_data.get('transform', 'idle'),
+                embedding=step_data.get('embedding', 'idle')
+            )
+
+        return JobStatusResponse(
+            job_id=job_id,
+            overall=status_data.get('overall', 'READY'),
+            steps=steps,
+            last_updated=last_updated_at or datetime.now()
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get job worker status: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get job worker status: {str(e)}")
 

@@ -591,7 +591,7 @@ def apply(connection):
             CREATE TABLE IF NOT EXISTS etl_jobs (
                 id SERIAL PRIMARY KEY,
                 job_name VARCHAR NOT NULL,
-                status VARCHAR(20) NOT NULL DEFAULT 'READY',
+                status JSONB NOT NULL DEFAULT '{"overall": "READY", "steps": {}}',
                 schedule_interval_minutes INTEGER NOT NULL DEFAULT 360,
                 retry_interval_minutes INTEGER NOT NULL DEFAULT 15,
                 last_sync_date TIMESTAMP,
@@ -606,8 +606,10 @@ def apply(connection):
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
                 last_updated_at TIMESTAMP DEFAULT NOW(),
+
                 UNIQUE(job_name, tenant_id),
-                CHECK (status IN ('READY', 'RUNNING', 'FINISHED', 'FAILED'))
+                CHECK (status ? 'overall'),
+                CHECK (status->>'overall' IN ('READY', 'RUNNING', 'FINISHED', 'FAILED'))
             );
         """)
         cursor.execute("""

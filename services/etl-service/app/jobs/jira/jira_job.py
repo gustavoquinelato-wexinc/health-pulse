@@ -17,7 +17,7 @@ from app.core.config import AppConfig, get_settings
 from app.core.utils import DateTimeHelper
 from app.core.websocket_manager import get_websocket_manager
 
-from app.models.unified_models import JobSchedule, Integration, WorkItem, Tenant
+from app.models.unified_models import EtlJob, Integration, WorkItem, Tenant
 from typing import Dict, Any, Optional, List
 from enum import Enum
 import asyncio

@@ -119,13 +119,108 @@ class TransformWorker(BaseWorker):
         self.worker_number = worker_number
         logger.info(f"Initialized TransformWorker #{worker_number} for tier queue: {queue_name}")
 
+    async def _send_worker_status(self, worker_type: str, tenant_id: int, job_id: int,
+                                 status: str, step: str, error_message: str = None):
+        """Send WebSocket status update for worker progress and update database."""
+        try:
+            # Update database worker status
+            self._update_worker_status_in_db(worker_type, tenant_id, job_id, status, step, error_message)
+
+            # Send WebSocket notification
+            from app.api.websocket_routes import get_job_websocket_manager
+
+            job_websocket_manager = get_job_websocket_manager()
+            await job_websocket_manager.send_worker_status(
+                worker_type=worker_type,
+                tenant_id=tenant_id,
+                job_id=job_id,
+                status=status,
+                step=step,
+                error_message=error_message
+            )
+            logger.info(f"[WS] Sent {worker_type} status '{status}' for step '{step}' (tenant {tenant_id}, job {job_id})")
+
+        except Exception as e:
+            logger.error(f"Error sending worker status: {e}")
+
+    def _update_worker_status_in_db(self, worker_type: str, tenant_id: int, job_id: int, status: str, step: str, error_message: str = None):
+        """Update worker status in JSON status structure"""
+        try:
+            from app.core.database import get_write_session
+            from sqlalchemy import text
+
+            with get_write_session() as session:
+                # Update JSON status structure: status->steps->{step}->{worker_type} = status
+                update_query = text("""
+                    UPDATE etl_jobs
+                    SET status = jsonb_set(
+                        status,
+                        ARRAY['steps', :step, :worker_type],
+                        to_jsonb(:worker_status::text)
+                    ),
+                    last_updated_at = NOW()
+                    WHERE id = :job_id AND tenant_id = :tenant_id
+                """)
+
+                session.execute(update_query, {
+                    'step': step,
+                    'worker_type': worker_type,
+                    'worker_status': status,
+                    'job_id': job_id,
+                    'tenant_id': tenant_id
+                })
+                session.commit()
+
+                logger.info(f"Updated {worker_type} worker status to {status} for step {step} in job {job_id}")
+
+        except Exception as e:
+            logger.error(f"Failed to update worker status in database: {e}")
+
+    async def _queue_to_embedding(self, tenant_id: int, integration_id: int, job_id: int,
+                                 step_type: str, first_item: bool = False, last_item: bool = False,
+                                 external_id: str = None):
+        """Queue data to embedding worker with enhanced message structure."""
+        try:
+            queue_manager = QueueManager()
+
+            message = {
+                'tenant_id': tenant_id,
+                'integration_id': integration_id,
+                'job_id': job_id,
+                'type': step_type,
+                'external_id': external_id or f"bulk_{step_type}",
+                # Queue processing flags
+                'first_item': first_item,
+                'last_item': last_item,
+                # WebSocket routing information
+                'websocket_channels': [
+                    f"embedding_status_tenant_{tenant_id}_job_{job_id}"
+                ]
+            }
+
+            # Get tenant tier and route to tier-based embedding queue
+            tier = queue_manager._get_tenant_tier(tenant_id)
+            tier_queue = queue_manager.get_tier_queue_name(tier, 'embedding')
+
+            logger.info(f"📤 [EMBEDDING] Queuing {step_type} to {tier_queue}: first_item={first_item}, last_item={last_item}")
+
+            success = queue_manager._publish_message(tier_queue, message)
+
+            if success:
+                logger.info(f"✅ [EMBEDDING] Successfully queued {step_type} to embedding")
+            else:
+                logger.error(f"❌ [EMBEDDING] Failed to queue {step_type} to embedding")
+
+        except Exception as e:
+            logger.error(f"Error queuing to embedding: {e}")
+
     def process_message(self, message: Dict[str, Any]) -> bool:
         """
         Process a transform message based on its type.
-        
+
         Args:
             message: Message containing raw_data_id and type
-            
+
         Returns:
             bool: True if processing succeeded
         """
@@ -134,15 +229,27 @@ class TransformWorker(BaseWorker):
             raw_data_id = message.get('raw_data_id')
             tenant_id = message.get('tenant_id')
             integration_id = message.get('integration_id')
-            
+            job_id = message.get('job_id')
+            first_item = message.get('first_item', False)
+            last_item = message.get('last_item', False)
+
             if not all([message_type, raw_data_id, tenant_id, integration_id]):
                 logger.error(f"Missing required fields in message: {message}")
                 return False
-            
-            logger.info(f"Processing {message_type} message for raw_data_id={raw_data_id}")
+
+            logger.info(f"Processing {message_type} message for raw_data_id={raw_data_id} (first_item={first_item}, last_item={last_item})")
+
+            # Send WebSocket status: transform worker starting (on first_item)
+            if job_id and first_item:
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "running", message_type))
+                finally:
+                    loop.close()
 
             # Update job status to TRANSFORMING (if job_id provided)
-            job_id = message.get('job_id')
             if job_id:
                 self._update_job_status(job_id, "TRANSFORMING", f"Transforming {message_type}")
 
@@ -186,6 +293,20 @@ class TransformWorker(BaseWorker):
             else:
                 logger.warning(f"Unknown message type: {message_type}")
                 return False
+
+            # Handle completion and queue to embedding (on last_item)
+            if job_id and last_item:
+                # Send WebSocket status: transform worker finished
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "finished", message_type))
+                    # Queue to embedding with enhanced message
+                    loop.run_until_complete(self._queue_to_embedding(tenant_id, integration_id, job_id, message_type,
+                                                       first_item=True, last_item=True))
+                finally:
+                    loop.close()
 
             # Handle Jira job completion - only complete on last_item=true (from dev_status processing)
             provider_name = message.get('provider_name')
