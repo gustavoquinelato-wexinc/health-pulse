@@ -86,24 +86,36 @@ class EmbeddingWorker(BaseWorker):
 
     async def _send_worker_status(self, worker_type: str, tenant_id: int, job_id: int,
                                  status: str, step: str, error_message: str = None):
-        """Send WebSocket status update for worker progress and update database."""
+        """Send WebSocket status update by sending the current database JSON status."""
         try:
-            # Update database worker status
+            # Update database worker status first
             self._update_worker_status_in_db(worker_type, tenant_id, job_id, status, step, error_message)
 
-            # Send WebSocket notification
-            from app.api.websocket_routes import get_job_websocket_manager
+            # Get the current job status from database and send via WebSocket
+            from app.core.database import get_database
+            from sqlalchemy import text
+            import json
 
-            job_websocket_manager = get_job_websocket_manager()
-            await job_websocket_manager.send_worker_status(
-                worker_type=worker_type,
-                tenant_id=tenant_id,
-                job_id=job_id,
-                status=status,
-                step=step,
-                error_message=error_message
-            )
-            logger.info(f"[WS] Sent {worker_type} status '{status}' for step '{step}' (tenant {tenant_id}, job {job_id})")
+            database = get_database()
+            with database.get_read_session_context() as session:
+                result = session.execute(
+                    text('SELECT status FROM etl_jobs WHERE id = :job_id'),
+                    {'job_id': job_id}
+                ).fetchone()
+
+                if result:
+                    job_status = result[0]  # This is the JSON status structure
+
+                    # Send WebSocket notification with the same JSON structure the UI reads on refresh
+                    from app.api.websocket_routes import get_job_websocket_manager
+
+                    job_websocket_manager = get_job_websocket_manager()
+                    await job_websocket_manager.send_job_status_update(
+                        tenant_id=tenant_id,
+                        job_id=job_id,
+                        status_json=job_status
+                    )
+                    logger.info(f"[WS] Sent job status update for job {job_id} (tenant {tenant_id})")
 
         except Exception as e:
             logger.error(f"Error sending worker status: {e}")
@@ -111,29 +123,34 @@ class EmbeddingWorker(BaseWorker):
     def _update_worker_status_in_db(self, worker_type: str, tenant_id: int, job_id: int, status: str, step: str, error_message: str = None):
         """Update worker status in JSON status structure"""
         try:
+            # Safety check: if step is None, skip the database update
+            if step is None:
+                logger.warning(f"Skipping worker status update - step is None for {worker_type} worker (job {job_id}, tenant {tenant_id})")
+                return
+
             from app.core.database import get_write_session
             from sqlalchemy import text
 
             with get_write_session() as session:
                 # Update JSON status structure: status->steps->{step}->{worker_type} = status
-                update_query = text("""
+                # Use string formatting to avoid parameter style conflicts
+                # Escape single quotes in values to prevent SQL injection
+                safe_step = step.replace("'", "''")
+                safe_worker_type = worker_type.replace("'", "''")
+                safe_status = status.replace("'", "''")
+
+                update_query = text(f"""
                     UPDATE etl_jobs
                     SET status = jsonb_set(
                         status,
-                        ARRAY['steps', :step, :worker_type],
-                        to_jsonb(:worker_status::text)
+                        ARRAY['steps', '{safe_step}', '{safe_worker_type}'],
+                        to_jsonb('{safe_status}'::text)
                     ),
                     last_updated_at = NOW()
-                    WHERE id = :job_id AND tenant_id = :tenant_id
+                    WHERE id = {job_id} AND tenant_id = {tenant_id}
                 """)
 
-                session.execute(update_query, {
-                    'step': step,
-                    'worker_type': worker_type,
-                    'worker_status': status,
-                    'job_id': job_id,
-                    'tenant_id': tenant_id
-                })
+                session.execute(update_query)
                 session.commit()
 
                 logger.info(f"Updated {worker_type} worker status to {status} for step {step} in job {job_id}")
@@ -188,47 +205,67 @@ class EmbeddingWorker(BaseWorker):
             if self.hybrid_provider is None:
                 self._initialize_hybrid_provider_sync()
 
-            # Extract message data
-            job_id = message.get('job_id')
+            # Extract standardized message data
             tenant_id = message.get('tenant_id')
-            table_name = message.get('table_name')
-            external_id = message.get('external_id')
+            integration_id = message.get('integration_id')
+            job_id = message.get('job_id')
+            step_type = message.get('type')  # ETL step name
+            provider = message.get('provider')
             first_item = message.get('first_item', False)
             last_item = message.get('last_item', False)
-            message_type = message.get('type', table_name)
+            last_sync_date = message.get('last_sync_date')
+            last_job_item = message.get('last_job_item', False)
 
-            # Send WebSocket status: embedding worker starting (on first_item)
+            # Transform → Embedding specific fields
+            table_name = message.get('table_name')
+            external_id = message.get('external_id')
+            operation = message.get('operation', 'insert')
+
+            # Determine message type:
+            # 1. ETL step messages: have step_type but no table_name
+            # 2. Individual entity messages: have table_name and external_id
+            is_etl_step_message = step_type is not None and table_name is None
+            is_individual_entity_message = table_name is not None and external_id is not None
+
+            # Send WebSocket status: embedding worker starting (for any message with first_item=true)
             if job_id and first_item:
                 import asyncio
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 try:
-                    loop.run_until_complete(self._send_worker_status("embedding", tenant_id, job_id, "running", message_type))
+                    # _send_worker_status already updates database, no need for duplicate call
+                    loop.run_until_complete(self._send_worker_status("embedding", tenant_id, job_id, "running", step_type))
                 finally:
                     loop.close()
-
-            # Update job status to EMBEDDING
-            if job_id:
-                self._update_job_status(job_id, "RUNNING", f"Creating embeddings for {table_name}")
 
             # Process the embedding message synchronously
             result = self._process_embedding_message_sync(message)
 
-            # Send WebSocket status: embedding worker finished (on last_item)
+            # Send WebSocket status: embedding worker finished (for any message with last_item=true)
             if job_id and last_item:
                 import asyncio
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 try:
                     if result:
-                        loop.run_until_complete(self._send_worker_status("embedding", tenant_id, job_id, "finished", message_type))
-                        # Complete the ETL job on final last_item
-                        self._complete_etl_job_on_final_step(job_id, tenant_id)
+                        # _send_worker_status already updates database, no need for duplicate call
+                        loop.run_until_complete(self._send_worker_status("embedding", tenant_id, job_id, "finished", step_type))
                     else:
-                        loop.run_until_complete(self._send_worker_status("embedding", tenant_id, job_id, "failed", message_type,
+                        # _send_worker_status already updates database, no need for duplicate call
+                        loop.run_until_complete(self._send_worker_status("embedding", tenant_id, job_id, "failed", step_type,
                                                            error_message="Embedding processing failed"))
                 finally:
                     loop.close()
+
+            # Handle job completion when last_job_item=true
+            if job_id and last_job_item:
+                logger.info(f"🏁 EMBEDDING WORKER: Processing last job item - completing ETL job {job_id}")
+                if result:
+                    self._update_job_status(job_id, overall_status="FINISHED", message="ETL job completed successfully")
+                    logger.info(f"✅ EMBEDDING WORKER: ETL job {job_id} marked as FINISHED")
+                else:
+                    self._update_job_status(job_id, overall_status="FAILED", message="ETL job failed during embedding")
+                    logger.error(f"❌ EMBEDDING WORKER: ETL job {job_id} marked as FAILED")
 
             return result
 
@@ -297,11 +334,11 @@ class EmbeddingWorker(BaseWorker):
         try:
             logger.debug(f"🔍 EMBEDDING WORKER: Received message: {message}")
             tenant_id = message.get('tenant_id')
-            message_type = message.get('type')
+            step_type = message.get('type')
+            table_name = message.get('table_name')
 
             # Handle mapping tables differently - bulk process entire table
-            if message_type == 'mappings':
-                table_name = message.get('table_name')
+            if step_type == 'mappings':
                 if not all([tenant_id, table_name]):
                     logger.error(f"❌ EMBEDDING WORKER: Missing required fields for mappings message: {message}")
                     return False
@@ -309,85 +346,97 @@ class EmbeddingWorker(BaseWorker):
                 logger.info(f"🔄 EMBEDDING WORKER: Processing entire {table_name} table for tenant {tenant_id}")
                 return await self._process_mapping_table(tenant_id, table_name)
 
-            # Handle individual entity messages (existing logic)
-            entity_type = message.get('entity_type') or message.get('table_name')
-            entity_id = message.get('entity_id') or message.get('external_id')
-            operation = message.get('operation', 'insert')
+            # Handle ETL step messages (bulk processing) - use standardized 'type' field
+            if step_type and not table_name:
+                # Map ETL step types to entity types for bulk processing
+                etl_step_to_entity_mapping = {
+                    'jira_projects_and_issue_types': ['projects', 'wits'],
+                    'jira_statuses_and_relationships': ['statuses'],
+                    'jira_issues_with_changelogs': ['work_items', 'changelogs'],
+                    'jira_dev_status': ['work_items_prs_links']
+                }
 
-            logger.debug(f"🔍 EMBEDDING WORKER: Parsed - tenant_id: {tenant_id}, entity_type: {entity_type}, entity_id: {entity_id}, operation: {operation}")
+                # If this is an ETL step type, process all related entity types
+                if step_type in etl_step_to_entity_mapping:
+                    logger.info(f"🔄 EMBEDDING WORKER: Processing ETL step {step_type} for tenant {tenant_id}")
+                    success = True
+                    for target_entity_type in etl_step_to_entity_mapping[step_type]:
+                        logger.info(f"🔄 EMBEDDING WORKER: Processing {target_entity_type} entities for ETL step {step_type}")
+                        step_success = await self._process_entity_type_bulk(tenant_id, target_entity_type)
+                        if not step_success:
+                            success = False
+                            logger.error(f"❌ EMBEDDING WORKER: Failed to process {target_entity_type} for ETL step {step_type}")
 
-            if not all([tenant_id, entity_type, entity_id]):
-                logger.error(f"❌ EMBEDDING WORKER: Invalid message format: {message}")
-                return False
+                    return success
+                else:
+                    logger.warning(f"⚠️ EMBEDDING WORKER: Unknown ETL step type: {step_type}")
+                    return True  # Don't fail for unknown step types
 
-            # Initialize providers for this tenant if not already done
-            if not await self.hybrid_provider.initialize_providers(tenant_id):
-                logger.error(f"❌ EMBEDDING WORKER: Failed to initialize providers for tenant {tenant_id}")
-                return False
-
-            logger.info(f"🔄 EMBEDDING WORKER: Processing {entity_type} ID {entity_id} for tenant {tenant_id}")
-            
-            # Update job status to EMBEDDING if this is the first embedding message
-            job_id = message.get('job_id')
-            if job_id:
-                self._update_job_status(job_id, "EMBEDDING", f"Creating embeddings for {entity_type}")
-            
-            # Fetch entity from database
-            logger.debug(f"🔍 EMBEDDING WORKER: Fetching entity data for {entity_type} ID {entity_id}")
-            # Convert entity_id to int for database query
-            try:
-                entity_id_int = int(entity_id)
-            except (ValueError, TypeError):
-                logger.error(f"❌ EMBEDDING WORKER: Invalid entity_id format: {entity_id}")
-                return False
-            entity_data = await self._fetch_entity_data(tenant_id, entity_type, entity_id_int)
-            if not entity_data:
-                logger.debug(f"🔍 EMBEDDING WORKER: Entity not found: {entity_type} ID {entity_id} (likely from old queue messages)")
-                return True  # Not an error, entity might have been deleted
-            logger.debug(f"✅ EMBEDDING WORKER: Entity data fetched: {entity_data.keys() if entity_data else 'None'}")
-            
-            # Generate embedding
-            logger.debug(f"🧠 EMBEDDING WORKER: Generating embedding for {entity_type} ID {entity_id}")
-            embedding_vector = await self._generate_embedding(entity_data, entity_type)
-            if not embedding_vector:
-                logger.error(f"❌ EMBEDDING WORKER: Failed to generate embedding for {entity_type} ID {entity_id}")
-                return False
-            logger.debug(f"✅ EMBEDDING WORKER: Embedding generated, vector length: {len(embedding_vector) if embedding_vector else 0}")
-            
-            # Store in Qdrant and update bridge table
-            logger.debug(f"💾 EMBEDDING WORKER: Storing embedding for {entity_type} ID {entity_id}")
-            success = await self._store_embedding(
-                tenant_id=tenant_id,
-                entity_type=entity_type,
-                entity_id=entity_id_int,
-                embedding_vector=embedding_vector,
-                entity_data=entity_data,
-                message=message
-            )
-            logger.debug(f"📊 EMBEDDING WORKER: Storage result for {entity_type} ID {entity_id}: {success}")
-            
-            if success:
-                logger.info(f"✅ EMBEDDING WORKER: Successfully processed {entity_type} ID {entity_id}")
-
-                # ✅ Handle ETL job completion for last_item
-                if message.get('last_item'):
-                    logger.info(f"🏁 EMBEDDING WORKER: Processing last item - completing ETL job")
-
-                    etl_job_id = message.get('etl_job_id')
-                    last_sync_date = message.get('last_sync_date')
-                    provider_name = message.get('provider_name')
-
-                    if etl_job_id and last_sync_date:
-                        # Import and use the complete_etl_job function
-                        from app.workers.transform_worker import complete_etl_job
-                        complete_etl_job(etl_job_id, last_sync_date, tenant_id)
-                        logger.info(f"✅ EMBEDDING WORKER: ETL job {etl_job_id} completed successfully")
-                    else:
-                        logger.warning(f"EMBEDDING WORKER: Missing etl_job_id or last_sync_date for completion: job_id={etl_job_id}, sync_date={last_sync_date}")
-
+            # 🎯 HANDLE COMPLETION MESSAGE: external_id=None with last_job_item=True
+            elif table_name and message.get('external_id') is None and message.get('last_job_item'):
+                logger.info(f"[COMPLETION] Received job completion message for {table_name} (no entities to process)")
+                # Return True to indicate successful processing of completion message
                 return True
+
+            # Handle individual entity messages - use standardized fields
+            elif table_name and message.get('external_id'):
+                entity_id = message.get('external_id')
+                operation = message.get('operation', 'insert')
+
+                logger.debug(f"🔍 EMBEDDING WORKER: Processing individual entity - tenant_id: {tenant_id}, table_name: {table_name}, entity_id: {entity_id}, operation: {operation}")
+
+                if not all([tenant_id, table_name, entity_id]):
+                    logger.error(f"❌ EMBEDDING WORKER: Invalid individual entity message format: {message}")
+                    return False
+
+                # Initialize providers for this tenant if not already done
+                if not await self.hybrid_provider.initialize_providers(tenant_id):
+                    logger.error(f"❌ EMBEDDING WORKER: Failed to initialize providers for tenant {tenant_id}")
+                    return False
+
+                logger.info(f"🔄 EMBEDDING WORKER: Processing individual entity {table_name} ID {entity_id} for tenant {tenant_id}")
+
+                # Fetch entity from database
+                logger.debug(f"🔍 EMBEDDING WORKER: Fetching entity data for {table_name} ID {entity_id}")
+                # Convert entity_id to int for database query
+                try:
+                    entity_id_int = int(entity_id)
+                except (ValueError, TypeError):
+                    logger.error(f"❌ EMBEDDING WORKER: Invalid entity_id format: {entity_id}")
+                    return False
+                entity_data = await self._fetch_entity_data(tenant_id, table_name, entity_id_int)
+                if not entity_data:
+                    logger.debug(f"🔍 EMBEDDING WORKER: Entity not found: {table_name} ID {entity_id} (likely from old queue messages)")
+                    return True  # Not an error, entity might have been deleted
+                logger.debug(f"✅ EMBEDDING WORKER: Entity data fetched: {entity_data.keys() if entity_data else 'None'}")
+
+                # Generate embedding
+                logger.debug(f"🧠 EMBEDDING WORKER: Generating embedding for {table_name} ID {entity_id}")
+                embedding_vector = await self._generate_embedding(entity_data, table_name)
+                if not embedding_vector:
+                    logger.error(f"❌ EMBEDDING WORKER: Failed to generate embedding for {table_name} ID {entity_id}")
+                    return False
+                logger.debug(f"✅ EMBEDDING WORKER: Embedding generated, vector length: {len(embedding_vector) if embedding_vector else 0}")
+
+                # Store in Qdrant and update bridge table
+                logger.debug(f"💾 EMBEDDING WORKER: Storing embedding for {table_name} ID {entity_id}")
+                success = await self._store_embedding(
+                    tenant_id=tenant_id,
+                    entity_type=table_name,
+                    entity_id=entity_id_int,
+                    embedding_vector=embedding_vector,
+                    entity_data=entity_data,
+                    message=message
+                )
+                logger.debug(f"📊 EMBEDDING WORKER: Storage result for {table_name} ID {entity_id}: {success}")
+
+                if success:
+                    logger.info(f"✅ EMBEDDING WORKER: Successfully processed individual entity {table_name} ID {entity_id}")
+
+                return success
+
             else:
-                logger.error(f"❌ EMBEDDING WORKER: Failed to store embedding for {entity_type} ID {entity_id}")
+                logger.error(f"❌ EMBEDDING WORKER: Unknown message format: {message}")
                 return False
                 
         except Exception as e:
@@ -403,6 +452,102 @@ class EmbeddingWorker(BaseWorker):
                     logger.debug("🧹 EMBEDDING WORKER: Cleaned up AI providers after message processing")
             except Exception as cleanup_error:
                 logger.warning(f"⚠️ EMBEDDING WORKER: Error during cleanup: {cleanup_error}")
+
+    async def _process_entity_type_bulk(self, tenant_id: int, entity_type: str) -> bool:
+        """Process all entities of a specific type for bulk embedding."""
+        try:
+            logger.info(f"🔄 EMBEDDING WORKER: Starting bulk processing for {entity_type} in tenant {tenant_id}")
+
+            # Get all entities of this type for the tenant
+            database = get_database()
+            with database.get_read_session_context() as session:
+                entities = []
+
+                if entity_type == 'work_items':
+                    entities = session.query(WorkItem).filter(WorkItem.tenant_id == tenant_id).all()
+                elif entity_type == 'projects':
+                    entities = session.query(Project).filter(Project.tenant_id == tenant_id).all()
+                elif entity_type == 'wits':
+                    entities = session.query(Wit).filter(Wit.tenant_id == tenant_id).all()
+                elif entity_type == 'statuses':
+                    entities = session.query(Status).filter(Status.tenant_id == tenant_id).all()
+                elif entity_type == 'changelogs':
+                    entities = session.query(Changelog).filter(Changelog.tenant_id == tenant_id).all()
+                elif entity_type == 'work_items_prs_links':
+                    entities = session.query(WorkItemPrLink).filter(WorkItemPrLink.tenant_id == tenant_id).all()
+                else:
+                    logger.warning(f"⚠️ EMBEDDING WORKER: Unknown entity type for bulk processing: {entity_type}")
+                    return True  # Return success for unknown types to avoid blocking the pipeline
+
+                logger.info(f"📊 EMBEDDING WORKER: Found {len(entities)} {entity_type} entities to process")
+
+                # Process each entity
+                success_count = 0
+                for entity in entities:
+                    try:
+                        # Use external_id for most entities, id for link tables
+                        entity_id = getattr(entity, 'external_id', None) or getattr(entity, 'id', None)
+                        if entity_id:
+                            success = await self._process_entity(tenant_id, entity_type, str(entity_id))
+                            if success:
+                                success_count += 1
+                    except Exception as entity_error:
+                        logger.error(f"❌ EMBEDDING WORKER: Error processing {entity_type} entity {getattr(entity, 'id', 'unknown')}: {entity_error}")
+
+                logger.info(f"✅ EMBEDDING WORKER: Bulk processing complete for {entity_type}: {success_count}/{len(entities)} successful")
+                return success_count > 0 or len(entities) == 0  # Success if we processed some entities or there were none to process
+
+        except Exception as e:
+            logger.error(f"❌ EMBEDDING WORKER: Error in bulk processing for {entity_type}: {e}")
+            return False
+
+    async def _process_entity(self, tenant_id: int, entity_type: str, entity_id: str) -> bool:
+        """Process a single entity for embedding."""
+        try:
+            # Convert entity_id to int for database queries (except for external_id lookups)
+            try:
+                entity_id_int = int(entity_id)
+            except (ValueError, TypeError):
+                # For external_id lookups, keep as string
+                entity_id_int = entity_id
+
+            # Fetch entity data
+            entity_data = await self._fetch_entity_data(tenant_id, entity_type, entity_id_int)
+            if not entity_data:
+                logger.debug(f"🔍 EMBEDDING WORKER: Entity not found: {entity_type} ID {entity_id}")
+                return True  # Not an error, entity might have been deleted
+
+            # Generate embedding
+            text_content = self._extract_text_content(entity_type, entity_data)
+            if not text_content:
+                logger.debug(f"🔍 EMBEDDING WORKER: No text content for {entity_type} ID {entity_id}")
+                return True  # Not an error, just no content to embed
+
+            # Generate embedding vector
+            embedding_vector = await self.hybrid_provider.generate_embedding(tenant_id, text_content)
+            if not embedding_vector:
+                logger.error(f"❌ EMBEDDING WORKER: Failed to generate embedding for {entity_type} ID {entity_id}")
+                return False
+
+            # Store in Qdrant and update bridge table
+            success = await self._store_embedding(
+                tenant_id=tenant_id,
+                entity_type=entity_type,
+                entity_id=entity_id_int,
+                embedding_vector=embedding_vector,
+                entity_data=entity_data
+            )
+
+            if success:
+                logger.debug(f"✅ EMBEDDING WORKER: Successfully processed {entity_type} ID {entity_id}")
+            else:
+                logger.error(f"❌ EMBEDDING WORKER: Failed to store embedding for {entity_type} ID {entity_id}")
+
+            return success
+
+        except Exception as e:
+            logger.error(f"❌ EMBEDDING WORKER: Error processing {entity_type} entity {entity_id}: {e}")
+            return False
 
     async def _process_mapping_table(self, tenant_id: int, table_name: str) -> bool:
         """
@@ -1103,27 +1248,45 @@ class EmbeddingWorker(BaseWorker):
             logger.error(f"Error finding integration_id for {source_type}: {e}")
             return None
 
-    def _update_job_status(self, job_id: int, status: str, message: str = None):
-        """Update ETL job status."""
+    def _update_job_status(self, job_id: int, step_name: str = None, step_status: str = None, overall_status: str = None, message: str = None):
+        """Update ETL job step status or overall status in database JSON structure."""
         try:
             from app.core.database import get_database
             from sqlalchemy import text
 
             database = get_database()
             with database.get_write_session_context() as session:
-                update_query = text("""
-                    UPDATE etl_jobs
-                    SET status = :status, last_updated_at = NOW()
-                    WHERE id = :job_id
-                """)
+                if overall_status:
+                    # Update overall status (only for job completion)
+                    # Use string formatting for overall_status to avoid parameter binding issues
+                    update_query = text(f"""
+                        UPDATE etl_jobs
+                        SET status = jsonb_set(status, ARRAY['overall'], '"{overall_status}"'::jsonb),
+                            last_updated_at = NOW()
+                        WHERE id = :job_id
+                    """)
 
-                session.execute(update_query, {
-                    'status': status,
-                    'job_id': job_id
-                })
+                    session.execute(update_query, {
+                        'job_id': job_id
+                    })
+                    logger.info(f"Updated job {job_id} overall status to {overall_status}")
+
+                elif step_name and step_status:
+                    # Update specific step status within the JSON structure
+                    # Use string formatting for step_name and step_status to avoid parameter binding issues
+                    update_query = text(f"""
+                        UPDATE etl_jobs
+                        SET status = jsonb_set(status, ARRAY['steps', '{step_name}', 'embedding'], '"{step_status}"'::jsonb),
+                            last_updated_at = NOW()
+                        WHERE id = :job_id
+                    """)
+
+                    session.execute(update_query, {
+                        'job_id': job_id
+                    })
+                    logger.info(f"Updated job {job_id} step {step_name} embedding status to {step_status}")
+
                 session.commit()
-
-                logger.info(f"Updated job {job_id} status to {status}")
                 if message:
                     logger.info(f"Job {job_id} message: {message}")
 

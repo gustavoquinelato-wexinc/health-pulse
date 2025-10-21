@@ -88,7 +88,7 @@ NOT_STARTED ──► READY ──► RUNNING ──► FINISHED
 **Job Status Simplified (2025 Update):**
 - **NOT_STARTED**: Initial state, waiting for trigger
 - **READY**: Queued for execution, will auto-execute
-- **RUNNING**: Currently executing all ETL stages with progress tracking
+- **RUNNING**: Currently executing all ETL stages with real-time status updates
 - **FINISHED**: Successfully completed all stages
 - **FAILED**: Error occurred, requires attention
 
@@ -130,7 +130,7 @@ NOT_STARTED ──► READY ──► RUNNING ──► FINISHED
 #### Job States
 - **NOT_STARTED**: Initial state, waiting for trigger
 - **READY**: Queued for execution, will auto-execute
-- **RUNNING**: Currently executing with progress tracking (all stages: E→T→L→V)
+- **RUNNING**: Currently executing with real-time status updates (all stages: E→T→L→V)
 - **FINISHED**: Successfully completed all stages
 - **FAILED**: Error occurred, requires attention
 
@@ -183,40 +183,105 @@ class JobOrchestrator:
             )
             return
         
-        # Execute job with progress tracking
-        await self.run_job_with_progress(job)
+        # Execute job with real-time status updates
+        await self.run_job_with_status_tracking(job)
 ```
 
-### Progress Tracking System
+### Real-Time Status System
 
-#### 5-Step Progress Model
-Each ETL job shows clear progress through 5 distinct phases at 20% each:
+#### JSON-Based Status Architecture
+Each ETL job maintains a comprehensive JSON status structure that tracks all stages:
 
 ```python
-class ETLProgress:
-    STEPS = [
-        {"name": "Issue Types & Projects", "percentage": 20},
-        {"name": "Statuses & Projects", "percentage": 40},
-        {"name": "Issues Fetching", "percentage": 60},
-        {"name": "Issues & Changelogs Processing", "percentage": 80},
-        {"name": "Dev Status Processing", "percentage": 100}
-    ]
-    
-    async def update_progress(self, job_id: int, step: int, detail: str = ""):
-        progress_data = {
-            "job_id": job_id,
-            "step": step,
-            "percentage": self.STEPS[step-1]["percentage"],
-            "step_name": self.STEPS[step-1]["name"],
-            "detail": detail,
-            "timestamp": datetime.utcnow()
+# Job Status Structure (stored in etl_jobs.status JSONB column)
+{
+    "overall": "RUNNING",  # READY, RUNNING, FINISHED, FAILED
+    "steps": {
+        "jira_projects_and_issue_types": {
+            "order": 1,
+            "extraction": "finished",  # idle, running, finished
+            "transform": "finished",
+            "embedding": "running",
+            "display_name": "Projects & Types"
+        },
+        "jira_statuses_and_relationships": {
+            "order": 2,
+            "extraction": "finished",
+            "transform": "finished",
+            "embedding": "idle",
+            "display_name": "Statuses & Relations"
+        },
+        "jira_issues_with_changelogs": {
+            "order": 3,
+            "extraction": "running",
+            "transform": "idle",
+            "embedding": "idle",
+            "display_name": "Issues & Changelogs"
+        },
+        "jira_dev_status": {
+            "order": 4,
+            "extraction": "idle",
+            "transform": "idle",
+            "embedding": "idle",
+            "display_name": "Development Status"
         }
-        
-        # Update database
-        await self.update_job_progress(job_id, progress_data)
-        
-        # Send real-time update to frontend
-        await self.broadcast_progress(progress_data)
+    }
+}
+```
+
+#### WebSocket Real-Time Updates
+Workers send status updates via WebSocket **only** when processing messages with `first_item=true` or `last_item=true`:
+
+```python
+# WebSocket Update Conditions (in workers)
+if job_id and first_item:
+    # Send status update when starting a new stage
+    await self._send_worker_status(
+        worker_type="extraction",  # or "transform", "embedding"
+        tenant_id=tenant_id,
+        job_id=job_id,
+        status="running",
+        step=step_type
+    )
+
+if job_id and last_item:
+    # Send status update when completing a stage
+    await self._send_worker_status(
+        worker_type="extraction",
+        tenant_id=tenant_id,
+        job_id=job_id,
+        status="finished",
+        step=step_type
+    )
+```
+
+**Key Principles:**
+- **No individual item progression messages** - only step-level status updates
+- **Database-first approach** - workers update database, then send complete JSON via WebSocket
+- **Consistent message format** - frontend receives same JSON structure as database refresh
+
+**WebSocket Channels:**
+- `/ws/job/extraction/{tenant_id}/{job_id}` - Extraction worker updates
+- `/ws/job/transform/{tenant_id}/{job_id}` - Transform worker updates
+- `/ws/job/embedding/{tenant_id}/{job_id}` - Embedding worker updates
+
+**Message Format:**
+```json
+{
+  "type": "job_status_update",
+  "tenant_id": 1,
+  "job_id": 1,
+  "status": {
+    "overall": "RUNNING",
+    "steps": {
+      "jira_projects_and_issue_types": {
+        "extraction": "finished",
+        "transform": "running",
+        "embedding": "idle"
+      }
+    }
+  }
+}
 ```
 
 ## 🐰 RabbitMQ Queue System
@@ -311,17 +376,58 @@ DEAD_LETTER_QUEUE = {
 }
 ```
 
+#### Extraction Worker Message
+```json
+{
+  "tenant_id": 1,
+  "integration_id": 456,
+  "job_id": 123,
+  "type": "jira_dev_status_fetch",
+  "provider": "Jira",
+  "last_sync_date": "2025-10-21T14:00:00",
+  "first_item": true,
+  "last_item": false,
+  "last_job_item": false,
+  "issue_id": "2035047",
+  "issue_key": "BEX-7997"
+}
+```
+
+#### Transform Worker Message
+```json
+{
+  "tenant_id": 1,
+  "integration_id": 456,
+  "job_id": 123,
+  "type": "jira_dev_status",
+  "provider": "jira",
+  "last_sync_date": "2025-10-21T14:00:00",
+  "first_item": false,
+  "last_item": true,
+  "last_job_item": true,
+  "raw_data_id": 789
+}
+```
+
 #### Vectorization Message
 ```json
 {
   "tenant_id": 1,
   "table_name": "work_items",
   "external_id": "PROJ-123",
-  "operation": "insert"
+  "operation": "insert",
+  "job_id": 123,
+  "first_item": false,
+  "last_item": true,
+  "last_job_item": true
 }
 ```
 
-**Note:** The worker fetches the full entity from the database using the external_id, extracts embedding configuration from the integration table, and generates embeddings using the HybridProviderManager.
+**Key Message Structure:**
+- **Orchestration Flags**: `first_item`, `last_item`, `last_job_item` are always included for proper worker status updates
+- **Worker Status**: Workers set themselves to "running" on `first_item=true` and "finished" on `last_item=true`
+- **Job Completion**: Only the final message with `last_job_item=true` triggers job completion
+- **Data References**: Extraction→Transform uses `raw_data_id`, Transform→Embedding uses `external_id`
 
 ### Queue Workers
 
@@ -343,7 +449,7 @@ class ETLJobWorker:
             # Set job status to RUNNING
             await self.update_job_status(job_id, "RUNNING")
 
-            # Execute ETL job with progress tracking (all stages)
+            # Execute ETL job with real-time status updates (all stages)
             await self.execute_etl_job(message)
 
             # Set job status to FINISHED
@@ -418,25 +524,21 @@ class JiraIntegration:
         self.projects = config.get("projects", [])
     
     async def sync_data(self, job_config: dict):
-        # Step 1: Issue types and projects (20%)
-        await self.sync_issue_types()
-        await self.update_progress(1)
-        
-        # Step 2: Statuses and projects (40%)
-        await self.sync_statuses()
-        await self.update_progress(2)
-        
-        # Step 3: Issues fetching (60%)
-        await self.sync_issues(batch_size=job_config.get("batch_size", 50))
-        await self.update_progress(3)
-        
-        # Step 4: Issues & changelogs processing (80%)
-        await self.process_changelogs()
-        await self.update_progress(4)
-        
-        # Step 5: Dev status processing (100%)
-        await self.process_dev_status()
-        await self.update_progress(5)
+        # Step 1: Extract projects and issue types
+        await self.extract_projects_and_issue_types()
+
+        # Step 2: Extract statuses and relationships
+        await self.extract_statuses_and_relationships()
+
+        # Step 3: Extract issues with changelogs
+        await self.extract_issues_with_changelogs(batch_size=job_config.get("batch_size", 50))
+
+        # Step 4: Extract development status (if enabled)
+        if job_config.get("include_dev_status", True):
+            await self.extract_dev_status()
+
+        # Note: Transform and embedding stages are handled by separate workers
+        # Status updates are sent via WebSocket as each stage completes
 ```
 
 #### 2. GitHub Integration
@@ -856,7 +958,7 @@ class QueueMonitor:
 - **Zero-Code Custom Fields**: UI-driven field management without deployments
 - **Unlimited Scalability**: 20 optimized columns + unlimited JSON overflow
 - **Project-Specific Configuration**: Custom field discovery per Jira project
-- **Real-Time Monitoring**: Live job progress and status tracking
+- **Real-Time Monitoring**: Live job status and stage tracking
 
 ### ✅ **Technical Excellence**
 - **True ETL Separation**: Extract → Transform → Load → Vectorize pipeline
@@ -866,7 +968,7 @@ class QueueMonitor:
 
 ### ✅ **Operational Excellence**
 - **Unified Management**: Single interface for all ETL operations
-- **Real-Time Updates**: WebSocket-based progress tracking
+- **Real-Time Updates**: WebSocket-based status tracking
 - **Comprehensive Monitoring**: Queue health, job status, error tracking
 - **Self-Healing**: Automatic retry and recovery mechanisms
 

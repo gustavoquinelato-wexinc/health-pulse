@@ -191,12 +191,14 @@ class QueueManager:
         integration_id: int,
         raw_data_id: int,
         data_type: str,
-        etl_job_id: int = None,
-        provider_name: str = None,
+        job_id: int = None,
+        provider: str = None,
         last_sync_date: str = None,
         first_item: bool = False,
         last_issue_changelog_item: bool = False,
-        last_item: bool = False
+        last_item: bool = False,
+        last_job_item: bool = False
+
     ) -> bool:
         """
         Publish a transform job to the tier-based transform queue.
@@ -206,35 +208,32 @@ class QueueManager:
             integration_id: Integration ID
             raw_data_id: ID of raw_extraction_data record
             data_type: Type of data ('jira_custom_fields', 'jira_issues', 'github_prs', etc.)
-            etl_job_id: ETL job ID (for completion tracking)
-            provider_name: Provider name (Jira, GitHub, etc.)
+            job_id: ETL job ID (for completion tracking)
+            provider: Provider name (jira, github, etc.)
             last_sync_date: Last sync date to update on completion
             first_item: True if this is the first item in the queue
             last_issue_changelog_item: True if this is the last Jira extraction item
+            last_item: True if this is the last item in the current step
+            last_job_item: True if this item should trigger job completion
 
         Returns:
             bool: True if published successfully
         """
+        # Standardized base message structure
         message = {
             'tenant_id': tenant_id,
             'integration_id': integration_id,
+            'job_id': job_id,
+            'type': data_type,  # ETL step name
+            'provider': provider,
+            'first_item': first_item,
+            'last_item': last_item,
+            'last_sync_date': last_sync_date,
+            'last_job_item': last_job_item,
+            # Extraction → Transform specific fields
             'raw_data_id': raw_data_id,
-            'type': data_type
+            'last_issue_changelog_item': last_issue_changelog_item
         }
-
-        # Add optional ETL job tracking fields
-        if etl_job_id is not None:
-            message['etl_job_id'] = etl_job_id
-        if provider_name is not None:
-            message['provider_name'] = provider_name
-        if last_sync_date is not None:
-            message['last_sync_date'] = last_sync_date
-        if first_item:
-            message['first_item'] = True
-        if last_issue_changelog_item:
-            message['last_issue_changelog_item'] = True
-        if last_item:
-            message['last_item'] = True
 
         # Get tenant tier and route to tier-based queue
         tier = self._get_tenant_tier(tenant_id)
@@ -248,12 +247,13 @@ class QueueManager:
         integration_id: int,
         extraction_type: str,
         extraction_data: Dict[str, Any],
-        etl_job_id: int = None,
-        provider_name: str = None,
+        job_id: int = None,
+        provider: str = None,
         last_sync_date: str = None,
         first_item: bool = False,
         last_issue_changelog_item: bool = False,
-        last_item: bool = False
+        last_item: bool = False,
+        last_job_item: bool = False
     ) -> bool:
         """
         Publish an extraction job to the tier-based extraction queue.
@@ -268,7 +268,8 @@ class QueueManager:
             last_sync_date: Last sync date to update on completion
             first_item: True if this is the first item in the queue
             last_issue_changelog_item: True if this is the last Jira extraction item
-            last_item: True if this is the last item that completes the job
+            last_item: True if this is the last item in the current step
+            last_job_item: True if this item should trigger job completion
 
         Returns:
             bool: True if published successfully
@@ -281,18 +282,18 @@ class QueueManager:
         }
 
         # Add optional ETL job tracking fields
-        if etl_job_id is not None:
-            message['etl_job_id'] = etl_job_id
-        if provider_name is not None:
-            message['provider_name'] = provider_name
+        if job_id is not None:
+            message['job_id'] = job_id
+        if provider is not None:
+            message['provider'] = provider
         if last_sync_date is not None:
             message['last_sync_date'] = last_sync_date
-        if first_item:
-            message['first_item'] = True
-        if last_issue_changelog_item:
-            message['last_issue_changelog_item'] = True
-        if last_item:
-            message['last_item'] = True
+
+        # 🎯 ALWAYS include flags (not just when True) for proper worker orchestration
+        message['first_item'] = first_item
+        message['last_item'] = last_item
+        message['last_job_item'] = last_job_item
+        message['last_issue_changelog_item'] = last_issue_changelog_item
 
         # Get tenant tier and route to tier-based queue
         tier = self._get_tenant_tier(tenant_id)
@@ -306,51 +307,51 @@ class QueueManager:
         table_name: str,
         external_id: str,
         operation: str = "insert",
-        etl_job_id: int = None,
+        job_id: int = None,
         integration_id: int = None,
-        provider_name: str = None,
+        provider: str = None,
         last_sync_date: str = None,
         first_item: bool = False,
-        last_item: bool = False
+        last_item: bool = False,
+        last_job_item: bool = False,
+        step_type: str = None
     ) -> bool:
         """
-        Publish an embedding job to the tier-based embedding queue.
+        Publish an individual entity embedding job to the tier-based embedding queue.
 
         Args:
             tenant_id: Tenant ID
             table_name: Name of the table (work_items, prs, etc.)
             external_id: External ID of the entity (or internal ID for work_items_prs_links)
             operation: Operation type ('insert', 'update', 'delete')
-            etl_job_id: ETL job ID (for completion tracking)
+            job_id: ETL job ID (for completion tracking)
             integration_id: Integration ID
-            provider_name: Provider name (Jira, GitHub, etc.)
+            provider: Provider name (jira, github, etc.)
             last_sync_date: Last sync date to update on completion
             first_item: True if this is the first item in the queue
             last_item: True if this is the last item that completes the job
+            last_job_item: True if this is the final item that completes the entire job
+            step_type: ETL step type for status tracking
 
         Returns:
             bool: True if published successfully
         """
+        # Standardized base message structure
         message = {
             'tenant_id': tenant_id,
+            'integration_id': integration_id,
+            'job_id': job_id,
+            'type': step_type,  # ETL step name for status tracking
+            'provider': provider,
+            'first_item': first_item,
+            'last_item': last_item,
+            'last_sync_date': last_sync_date,
+            'last_job_item': last_job_item,
+            # Transform → Embedding specific fields
             'table_name': table_name,
             'external_id': external_id,
             'operation': operation
         }
-
-        # Add optional ETL job tracking fields
-        if etl_job_id is not None:
-            message['etl_job_id'] = etl_job_id
-        if integration_id is not None:
-            message['integration_id'] = integration_id
-        if provider_name is not None:
-            message['provider_name'] = provider_name
-        if last_sync_date is not None:
-            message['last_sync_date'] = last_sync_date
-        if first_item:
-            message['first_item'] = True
-        if last_item:
-            message['last_item'] = True
 
         # Get tenant tier and route to tier-based queue
         tier = self._get_tenant_tier(tenant_id)

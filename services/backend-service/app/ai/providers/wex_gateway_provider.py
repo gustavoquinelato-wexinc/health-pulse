@@ -24,8 +24,18 @@ class WEXGatewayProvider:
 
         # Extract settings from JSON field (new schema)
         settings = integration.settings or {}
-        self.model_config = settings
-        self.cost_config = {'cost_tier': settings.get('cost_tier', 'free')}
+
+        # Extract only OpenAI-compatible parameters for model_config
+        model_config_raw = settings.get('model_config', {})
+        self.model_config = {
+            'temperature': model_config_raw.get('temperature', 0.3),
+            'max_tokens': model_config_raw.get('max_tokens', 700),
+            'timeout': model_config_raw.get('timeout', 120),
+            'max_retries': model_config_raw.get('max_retries', 3),
+            'batch_size': model_config_raw.get('batch_size', 100)
+        }
+
+        self.cost_config = settings.get('cost_config', {'cost_tier': 'free'})
         self.model_name = settings.get('model_path', 'azure-text-embedding-3-small')
 
         # Initialize OpenAI client pointing to WEX Gateway
@@ -109,10 +119,14 @@ class WEXGatewayProvider:
         
         # Merge model config with kwargs
         generation_params = {**self.model_config, **kwargs}
-        # Remove non-OpenAI parameters
+        # Remove non-OpenAI parameters and model (we pass it explicitly)
         generation_params.pop('batch_size', None)
         generation_params.pop('timeout', None)
         generation_params.pop('max_retries', None)
+        generation_params.pop('model', None)  # 🔧 Remove model to avoid duplicate parameter
+        generation_params.pop('source', None)  # 🔧 Remove WEX-specific parameter
+        generation_params.pop('gateway_route', None)  # 🔧 Remove WEX-specific parameter
+        generation_params.pop('cost_config', None)  # 🔧 Remove cost configuration parameter
 
         for attempt in range(max_retries):
             try:

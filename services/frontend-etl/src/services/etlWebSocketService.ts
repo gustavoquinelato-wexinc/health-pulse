@@ -8,16 +8,7 @@
  * - Connection management per worker type and job
  */
 
-export interface WorkerStatusUpdate {
-  type: 'worker_status'
-  worker_type: 'extraction' | 'transform' | 'embedding'
-  status: 'running' | 'finished' | 'failed'
-  step: string
-  tenant_id: number
-  job_id: number
-  timestamp: string
-  error_message?: string
-}
+// Note: WorkerStatusUpdate interface removed as workers now send complete job status JSON
 
 export interface StepStatus {
   order: number
@@ -51,7 +42,6 @@ export interface WorkerStatus {
 }
 
 interface JobEventHandlers {
-  onWorkerStatus?: (data: WorkerStatusUpdate) => void
   onJobProgress?: (data: JobProgress) => void
 }
 
@@ -113,7 +103,6 @@ class ETLWebSocketService {
   private async fetchWorkerStatusFromAPI(tenantId: number, jobId: number): Promise<JobProgress | null> {
     try {
       if (!this.token) {
-        console.warn('[ETL-WS] No token available for API fallback')
         return null
       }
 
@@ -130,7 +119,6 @@ class ETLWebSocketService {
       })
 
       if (!response.ok) {
-        console.warn(`[ETL-WS] API fallback failed: ${response.status} ${response.statusText}`)
         return null
       }
 
@@ -197,7 +185,6 @@ class ETLWebSocketService {
         steps: stepsData
       }
 
-      console.log(`[ETL-WS] Fetched worker status from API for job ${jobId}:`, jobProgress)
       return jobProgress
 
     } catch (error) {
@@ -211,11 +198,8 @@ class ETLWebSocketService {
    */
   connectToJob(tenantId: number, jobId: number, handlers: JobEventHandlers): () => void {
     if (!this.isInitialized || !this.token) {
-      console.warn(`[ETL-WS] Service not initialized, cannot connect to job ${jobId}`)
       return () => {}
     }
-
-    console.log(`[ETL-WS] Connecting to job ${jobId} for tenant ${tenantId}`)
 
     const jobKey = `${tenantId}_${jobId}`
 
@@ -233,25 +217,24 @@ class ETLWebSocketService {
       extraction: { status: 'idle' },
       transform: { status: 'idle' },
       embedding: { status: 'idle' },
-      isActive: false
+      isActive: false,
+      steps: {}  // Initialize with empty steps object
     })
 
     // Hybrid approach: First fetch current status from database
     this.fetchWorkerStatusFromAPI(tenantId, jobId).then(apiStatus => {
       if (apiStatus) {
         this.jobProgress.set(jobKey, apiStatus)
-        handlers.onWorkerProgress?.(apiStatus)
-        console.log(`[ETL-WS] Loaded initial status from database for job ${jobId}`)
+        handlers.onJobProgress?.(apiStatus)
       }
     }).catch(error => {
-      console.warn(`[ETL-WS] Failed to load initial status from database: ${error}`)
+      // Silently handle API fallback errors
     })
 
     // Connect to all 3 worker channels for real-time updates
     const workers: Array<'extraction' | 'transform' | 'embedding'> = ['extraction', 'transform', 'embedding']
 
     workers.forEach(workerType => {
-      console.log(`[ETL-WS] Connecting to ${workerType} worker for job ${jobId}`)
       this.connectToWorkerChannel(workerType, tenantId, jobId)
     })
 
@@ -286,7 +269,6 @@ class ETLWebSocketService {
       this.connections.set(connectionKey, ws)
 
       ws.onopen = () => {
-        console.log(`[ETL-WS] Connected to ${workerType} worker for job ${jobId}`)
         this.reconnectAttempts.set(connectionKey, 0)
         this.updateConnectionStatus(tenantId, jobId, true)
       }
@@ -301,7 +283,6 @@ class ETLWebSocketService {
       }
 
       ws.onclose = (event) => {
-        console.log(`[ETL-WS] ${workerType} worker connection closed for job ${jobId}`)
         this.connections.delete(connectionKey)
         this.updateConnectionStatus(tenantId, jobId, false)
 
@@ -324,59 +305,82 @@ class ETLWebSocketService {
    * Handle incoming worker status messages
    */
   private handleWorkerMessage(message: WebSocketMessage, tenantId: number, jobId: number): void {
-    console.log(`[ETL-WS] Received message for job ${jobId}:`, message)
-
-    if (message.type !== 'worker_status') {
+    // Handle job status update message type (same JSON as database)
+    if (message.type === 'job_status_update') {
+      this.handleJobStatusUpdate(message, tenantId, jobId)
       return
     }
+
+    // Note: worker_status messages are no longer sent by backend workers
+    // All status updates now use job_status_update with complete database JSON
+  }
+
+  /**
+   * Handle job status update message (same JSON structure as database)
+   */
+  private handleJobStatusUpdate(message: any, tenantId: number, jobId: number): void {
 
     const jobKey = `${tenantId}_${jobId}`
-    const jobProgress = this.jobProgress.get(jobKey)
     const handlers = this.eventHandlers.get(jobKey)
 
-    if (!jobProgress) {
-      console.warn(`[ETL-WS] No job progress found for job ${jobId}`)
-      return
-    }
+    // The message.status contains the same JSON structure as the database
+    // Convert it to the format the UI expects
+    const dbStatus = message.status
 
-    // Update worker status
-    const workerStatus: WorkerStatus = {
-      status: message.status as 'running' | 'finished' | 'failed',
-      step: message.step,
-      timestamp: message.timestamp,
-      error_message: message.error_message
-    }
-
-    // Update the specific worker status
-    if (message.worker_type === 'extraction') {
-      jobProgress.extraction = workerStatus
-      console.log(`[ETL-WS] Updated extraction worker status:`, workerStatus)
-    } else if (message.worker_type === 'transform') {
-      jobProgress.transform = workerStatus
-      console.log(`[ETL-WS] Updated transform worker status:`, workerStatus)
-    } else if (message.worker_type === 'embedding') {
-      jobProgress.embedding = workerStatus
-      console.log(`[ETL-WS] Updated embedding worker status:`, workerStatus)
-    }
-    jobProgress.isActive = this.isJobActive(jobProgress)
-    console.log(`[ETL-WS] Job progress after update:`, jobProgress)
-
-    // Trigger event handlers
-    if (handlers?.onWorkerStatus) {
-      handlers.onWorkerStatus({
-        type: 'worker_status',
-        worker_type: message.worker_type as 'extraction' | 'transform' | 'embedding',
-        status: message.status as 'running' | 'finished' | 'failed',
-        step: message.step,
-        tenant_id: tenantId,
-        job_id: jobId,
-        timestamp: message.timestamp,
-        error_message: message.error_message
+    if (dbStatus && dbStatus.steps) {
+      // Convert steps data to StepStatus format
+      const stepsData: { [stepName: string]: StepStatus } = {}
+      Object.entries(dbStatus.steps).forEach(([stepName, stepData]: [string, any]) => {
+        stepsData[stepName] = {
+          order: stepData.order || 0,
+          display_name: stepData.display_name || stepName,
+          extraction: stepData.extraction || 'idle',
+          transform: stepData.transform || 'idle',
+          embedding: stepData.embedding || 'idle'
+        }
       })
+
+      // Create job progress from database status
+      const jobProgress: JobProgress = {
+        extraction: this.getWorkerStatusFromSteps(dbStatus.steps, 'extraction'),
+        transform: this.getWorkerStatusFromSteps(dbStatus.steps, 'transform'),
+        embedding: this.getWorkerStatusFromSteps(dbStatus.steps, 'embedding'),
+        isActive: dbStatus.overall === 'RUNNING',
+        steps: stepsData  // Include the steps data for UI step indicators
+      }
+
+      // Store the updated progress
+      this.jobProgress.set(jobKey, jobProgress)
+
+      // Notify handlers
+      if (handlers?.onJobProgress) {
+        handlers.onJobProgress(jobProgress)
+      }
+    }
+  }
+
+  /**
+   * Extract worker status from database steps structure
+   */
+  private getWorkerStatusFromSteps(steps: any, workerType: 'extraction' | 'transform' | 'embedding'): WorkerStatus {
+    // Find any step that has this worker type status
+    for (const stepName in steps) {
+      const step = steps[stepName]
+      if (step && step[workerType]) {
+        const status = step[workerType]
+        return {
+          status: status === 'running' ? 'running' : status === 'finished' ? 'finished' : 'idle',
+          step: stepName,
+          timestamp: new Date().toISOString()
+        }
+      }
     }
 
-    if (handlers?.onJobProgress) {
-      handlers.onJobProgress(jobProgress)
+    // Default to idle if no status found
+    return {
+      status: 'idle',
+      step: '',
+      timestamp: new Date().toISOString()
     }
   }
 
@@ -400,7 +404,6 @@ class ETLWebSocketService {
 
       setTimeout(() => {
         if (this.isInitialized) {
-          console.log(`[ETL-WS] Attempting to reconnect ${workerType} worker (attempt ${attempts + 1})`)
           this.connectToWorkerChannel(workerType, tenantId, jobId)
         }
       }, this.reconnectDelay * (attempts + 1))
@@ -542,25 +545,20 @@ class ETLWebSocketService {
 
       // Only fetch from API if WebSocket is disconnected
       if (!connectionStatus?.connected) {
-        console.log(`[ETL-WS] WebSocket disconnected for job ${jobId}, using API fallback`)
-
         const apiStatus = await this.fetchWorkerStatusFromAPI(tenantId, jobId)
         if (apiStatus) {
           this.jobProgress.set(jobKey, apiStatus)
 
           // Notify handlers
           const handlers = this.eventHandlers.get(jobKey)
-          if (handlers?.onWorkerProgress) {
-            handlers.onWorkerProgress(apiStatus)
+          if (handlers?.onJobProgress) {
+            handlers.onJobProgress(apiStatus)
           }
-
-          console.log(`[ETL-WS] Updated job ${jobId} status via API fallback`)
         }
       }
     }, 30000) // 30 seconds
 
     this.fallbackIntervals.set(jobKey, interval)
-    console.log(`[ETL-WS] Started fallback polling for job ${jobId}`)
   }
 
   /**
@@ -573,7 +571,6 @@ class ETLWebSocketService {
     if (interval) {
       clearInterval(interval)
       this.fallbackIntervals.delete(jobKey)
-      console.log(`[ETL-WS] Stopped fallback polling for job ${jobId}`)
     }
   }
 
@@ -589,8 +586,6 @@ class ETLWebSocketService {
       lastConnected: connected ? new Date() : currentStatus?.lastConnected,
       reconnectAttempts: connected ? 0 : (currentStatus?.reconnectAttempts || 0) + 1
     })
-
-    console.log(`[ETL-WS] Connection status for job ${jobId}: ${connected ? 'connected' : 'disconnected'}`)
   }
 
   /**
@@ -599,7 +594,6 @@ class ETLWebSocketService {
   handleJobToggle(jobName: string, active: boolean): void {
     // This method is kept for backward compatibility
     // In the new implementation, connections are managed per job ID
-    console.log(`[ETL-WS] Job toggle: ${jobName} -> ${active ? 'active' : 'inactive'}`)
   }
 }
 

@@ -11,7 +11,7 @@ import {
   Settings
 } from 'lucide-react'
 import IntegrationLogo from './IntegrationLogo'
-import { etlWebSocketService, type WorkerStatusUpdate, type JobProgress } from '../services/etlWebSocketService'
+import { etlWebSocketService, type JobProgress } from '../services/etlWebSocketService'
 import { useTheme } from '../contexts/ThemeContext'
 
 interface JobCardProps {
@@ -382,31 +382,8 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
       // Get tenant ID from job or context (assuming it's available)
       const tenantId = 1 // TODO: Get from context or job data
 
-      console.log(`[JobCard] Connecting to WebSocket for job ${job.id}, tenant ${tenantId}`)
-
       const cleanup = etlWebSocketService.connectToJob(tenantId, job.id, {
-        onWorkerStatus: (data: WorkerStatusUpdate) => {
-          console.log(`[JobCard] Received worker status:`, data)
-
-          // Throttle updates to prevent UI freezing
-          const now = Date.now()
-          if (now - lastUpdateRef.current < THROTTLE_MS) {
-            return
-          }
-          lastUpdateRef.current = now
-
-          // Update real-time status based on worker activity
-          if (data.status === 'running') {
-            setRealTimeStatus('RUNNING')
-            setIsJobRunning(true)
-          } else if (data.status === 'failed') {
-            setRealTimeStatus('FAILED')
-            setIsJobRunning(false)
-          }
-        },
         onJobProgress: (data: JobProgress) => {
-          console.log(`[JobCard] Received job progress:`, data)
-
           setJobProgress(data)
           setIsJobRunning(data.isActive)
           setIsWebSocketConnected(true) // Mark as connected when receiving data
@@ -628,17 +605,10 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
       {/* Worker Status Display (show when job is running or has worker progress) */}
       {(realTimeStatus === 'RUNNING' || isJobRunning || jobProgress) && (
         <div className="mt-4">
-          {/* Current Step Message */}
-          {getCurrentStep() && (
-            <div className="text-xs text-secondary mb-2">
-              {getCurrentStep()}
-            </div>
-          )}
-
           {/* Step-Based Progress Display */}
           <div className="mt-3 space-y-1.5">
-            {/* Steps Grid - Dynamic Layout */}
-            <div className={`grid gap-2 text-xs ${getAvailableSteps().length <= 2 ? 'grid-cols-1' : 'grid-cols-2'}`}>
+            {/* Steps Grid - 4 steps per row on desktop, 2 on mobile */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
               {getAvailableSteps().map((stepName) => {
                 const stepProgress = getStepProgress(stepName)
                 const stepDisplayName = getStepDisplayName(stepName)
@@ -650,12 +620,12 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
                       {stepDisplayName}
                     </span>
 
-                    {/* Worker Status Grid */}
-                    <div className="flex flex-col space-y-0.5">
-                      <div className="flex items-center space-x-0.5">
-                        {/* Extraction */}
+                    {/* Worker Status Grid - 3 circles with labels vertically centered */}
+                    <div className="flex items-center space-x-2">
+                      {/* Extraction */}
+                      <div className="flex flex-col items-center space-y-0.5">
                         <div
-                          className={`w-1.5 h-1.5 rounded-sm ${
+                          className={`w-3 h-3 rounded-full ${
                             getStepStatus(stepName, 'extraction') === 'running' ? 'bg-blue-500 animate-pulse' :
                             getStepStatus(stepName, 'extraction') === 'finished' ? 'bg-green-500' :
                             getStepStatus(stepName, 'extraction') === 'failed' ? 'bg-red-500' :
@@ -663,9 +633,12 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
                           }`}
                           title={`Extraction: ${getStepStatus(stepName, 'extraction')}`}
                         />
-                        {/* Transform */}
+                        <span className="text-[8px] text-secondary font-mono">E</span>
+                      </div>
+                      {/* Transform */}
+                      <div className="flex flex-col items-center space-y-0.5">
                         <div
-                          className={`w-1.5 h-1.5 rounded-sm ${
+                          className={`w-3 h-3 rounded-full ${
                             getStepStatus(stepName, 'transform') === 'running' ? 'bg-blue-500 animate-pulse' :
                             getStepStatus(stepName, 'transform') === 'finished' ? 'bg-green-500' :
                             getStepStatus(stepName, 'transform') === 'failed' ? 'bg-red-500' :
@@ -673,9 +646,12 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
                           }`}
                           title={`Transform: ${getStepStatus(stepName, 'transform')}`}
                         />
-                        {/* Embedding */}
+                        <span className="text-[8px] text-secondary font-mono">T</span>
+                      </div>
+                      {/* Embedding */}
+                      <div className="flex flex-col items-center space-y-0.5">
                         <div
-                          className={`w-1.5 h-1.5 rounded-sm ${
+                          className={`w-3 h-3 rounded-full ${
                             getStepStatus(stepName, 'embedding') === 'running' ? 'bg-blue-500 animate-pulse' :
                             getStepStatus(stepName, 'embedding') === 'finished' ? 'bg-green-500' :
                             getStepStatus(stepName, 'embedding') === 'failed' ? 'bg-red-500' :
@@ -683,23 +659,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
                           }`}
                           title={`Embedding: ${getStepStatus(stepName, 'embedding')}`}
                         />
-                      </div>
-
-                      {/* Overall Step Status */}
-                      <div className="flex justify-center">
-                        <div className={`text-xs font-bold ${
-                          stepProgress === 'running' ? 'text-blue-600' :
-                          stepProgress === 'finished' ? 'text-green-600' :
-                          stepProgress === 'failed' ? 'text-red-600' :
-                          stepProgress === 'partial' ? 'text-yellow-600' :
-                          'text-gray-400'
-                        }`}>
-                          {stepProgress === 'running' ? '⚡' :
-                           stepProgress === 'finished' ? '✓' :
-                           stepProgress === 'failed' ? '✗' :
-                           stepProgress === 'partial' ? '◐' :
-                           '○'}
-                        </div>
+                        <span className="text-[8px] text-secondary font-mono">E</span>
                       </div>
                     </div>
                   </div>
@@ -707,24 +667,25 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
               })}
             </div>
 
-            {/* Compact Legend */}
-            <div className="flex items-center justify-between pt-1.5 border-t border-border/30">
-              <div className="flex items-center space-x-2 text-[10px] text-secondary">
-                <div className="flex items-center space-x-0.5">
-                  <div className="w-1.5 h-1.5 bg-gray-300 rounded-sm" />
+            {/* Color Legend */}
+            <div className="mt-3 pt-2">
+              <div className="flex items-center space-x-3 text-[10px] text-secondary">
+                <div className="flex items-center space-x-1">
+                  <div className="w-2 h-2 bg-gray-300 rounded-full" />
                   <span>Idle</span>
                 </div>
-                <div className="flex items-center space-x-0.5">
-                  <div className="w-1.5 h-1.5 bg-blue-500 rounded-sm" />
-                  <span>Run</span>
+                <div className="flex items-center space-x-1">
+                  <div className="w-2 h-2 bg-blue-500 rounded-full" />
+                  <span>Running</span>
                 </div>
-                <div className="flex items-center space-x-0.5">
-                  <div className="w-1.5 h-1.5 bg-green-500 rounded-sm" />
+                <div className="flex items-center space-x-1">
+                  <div className="w-2 h-2 bg-green-500 rounded-full" />
                   <span>Done</span>
                 </div>
-              </div>
-              <div className="text-[10px] text-secondary font-mono">
-                E·T·V
+                <div className="flex items-center space-x-1">
+                  <div className="w-2 h-2 bg-red-500 rounded-full" />
+                  <span>Failed</span>
+                </div>
               </div>
             </div>
           </div>
@@ -738,6 +699,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
           animate={{ opacity: 1, height: 'auto' }}
           className="mt-4 pt-4 border-t border-border"
         >
+
           <div className="grid grid-cols-3 gap-4 text-sm">
             <div>
               <span className="text-secondary">Last Run:</span>

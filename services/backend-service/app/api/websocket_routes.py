@@ -12,6 +12,7 @@ from app.core.logging_config import get_logger
 from typing import Dict, List, Optional
 import json
 import asyncio
+import time
 from datetime import datetime
 
 router = APIRouter()
@@ -54,7 +55,7 @@ class JobWebSocketManager:
                 logger.warning(f"[JOB-WS] Failed to send cached status to new connection: {e}")
 
     async def _send_current_worker_status(self, websocket: WebSocket, worker_type: str, tenant_id: int, job_id: int):
-        """Send current worker status from database to new WebSocket connection"""
+        """Send current job status from database to new WebSocket connection (complete JSON format)"""
         try:
             from app.core.database import get_read_session
             from sqlalchemy import text
@@ -77,46 +78,34 @@ class JobWebSocketManager:
                     import json as json_lib
                     status_data = json_lib.loads(status_json) if isinstance(status_json, str) else status_json
 
-                    # Find any step where this worker type has a non-idle status
-                    worker_status = 'idle'
-                    current_step = ''
-
-                    for step_name, step_data in status_data.get('steps', {}).items():
-                        step_worker_status = step_data.get(worker_type, 'idle')
-                        if step_worker_status != 'idle':
-                            worker_status = step_worker_status
-                            current_step = step_name
-                            break
-
-                    # Send current status to new connection
+                    # Send complete database JSON structure (same format as job_status_update)
                     status_message = {
-                        "type": "worker_status",
-                        "worker_type": worker_type,
-                        "status": worker_status,
-                        "step": current_step,
+                        "type": "job_status_update",
                         "tenant_id": tenant_id,
                         "job_id": job_id,
-                        "timestamp": datetime.now().isoformat(),
-                        "error_message": None
+                        "status": status_data,  # Complete database JSON structure
+                        "timestamp": datetime.now().isoformat()
                     }
 
                     await websocket.send_text(json.dumps(status_message))
-                    logger.info(f"[JOB-WS] Sent current {worker_type} status '{worker_status}' to new connection")
+                    logger.info(f"[JOB-WS] Sent current job status to new {worker_type} connection")
                 else:
-                    # Send idle status if no job found
+                    # Send default status structure if no job found
+                    default_status = {
+                        "overall": "READY",
+                        "steps": {}
+                    }
+
                     status_message = {
-                        "type": "worker_status",
-                        "worker_type": worker_type,
-                        "status": "idle",
-                        "step": "",
+                        "type": "job_status_update",
                         "tenant_id": tenant_id,
                         "job_id": job_id,
-                        "timestamp": datetime.now().isoformat(),
-                        "error_message": None
+                        "status": default_status,
+                        "timestamp": datetime.now().isoformat()
                     }
 
                     await websocket.send_text(json.dumps(status_message))
-                    logger.info(f"[JOB-WS] Sent idle {worker_type} status to new connection")
+                    logger.info(f"[JOB-WS] Sent default job status to new {worker_type} connection")
 
         except Exception as e:
             logger.error(f"[JOB-WS] Failed to send current worker status: {e}")
@@ -141,7 +130,10 @@ class JobWebSocketManager:
 
     async def send_worker_status(self, worker_type: str, tenant_id: int, job_id: int,
                                 status: str, step: str, error_message: str = None):
-        """Send worker status update to all connected clients for a specific channel."""
+        """
+        DEPRECATED: Send worker status update to all connected clients for a specific channel.
+        Use send_job_status_update() instead for consistent database JSON format.
+        """
         channel = self.get_channel_name(worker_type, tenant_id, job_id)
 
         if channel not in self.connections:
@@ -175,6 +167,44 @@ class JobWebSocketManager:
         # Remove disconnected clients
         for ws in disconnected:
             await self.disconnect(ws, worker_type, tenant_id, job_id)
+
+    async def send_job_status_update(self, tenant_id: int, job_id: int, status_json: dict):
+        """Send job status update with the same JSON structure the UI reads on refresh."""
+        # Send to all worker channels for this job
+        worker_types = ['extraction', 'transform', 'embedding']
+
+        for worker_type in worker_types:
+            channel = self.get_channel_name(worker_type, tenant_id, job_id)
+
+            if channel not in self.connections:
+                continue
+
+            status_data = {
+                "type": "job_status_update",
+                "tenant_id": tenant_id,
+                "job_id": job_id,
+                "status": status_json,  # The same JSON structure from database
+                "timestamp": datetime.now().isoformat()
+            }
+
+            # Store latest status
+            self.latest_status[channel] = status_data
+
+            # Send to all connected clients for this channel
+            disconnected = []
+            for websocket in self.connections[channel]:
+                try:
+                    await websocket.send_text(json.dumps(status_data))
+                except Exception as e:
+                    logger.warning(f"[JOB-WS] Failed to send job status to client: {e}")
+                    disconnected.append(websocket)
+
+            # Remove disconnected clients
+            for ws in disconnected:
+                await self.disconnect(ws, worker_type, tenant_id, job_id)
+
+            if self.connections[channel]:  # Only log if there are connections
+                logger.info(f"[JOB-WS] Sent job status update to {len(self.connections[channel])} clients on {channel}")
 
     async def broadcast_to_channel(self, channel: str, message: dict):
         """Broadcast a message to all connections on a specific channel."""
@@ -275,7 +305,7 @@ class WebSocketManager:
             "job": job_name,
             "percentage": percentage,
             "step": message,
-            "timestamp": asyncio.get_event_loop().time()
+            "timestamp": time.time()
         }
 
         # Store latest progress
@@ -306,7 +336,7 @@ class WebSocketManager:
             "job": job_name,
             "status": status,
             "message": message,
-            "timestamp": asyncio.get_event_loop().time()
+            "timestamp": time.time()
         }
 
         # Send to all connected clients for this tenant's job
@@ -334,7 +364,7 @@ class WebSocketManager:
             "job": job_name,
             "success": success,
             "summary": summary,
-            "timestamp": asyncio.get_event_loop().time()
+            "timestamp": time.time()
         }
 
         # Send to all connected clients for this tenant's job
@@ -706,14 +736,24 @@ async def test_job_websocket_message(worker_type: str, tenant_id: int, job_id: i
     if status not in valid_statuses:
         raise HTTPException(status_code=400, detail=f"Invalid status. Valid statuses: {valid_statuses}")
 
-    # Send test status update
-    await job_websocket_manager.send_worker_status(
-        worker_type=worker_type,
+    # Send test status update using new job_status_update format
+    test_status = {
+        "overall": "RUNNING" if status == "running" else "READY",
+        "steps": {
+            step: {
+                "order": 1,
+                "display_name": step.replace("_", " ").title(),
+                "extraction": status if worker_type == "extraction" else "idle",
+                "transform": status if worker_type == "transform" else "idle",
+                "embedding": status if worker_type == "embedding" else "idle"
+            }
+        }
+    }
+
+    await job_websocket_manager.send_job_status_update(
         tenant_id=tenant_id,
         job_id=job_id,
-        status=status,
-        step=step,
-        error_message="Test error message" if status == "failed" else None
+        status_json=test_status
     )
 
     channel = job_websocket_manager.get_channel_name(worker_type, tenant_id, job_id)
