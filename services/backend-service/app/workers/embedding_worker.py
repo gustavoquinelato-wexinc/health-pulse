@@ -425,13 +425,25 @@ class EmbeddingWorker(BaseWorker):
             tenant_id = message.get('tenant_id')
             job_id = message.get('job_id')
             table_name = message.get('table_name')
+            external_id = message.get('external_id')
             last_job_item = message.get('last_job_item', False)
 
+            # 🎯 DEBUG: Log all completion-related fields
+            logger.info(f"🎯 [COMPLETION CHECK] table_name={table_name}, external_id={external_id}, last_job_item={last_job_item}")
+
             # Handle completion messages with job completion logic
-            if table_name and message.get('external_id') is None and last_job_item:
-                logger.info(f"🎯 [JOB COMPLETION] Completing ETL job {job_id} from completion message")
+            if table_name and external_id is None and last_job_item:
+                logger.info(f"🎯 [JOB COMPLETION] Completing ETL job {job_id} from completion message (table={table_name})")
                 self._complete_etl_job(job_id, tenant_id, message.get('last_sync_date'))
                 return True
+            else:
+                # 🎯 DEBUG: Log why completion wasn't triggered
+                if table_name is None:
+                    logger.debug(f"🎯 [COMPLETION CHECK] Skipping: table_name is None")
+                if external_id is not None:
+                    logger.debug(f"🎯 [COMPLETION CHECK] Skipping: external_id is not None ({external_id})")
+                if not last_job_item:
+                    logger.debug(f"🎯 [COMPLETION CHECK] Skipping: last_job_item is False")
 
             # For all other messages, delegate to the async processing method
             import asyncio
