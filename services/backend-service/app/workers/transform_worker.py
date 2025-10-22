@@ -1737,44 +1737,71 @@ class TransformWorker(BaseWorker):
                 provider = message.get('provider') if message else 'jira'
                 last_sync_date = message.get('last_sync_date') if message else None
 
-                # Collect all entities to determine first_item/last_item flags
-                all_entities = []
-                if statuses_result['statuses_to_insert']:
-                    all_entities.extend([('statuses', entity) for entity in statuses_result['statuses_to_insert']])
-                if statuses_result['statuses_to_update']:
-                    all_entities.extend([('statuses', entity) for entity in statuses_result['statuses_to_update']])
-
-                # Queue entities with proper first_item/last_item flags
-                for i, (table_name, entity) in enumerate(all_entities):
-                    is_first = (i == 0)
-                    is_last = (i == len(all_entities) - 1)
-
-                    # 🎯 CORRECT: Simply forward the last_job_item flag from extraction worker
-                    # Extraction worker correctly sets last_job_item=False for statuses (not final step)
-                    last_job_item = message.get('last_job_item', False) if message else False
-
-                    self._queue_entities_for_embedding(tenant_id, table_name, [entity], job_id,
-                                                     message_type='jira_statuses_and_relationships',
-                                                     integration_id=integration_id,
-                                                     provider=provider,
-                                                     last_sync_date=last_sync_date,
-                                                     first_item=is_first,
-                                                     last_item=is_last,
-                                                     last_job_item=last_job_item)
-
-                # ✅ Send transform worker "finished" status when last_item=True
-                if message and message.get('last_item') and job_id:
-                    import asyncio
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    try:
-                        loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "finished", "jira_statuses_and_relationships"))
-                        logger.info(f"✅ Transform worker marked as finished for jira_statuses_and_relationships")
-                    finally:
-                        loop.close()
+                # 🎯 NEW LOGIC: Only queue to embedding when last_item=True
+                # This ensures we process all projects first, then query all distinct statuses once
+                # This avoids duplicate embeddings for the same status across different projects
 
                 statuses_processed = statuses_result['count']
                 logger.info(f"Successfully processed {statuses_processed} statuses and {relationships_processed} project relationships")
+
+                if message and message.get('last_item'):
+                    logger.info(f"🎯 [STATUSES] Last item received - queuing all distinct statuses to embedding")
+
+                    # Query all distinct status external_ids from statuses table for this tenant/integration
+                    statuses_query = text("""
+                        SELECT DISTINCT external_id
+                        FROM statuses
+                        WHERE tenant_id = :tenant_id AND integration_id = :integration_id
+                        ORDER BY external_id
+                    """)
+
+                    with self.get_db_session() as db_read:
+                        status_rows = db_read.execute(statuses_query, {
+                            'tenant_id': tenant_id,
+                            'integration_id': integration_id
+                        }).fetchall()
+
+                    status_external_ids = [row[0] for row in status_rows]
+                    logger.info(f"🎯 [STATUSES] Found {len(status_external_ids)} distinct statuses to queue for embedding")
+
+                    # Get message info for forwarding
+                    provider = message.get('provider') if message else 'jira'
+                    last_sync_date = message.get('last_sync_date') if message else None
+                    last_job_item = message.get('last_job_item', False)
+
+                    # Queue each distinct status with proper first_item/last_item flags
+                    for i, external_id in enumerate(status_external_ids):
+                        is_first = (i == 0)
+                        is_last = (i == len(status_external_ids) - 1)
+
+                        self._queue_entities_for_embedding(
+                            tenant_id, 'statuses',
+                            [{'external_id': external_id}],
+                            job_id,
+                            message_type='jira_statuses_and_relationships',
+                            integration_id=integration_id,
+                            provider=provider,
+                            last_sync_date=last_sync_date,
+                            first_item=is_first,
+                            last_item=is_last,
+                            last_job_item=last_job_item
+                        )
+
+                    logger.info(f"🎯 [STATUSES] Queued {len(status_external_ids)} distinct statuses for embedding")
+
+                    # ✅ Send transform worker "finished" status when last_item=True
+                    if job_id:
+                        import asyncio
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "finished", "jira_statuses_and_relationships"))
+                            logger.info(f"✅ Transform worker marked as finished for jira_statuses_and_relationships")
+                        finally:
+                            loop.close()
+                else:
+                    logger.info(f"🎯 [STATUSES] Not last item (first_item={message.get('first_item') if message else False}, last_item={message.get('last_item') if message else False}) - skipping embedding queue")
+
                 return True
 
         except Exception as e:
