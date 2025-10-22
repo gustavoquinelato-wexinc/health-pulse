@@ -838,24 +838,28 @@ class EmbeddingWorker(BaseWorker):
 
                 elif entity_type == 'statuses':
                     logger.info(f"🔍 EMBEDDING WORKER: Querying statuses table for external_id='{entity_id}' tenant_id={tenant_id}")
-                    entity = session.query(Status).filter(
-                        Status.external_id == str(entity_id),
-                        Status.tenant_id == tenant_id
-                    ).first()
+                    try:
+                        entity = session.query(Status).filter(
+                            Status.external_id == str(entity_id),
+                            Status.tenant_id == tenant_id
+                        ).first()
+                        logger.info(f"🔍 EMBEDDING WORKER: Query result for status: entity={entity is not None}")
 
-                    if entity:
-                        logger.info(f"✅ EMBEDDING WORKER: Found status entity: id={entity.id}, external_id={entity.external_id}, name={entity.original_name}")
-                        return {
-                            'id': entity.id,  # Internal ID for qdrant_vectors table
-                            'external_id': entity.external_id,
-                            'original_name': entity.original_name,
-                            'category': entity.category,
-                            'description': entity.description,
-                            'entity_type': entity_type,
-                            'tenant_id': tenant_id
-                        }
-                    else:
-                        logger.warning(f"⚠️ EMBEDDING WORKER: No status found with external_id='{entity_id}' tenant_id={tenant_id}")
+                        if entity:
+                            logger.info(f"✅ EMBEDDING WORKER: Found status entity: id={entity.id}, external_id={entity.external_id}, name={entity.original_name}")
+                            return {
+                                'id': entity.id,  # Internal ID for qdrant_vectors table
+                                'external_id': entity.external_id,
+                                'original_name': entity.original_name,
+                                'category': entity.category,
+                                'description': entity.description,
+                                'entity_type': entity_type,
+                                'tenant_id': tenant_id
+                            }
+                        else:
+                            logger.warning(f"⚠️ EMBEDDING WORKER: No status found with external_id='{entity_id}' tenant_id={tenant_id}")
+                    except Exception as e:
+                        logger.error(f"❌ EMBEDDING WORKER: Error querying status: {e}", exc_info=True)
 
                 elif entity_type == 'changelogs':
                     entity = session.query(Changelog).filter(
