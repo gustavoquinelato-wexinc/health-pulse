@@ -25,13 +25,13 @@ class Settings(BaseSettings):
     LOG_LEVEL: str = "INFO"
 
     # Timezone Configuration
-    DEFAULT_TIMEZONE: str = "UTC"
+    DEFAULT_TIMEZONE: str = "America/New_York"
 
     # API Settings
     API_V1_STR: str = "/api/v1"
     HOST: str = "0.0.0.0"
     PORT: int = 3001
-    
+
     # PostgreSQL Configuration
     POSTGRES_HOST: str = "localhost"
     POSTGRES_PORT: int = 5432
@@ -69,7 +69,7 @@ class Settings(BaseSettings):
     # are now stored in the database (integrations table) for security
 
     # Job Scheduling Configuration
-    SCHEDULER_TIMEZONE: str = "UTC"
+    SCHEDULER_TIMEZONE: str = "America/New_York"
 
     # Security Configuration
     SECRET_KEY: str = "QBYpLWwoEjV_m4ywClhaXmz2dtvjD56nDl2mf1tbuEg"
