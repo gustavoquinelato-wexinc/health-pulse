@@ -374,7 +374,23 @@ class EmbeddingWorker(BaseWorker):
             # 🎯 HANDLE COMPLETION MESSAGE: external_id=None with last_job_item=True
             elif table_name and message.get('external_id') is None and message.get('last_job_item'):
                 logger.info(f"[COMPLETION] Received job completion message for {table_name} (no entities to process)")
-                # Return True to indicate successful processing of completion message
+
+                # Send WebSocket status: embedding worker finished (on last_item)
+                if message.get('last_item') and job_id:
+                    import asyncio
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        loop.run_until_complete(self._send_worker_status("embedding", tenant_id, job_id, "finished", step_type))
+                        logger.info(f"✅ Embedding worker marked as finished for {step_type} (completion message)")
+                    finally:
+                        loop.close()
+
+                # 🎯 COMPLETE THE JOB: If this is the final completion message, update job status
+                if job_id:
+                    logger.info(f"🎯 [JOB COMPLETION] Completing ETL job {job_id} from {step_type} completion message")
+                    self._complete_etl_job(job_id, tenant_id, message.get('last_sync_date'))
+
                 return True
 
             # Handle completion messages - external_id=None signals completion

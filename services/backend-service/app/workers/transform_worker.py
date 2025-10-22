@@ -1695,8 +1695,11 @@ class TransformWorker(BaseWorker):
                     is_first = (i == 0)
                     is_last = (i == len(all_entities) - 1)
 
-                    # Get last_job_item flag from incoming message
-                    last_job_item = message.get('last_job_item', False) if message else False
+                    # 🎯 CRITICAL FIX: Only set last_job_item=True on the very last entity
+                    # when this is the last project (incoming message has last_item=True)
+                    incoming_last_item = message.get('last_item', False) if message else False
+                    incoming_last_job_item = message.get('last_job_item', False) if message else False
+                    last_job_item = incoming_last_job_item and incoming_last_item and is_last
 
                     self._queue_entities_for_embedding(tenant_id, table_name, [entity], job_id,
                                                      message_type='jira_statuses_and_relationships',

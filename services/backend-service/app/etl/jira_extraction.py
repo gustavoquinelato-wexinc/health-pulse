@@ -1187,17 +1187,36 @@ async def _extract_issues_with_changelogs(
             project_list = ", ".join(projects)
             jql_parts.append(f"project in ({project_list})")
 
-    # Add date filter for incremental extraction
+    # Add date filter for incremental extraction with bounded range
     if incremental and last_sync_date:
-        # Use last_sync_date for incremental extraction
-        jira_date = last_sync_date.strftime('%Y-%m-%d %H:%M')
-        jql_parts.append(f"updated >= '{jira_date}'")
+        # Use bounded date range: last_sync_date <= updated <= now()
+        # This prevents future dates from breaking the query
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+
+        # Format dates for JQL (without seconds)
+        start_date = last_sync_date.strftime('%Y-%m-%d %H:%M')
+        end_date = now.strftime('%Y-%m-%d %H:%M')
+
+        jql_parts.append(f"updated >= '{start_date}' AND updated <= '{end_date}'")
+        logger.info(f"[DEBUG] Using bounded date range: {start_date} to {end_date}")
+
+        # Set the current time as the new last_sync_date for forwarding
+        last_sync_date = now
     elif incremental:
         # Fallback to 30 days if no last_sync_date
         from datetime import timedelta
-        thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
-        jira_date = thirty_days_ago.strftime('%Y-%m-%d %H:%M')
-        jql_parts.append(f"updated >= '{jira_date}'")
+        now = datetime.now(timezone.utc)
+        thirty_days_ago = now - timedelta(days=30)
+
+        start_date = thirty_days_ago.strftime('%Y-%m-%d %H:%M')
+        end_date = now.strftime('%Y-%m-%d %H:%M')
+
+        jql_parts.append(f"updated >= '{start_date}' AND updated <= '{end_date}'")
+        logger.info(f"[DEBUG] Using 30-day fallback range: {start_date} to {end_date}")
+
+        # Set the current time as the last_sync_date for forwarding
+        last_sync_date = now
 
     # Combine JQL parts
     if jql_parts:
