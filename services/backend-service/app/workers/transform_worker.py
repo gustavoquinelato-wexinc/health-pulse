@@ -1744,6 +1744,9 @@ class TransformWorker(BaseWorker):
                 statuses_processed = statuses_result['count']
                 logger.info(f"Successfully processed {statuses_processed} statuses and {relationships_processed} project relationships")
 
+                # 🎯 DEBUG: Log message details
+                logger.info(f"🎯 [STATUSES] Message check: message={message is not None}, last_item={message.get('last_item') if message else 'N/A'}")
+
                 if message and message.get('last_item'):
                     logger.info(f"🎯 [STATUSES] Last item received - queuing all distinct statuses to embedding")
 
