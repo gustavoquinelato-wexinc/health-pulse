@@ -47,6 +47,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
   const [realTimeStatus, setRealTimeStatus] = useState<string>(job.status)
   const [wsVersion, setWsVersion] = useState<number>(etlWebSocketService.getInitializationVersion())
   const [isJobRunning, setIsJobRunning] = useState<boolean>(false)
+  const [finishedTransitionTimer, setFinishedTransitionTimer] = useState<NodeJS.Timeout | null>(null)
   // Throttle state updates to prevent UI freezing from rapid WebSocket messages
   // Track WebSocket connection to prevent React StrictMode double connections
   const wsConnectionRef = useRef<(() => void) | null>(null)
@@ -298,6 +299,11 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
           // Update overall status based on job progress
           if (data.isActive) {
             setRealTimeStatus('RUNNING')
+            // Clear any existing finished transition timer
+            if (finishedTransitionTimer) {
+              clearTimeout(finishedTransitionTimer)
+              setFinishedTransitionTimer(null)
+            }
           } else {
             // Check if all workers finished successfully
             const allFinished = data.extraction.status === 'finished' &&
@@ -309,8 +315,26 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
 
             if (anyFailed) {
               setRealTimeStatus('FAILED')
+              // Clear any existing finished transition timer
+              if (finishedTransitionTimer) {
+                clearTimeout(finishedTransitionTimer)
+                setFinishedTransitionTimer(null)
+              }
             } else if (allFinished) {
               setRealTimeStatus('FINISHED')
+
+              // Clear any existing timer first
+              if (finishedTransitionTimer) {
+                clearTimeout(finishedTransitionTimer)
+              }
+
+              // Set timer to transition to READY after 3 seconds
+              const timer = setTimeout(() => {
+                setRealTimeStatus('READY')
+                setFinishedTransitionTimer(null)
+              }, 3000)
+
+              setFinishedTransitionTimer(timer)
             }
           }
         }
@@ -328,6 +352,11 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
         wsConnectionRef.current()
         wsConnectionRef.current = null
       }
+      // Clear any pending finished transition timer
+      if (finishedTransitionTimer) {
+        clearTimeout(finishedTransitionTimer)
+        setFinishedTransitionTimer(null)
+      }
     }
   }, [job.id, job.active, wsVersion]) // Include wsVersion to reconnect when service reinitializes
 
@@ -342,8 +371,13 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
       setRealTimeStatus(job.status) // Reset to actual job status
       setJobProgress(null) // Clear worker progress
       setIsJobRunning(false)
+      // Clear any pending finished transition timer
+      if (finishedTransitionTimer) {
+        clearTimeout(finishedTransitionTimer)
+        setFinishedTransitionTimer(null)
+      }
     }
-  }, [job.active, job.status])
+  }, [job.active, job.status, finishedTransitionTimer])
 
   return (
     <motion.div

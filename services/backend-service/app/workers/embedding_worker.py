@@ -260,8 +260,8 @@ class EmbeddingWorker(BaseWorker):
             if job_id and last_job_item:
                 logger.info(f"🏁 EMBEDDING WORKER: Processing last job item - completing ETL job {job_id}")
                 if result:
-                    self._update_job_status(job_id, overall_status="FINISHED", message="ETL job completed successfully")
-                    logger.info(f"✅ EMBEDDING WORKER: ETL job {job_id} marked as FINISHED")
+                    self._complete_etl_job(job_id, tenant_id, last_sync_date)
+                    logger.info(f"✅ EMBEDDING WORKER: ETL job {job_id} marked as FINISHED with date updates")
                 else:
                     self._update_job_status(job_id, overall_status="FAILED", message="ETL job failed during embedding")
                     logger.error(f"❌ EMBEDDING WORKER: ETL job {job_id} marked as FAILED")
@@ -1335,7 +1335,7 @@ class EmbeddingWorker(BaseWorker):
                 update_query = text("""
                     UPDATE etl_jobs
                     SET status = jsonb_set(status, ARRAY['overall'], '"FINISHED"'::jsonb),
-                        last_run_completed_at = NOW(),
+                        last_run_finished_at = NOW(),
                         last_updated_at = NOW()
                         """ + (", last_sync_date = :last_sync_date" if last_sync_date else "") + """
                     WHERE id = :job_id AND tenant_id = :tenant_id
