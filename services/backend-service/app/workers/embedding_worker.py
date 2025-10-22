@@ -219,7 +219,6 @@ class EmbeddingWorker(BaseWorker):
             # Transform → Embedding specific fields
             table_name = message.get('table_name')
             external_id = message.get('external_id')
-            operation = message.get('operation', 'insert')
 
             # Determine message type:
             # 1. ETL step messages: have step_type but no table_name
@@ -378,12 +377,33 @@ class EmbeddingWorker(BaseWorker):
                 # Return True to indicate successful processing of completion message
                 return True
 
+            # Handle completion messages - external_id=None signals completion
+            elif table_name and message.get('external_id') is None:
+                logger.info(f"🎯 [COMPLETION] Received completion message for {table_name} (no data to process)")
+
+                # Send WebSocket status: embedding worker finished (on last_item)
+                if message.get('last_item') and job_id:
+                    import asyncio
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        loop.run_until_complete(self._send_worker_status("embedding", tenant_id, job_id, "finished", step_type))
+                        logger.info(f"✅ Embedding worker marked as finished for {step_type} (completion message)")
+                    finally:
+                        loop.close()
+
+                # 🎯 COMPLETE THE JOB: If this is the final completion message, update job status
+                if message.get('last_job_item') and job_id:
+                    logger.info(f"🎯 [JOB COMPLETION] Completing ETL job {job_id}")
+                    self._complete_etl_job(job_id, tenant_id, message.get('last_sync_date'))
+
+                return True
+
             # Handle individual entity messages - use standardized fields
             elif table_name and message.get('external_id'):
                 entity_id = message.get('external_id')
-                operation = message.get('operation', 'insert')
 
-                logger.debug(f"🔍 EMBEDDING WORKER: Processing individual entity - tenant_id: {tenant_id}, table_name: {table_name}, entity_id: {entity_id}, operation: {operation}")
+                logger.debug(f"🔍 EMBEDDING WORKER: Processing individual entity - tenant_id: {tenant_id}, table_name: {table_name}, entity_id: {entity_id}")
 
                 if not all([tenant_id, table_name, entity_id]):
                     logger.error(f"❌ EMBEDDING WORKER: Invalid individual entity message format: {message}")
@@ -397,7 +417,7 @@ class EmbeddingWorker(BaseWorker):
                 logger.info(f"🔄 EMBEDDING WORKER: Processing individual entity {table_name} ID {entity_id} for tenant {tenant_id}")
 
                 # Fetch entity from database
-                logger.debug(f"🔍 EMBEDDING WORKER: Fetching entity data for {table_name} ID {entity_id}")
+                logger.info(f"🔍 EMBEDDING WORKER: Fetching entity data for {table_name} ID {entity_id}")
                 # Convert entity_id to int for database query
                 try:
                     entity_id_int = int(entity_id)
@@ -406,7 +426,7 @@ class EmbeddingWorker(BaseWorker):
                     return False
                 entity_data = await self._fetch_entity_data(tenant_id, table_name, entity_id_int)
                 if not entity_data:
-                    logger.debug(f"🔍 EMBEDDING WORKER: Entity not found: {table_name} ID {entity_id} (likely from old queue messages)")
+                    logger.warning(f"⚠️ EMBEDDING WORKER: Entity not found: {table_name} external_id={entity_id} tenant_id={tenant_id}")
                     return True  # Not an error, entity might have been deleted
                 logger.debug(f"✅ EMBEDDING WORKER: Entity data fetched: {entity_data.keys() if entity_data else 'None'}")
 
@@ -772,12 +792,14 @@ class EmbeddingWorker(BaseWorker):
                         }
 
                 elif entity_type == 'wits':
+                    logger.info(f"🔍 EMBEDDING WORKER: Querying wits table for external_id='{entity_id}' tenant_id={tenant_id}")
                     entity = session.query(Wit).filter(
                         Wit.external_id == str(entity_id),
                         Wit.tenant_id == tenant_id
                     ).first()
 
                     if entity:
+                        logger.info(f"✅ EMBEDDING WORKER: Found wit entity: id={entity.id}, external_id={entity.external_id}, name={entity.original_name}")
                         return {
                             'id': entity.id,  # Internal ID for qdrant_vectors table
                             'external_id': entity.external_id,
@@ -786,6 +808,8 @@ class EmbeddingWorker(BaseWorker):
                             'entity_type': entity_type,
                             'tenant_id': tenant_id
                         }
+                    else:
+                        logger.warning(f"⚠️ EMBEDDING WORKER: No wit found with external_id='{entity_id}' tenant_id={tenant_id}")
 
                 elif entity_type == 'statuses':
                     entity = session.query(Status).filter(
@@ -1292,5 +1316,50 @@ class EmbeddingWorker(BaseWorker):
 
         except Exception as e:
             logger.error(f"Error updating job status: {e}")
+
+    def _complete_etl_job(self, job_id: int, tenant_id: int, last_sync_date: str = None):
+        """
+        Complete the ETL job by updating its status to FINISHED and setting completion fields.
+
+        Args:
+            job_id: ETL job ID
+            tenant_id: Tenant ID
+            last_sync_date: Last sync date to update
+        """
+        try:
+            from app.core.database import get_write_session
+            from sqlalchemy import text
+
+            with get_write_session() as session:
+                # Update job status to FINISHED and set completion fields
+                update_query = text("""
+                    UPDATE etl_jobs
+                    SET status = jsonb_set(status, ARRAY['overall'], '"FINISHED"'::jsonb),
+                        last_run_completed_at = NOW(),
+                        last_updated_at = NOW()
+                        """ + (", last_sync_date = :last_sync_date" if last_sync_date else "") + """
+                    WHERE id = :job_id AND tenant_id = :tenant_id
+                """)
+
+                params = {'job_id': job_id, 'tenant_id': tenant_id}
+                if last_sync_date:
+                    params['last_sync_date'] = last_sync_date
+
+                session.execute(update_query, params)
+                session.commit()
+
+                logger.info(f"🎯 [JOB COMPLETION] ETL job {job_id} marked as FINISHED")
+
+                # Send final WebSocket notification
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(self._send_job_status_websocket(tenant_id, job_id))
+                finally:
+                    loop.close()
+
+        except Exception as e:
+            logger.error(f"❌ Error completing ETL job {job_id}: {e}")
 
 

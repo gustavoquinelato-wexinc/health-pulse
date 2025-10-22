@@ -1030,111 +1030,23 @@ async def _extract_dev_status_for_complete_job(
 
         return {'success': True, 'pr_links_count': 0}
 
-    # Fetch dev status for each issue - BATCH PROCESSING
-    # Store and queue every 50 issues to avoid memory buildup
-    logger.info(f"Step 4: Starting dev status extraction for {len(issue_keys):,} issues with code changes")
+    # Individual dev_status extraction - queue each issue separately for proper flag handling
+    logger.info(f"Step 4: Starting individual dev_status extraction for {len(issue_keys):,} issues with code changes")
 
-
-    from app.etl.queue.queue_manager import QueueManager
-    queue_manager = QueueManager()
-
-    batch_size = 50
-    current_batch = []
-    batches_stored = 0
-    total_pr_links = 0
-    total_processed = 0
-    total_batches_expected = ((len(issue_keys) + batch_size - 1) // batch_size)
-
-    for i, issue_key in enumerate(issue_keys):
-        try:
-            dev_details = jira_client.get_issue_dev_details(issue_key)
-            if dev_details:
-                current_batch.append({
-                    'issue_key': issue_key,
-                    'dev_details': dev_details
-                })
-
-                # Count PR links in this item
-                pr_count = len(dev_details.get('detail', [{}])[0].get('pullRequests', []))
-                total_pr_links += pr_count
-
-        except Exception as e:
-            logger.warning(f"Step 4: ⚠️ Failed to fetch dev status for {issue_key}: {e}")
-
-        total_processed += 1
-
-        # Log progress every 50 issues
-        if total_processed % 50 == 0:
-            logger.info(f"Step 4: 📊 Processed {total_processed:,}/{len(issue_keys):,} issues ({total_processed/len(issue_keys)*100:.1f}%)")
-
-        # Store and queue batch when it reaches batch_size or at the end
-        if len(current_batch) >= batch_size or (i + 1) == len(issue_keys):
-            if current_batch:
-                # Store this batch - use WRITE session, close immediately
-                from sqlalchemy import text
-                from datetime import datetime, timezone
-                from app.core.database import get_database
-
-                database = get_database()
-                with database.get_write_session_context() as db:
-                    insert_query = text("""
-                        INSERT INTO raw_extraction_data (tenant_id, integration_id, type, raw_data, status, created_at, last_updated_at)
-                        VALUES (:tenant_id, :integration_id, :type, :raw_data, :status, :created_at, :last_updated_at)
-                        RETURNING id
-                    """)
-
-                    result = db.execute(insert_query, {
-                        'tenant_id': tenant_id,
-                        'integration_id': integration_id,
-                        'type': 'jira_dev_status',
-                        'raw_data': json.dumps({
-                            'dev_status': current_batch,
-                            'batch_info': {
-                                'batch_number': batches_stored + 1,
-                                'batch_size': len(current_batch),
-                                'total_issues': len(issue_keys)
-                            }
-                        }),
-                        'status': 'pending',
-                        'created_at': datetime.now(timezone.utc),
-                        'last_updated_at': datetime.now(timezone.utc)
-                    })
-
-                    raw_data_id = result.fetchone()[0]
-                    # Commit happens automatically in context manager
-
-                batches_stored += 1
-                logger.info(f"Step 4: ✅ Stored dev status batch #{batches_stored}/{total_batches_expected} with raw_data_id={raw_data_id} ({len(current_batch)} issues)")
-
-                # Publish this batch to transform queue
-                success = queue_manager.publish_transform_job(
-                    tenant_id=tenant_id,
-                    integration_id=integration_id,
-                    raw_data_id=raw_data_id,
-                    data_type='jira_dev_status',
-                    provider='jira'
-                )
-
-                if not success:
-                    logger.error(f"Step 4: ❌ Failed to publish dev status batch #{batches_stored} to transform queue")
-                else:
-                    logger.info(f"Step 4: ✅ Published dev status batch #{batches_stored}/{total_batches_expected} to transform queue")
-
-                # Clear batch
-                current_batch = []
+    # Note: Individual extraction is handled by the existing code below (lines 1464-1485)
+    # This ensures proper first_item/last_item/last_job_item flag handling
 
 
 
 
 
-    logger.info(f"Step 4: ✅ COMPLETED - Stored and queued {batches_stored} batches ({total_processed:,} issues, {total_pr_links:,} PR links)")
-
-
+    # Individual dev_status extraction will be handled by the existing individual processing code
+    # This ensures proper first_item/last_item/last_job_item flag handling
 
     return {
-        'pr_links_count': total_pr_links,
-        'batches_count': batches_stored,
-        'issues_processed': total_processed
+        'pr_links_count': 0,  # Will be counted by individual extraction
+        'batches_count': 0,   # No batches in individual processing
+        'issues_processed': len(issue_keys)
     }
 
 
@@ -1164,9 +1076,9 @@ async def execute_issues_changelogs_dev_status_extraction(
             jira_client, integration_id, tenant_id, incremental, job_id
         )
 
-        dev_status_result = await _extract_dev_status(
-            jira_client, integration_id, tenant_id, issues_result.get('issues_with_code_changes', [])
-        )
+        # Dev_status extraction is now handled by individual extraction workers
+        # This ensures proper first_item/last_item/last_job_item flag handling
+        dev_status_result = {'success': True, 'dev_status_count': 0}
 
         # Update job status to FINISHED
         from app.core.database import get_database
@@ -1378,7 +1290,6 @@ async def _extract_issues_with_changelogs(
             last_sync_date=last_sync_date_str,
             first_item=True,
             last_item=True,
-            last_issue_changelog_item=True,
             last_job_item=True  # 🎯 Complete the job since no data to process
         )
 
@@ -1426,7 +1337,6 @@ async def _extract_issues_with_changelogs(
             last_sync_date=last_sync_date_str,
             first_item=first_item,
             last_item=last_item,
-            last_issue_changelog_item=last_item,  # Keep for backward compatibility
             last_job_item=last_job_item  # 🎯 Complete job if no dev_status needed
         )
 
@@ -1473,7 +1383,7 @@ async def _extract_issues_with_changelogs(
             success = queue_manager.publish_extraction_job(
                 tenant_id=tenant_id,
                 integration_id=integration_id,
-                extraction_type='jira_dev_status_fetch',
+                extraction_type='jira_dev_status',
                 extraction_data={
                     'issue_id': issue_data.get('id'),
                     'issue_key': issue_data.get('key')
@@ -1502,97 +1412,7 @@ async def _extract_issues_with_changelogs(
     }
 
 
-async def _extract_dev_status(
-    jira_client: JiraAPIClient,
-    integration_id: int,
-    tenant_id: int,
-    issue_keys: List[str]
-) -> Dict[str, Any]:
-    """
-    Extract dev_status for issues with code changes.
-
-    Returns:
-        Dict containing:
-        - dev_status_count: Number of dev_status records extracted
-    """
-
-    from app.etl.queue.queue_manager import get_queue_manager
-
-    if not issue_keys:
-        logger.info("No issues with code changes to process")
-        return {'success': True, 'dev_status_count': 0}
-
-    logger.info(f"Extracting dev_status for {len(issue_keys)} issues")
-
-    # Get issue external IDs from database
-    # Use READ replica for fast query
-    from app.core.database import get_database
-    database = get_database()
-
-    with database.get_read_session_context() as db:
-        query = text("""
-            SELECT key, external_id
-            FROM work_items
-            WHERE tenant_id = :tenant_id AND integration_id = :integration_id
-            AND key = ANY(:issue_keys)
-        """)
-        results = db.execute(query, {
-            'tenant_id': tenant_id,
-            'integration_id': integration_id,
-            'issue_keys': issue_keys
-        }).fetchall()
-
-        issue_map = {row[0]: row[1] for row in results}
-
-    # Fetch dev_status for each issue
-    dev_status_data = []
-    processed_count = 0
-
-    for issue_key in issue_keys:
-        external_id = issue_map.get(issue_key)
-        if not external_id:
-            logger.warning(f"No external_id found for issue {issue_key}")
-            continue
-
-        try:
-            dev_details = jira_client.get_issue_dev_details(external_id)
-            if dev_details:
-                dev_status_data.append({
-                    'issue_key': issue_key,
-                    'issue_external_id': external_id,
-                    'dev_details': dev_details
-                })
-        except Exception as e:
-            logger.warning(f"Failed to fetch dev_status for issue {issue_key}: {e}")
-
-        processed_count += 1
-
-    logger.info(f"Fetched dev_status for {len(dev_status_data)} issues")
-
-    if dev_status_data:
-        # Store raw data
-        raw_data_id = await store_raw_extraction_data(
-            integration_id=integration_id,
-            tenant_id=tenant_id,
-            entity_type='jira_dev_status',
-            raw_data={'dev_status': dev_status_data}
-        )
-
-        logger.info(f"Stored raw dev_status data with ID: {raw_data_id}")
-
-        # Publish to transform queue
-        queue_manager = get_queue_manager()
-        queue_manager.publish_transform_job(
-            tenant_id=tenant_id,
-            integration_id=integration_id,
-            raw_data_id=raw_data_id,
-            data_type='jira_dev_status',
-            provider='jira'
-        )
-
-        logger.info(f"Published dev_status to transform queue")
-
-    return {'success': True, 'dev_status_count': len(dev_status_data)}
+# Legacy _extract_dev_status function removed - dev_status extraction now handled by individual extraction workers
 
 
 # FastAPI Router

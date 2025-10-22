@@ -58,8 +58,6 @@ interface AuthContextType {
   updateAccessibilityPreference: (useAccessibleColors: boolean) => Promise<boolean>
   refreshUserColors: () => Promise<void>
   refreshToken: () => Promise<boolean>
-  pauseSessionValidation: () => void
-  resumeSessionValidation: () => void
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined)
@@ -76,7 +74,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
   const [user, setUser] = useState<User | null>(null)
   const [isLoading, setIsLoading] = useState(true)
   const [isLoggingOut, setIsLoggingOut] = useState(false) // Prevent context access during logout
-  const [skipSessionValidation, setSkipSessionValidation] = useState(false) // Skip validation during heavy operations
 
   // Load complete color data from API and cache it
   const loadColorSchema = async (): Promise<ColorSchemaData | null> => {
@@ -372,7 +369,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
               document.documentElement.setAttribute('data-theme', mode)
               ;(window as any).__INITIAL_THEME__ = mode
             },
-            onColorSchemaChange: (colors: any) => refreshUserColors()
+            onColorSchemaChange: () => refreshUserColors()
           })
 
           setIsLoading(false);
@@ -413,7 +410,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
             const expiryTime = payload.exp * 1000 // Convert to milliseconds
             const currentTime = Date.now()
             const timeUntilExpiry = expiryTime - currentTime
-            const minutesRemaining = Math.floor(timeUntilExpiry / 60000)
             const secondsRemaining = Math.floor(timeUntilExpiry / 1000)
 
             // If token is already expired, logout immediately
@@ -597,7 +593,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
               document.documentElement.setAttribute('data-theme', mode)
               ;(window as any).__INITIAL_THEME__ = mode
             },
-            onColorSchemaChange: (colors: any) => refreshUserColors()
+            onColorSchemaChange: () => refreshUserColors()
           })
         }
 
@@ -685,7 +681,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
               document.documentElement.setAttribute('data-theme', mode)
               ;(window as any).__INITIAL_THEME__ = mode
             },
-            onColorSchemaChange: (colors: any) => {
+            onColorSchemaChange: () => {
               console.log('[SessionWS] Color schema changed')
               // Refresh color schema
               refreshUserColors()
@@ -782,7 +778,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
               document.documentElement.setAttribute('data-theme', mode)
               ;(window as any).__INITIAL_THEME__ = mode
             },
-            onColorSchemaChange: (colors: any) => {
+            onColorSchemaChange: () => {
               console.log('[SessionWS] Color schema changed')
               // Refresh color schema
               refreshUserColors()

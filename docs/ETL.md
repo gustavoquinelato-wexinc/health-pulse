@@ -415,7 +415,6 @@ DEAD_LETTER_QUEUE = {
   "tenant_id": 1,
   "table_name": "work_items",
   "external_id": "PROJ-123",
-  "operation": "insert",
   "job_id": 123,
   "first_item": false,
   "last_item": true,

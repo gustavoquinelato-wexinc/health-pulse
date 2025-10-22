@@ -33,7 +33,7 @@ class ExtractionWorker(BaseWorker):
     Worker that handles additional extraction requests (tier-based queue architecture).
 
     Supports different extraction types:
-    - jira_dev_status_fetch: Fetch dev_status for a Jira issue
+    - jira_dev_status: Fetch dev_status for a Jira issue
     - (future) github_pr_details_fetch: Fetch PR details
     - (future) jira_issue_links_fetch: Fetch issue links
 
@@ -102,7 +102,7 @@ class ExtractionWorker(BaseWorker):
             logger.info(f"🚀 [DEBUG] Processing {extraction_type} extraction request for tenant {tenant_id}, integration {integration_id}, job {job_id}")
 
             # Route to appropriate extraction handler
-            if extraction_type == 'jira_dev_status_fetch':
+            if extraction_type == 'jira_dev_status':
                 logger.info(f"📋 [DEBUG] Routing to _fetch_jira_dev_status")
                 return self._fetch_jira_dev_status(message)
             elif extraction_type == 'jira_projects_and_issue_types':
@@ -176,7 +176,7 @@ class ExtractionWorker(BaseWorker):
 
         Args:
             message: {
-                'type': 'jira_dev_status_fetch',
+                'type': 'jira_dev_status',
                 'issue_id': '12345',
                 'issue_key': 'PROJ-123',
                 'tenant_id': 1,
@@ -198,6 +198,8 @@ class ExtractionWorker(BaseWorker):
             first_item = message.get('first_item', False)
             last_item = message.get('last_item', False)
             last_job_item = message.get('last_job_item', False)
+
+            logger.info(f"🔍 [DEBUG] Extracted flags from message: first_item={first_item}, last_item={last_item}, last_job_item={last_job_item}")
 
             if not all([issue_id, issue_key]):
                 logger.error(f"Missing issue_id or issue_key in message: {message}")
@@ -246,7 +248,38 @@ class ExtractionWorker(BaseWorker):
             dev_status_data = jira_client.get_dev_status(issue_id)
 
             if not dev_status_data:
-                logger.debug(f"No dev_status data found for issue {issue_key}")
+                logger.info(f"🔍 [DEBUG] No dev_status data found for issue {issue_key} - EARLY RETURN (flags: first={first_item}, last={last_item}, job_end={last_job_item})")
+
+                # 🎯 COMPLETION CHAIN: If this is the last item, publish completion message to transform queue
+                if last_item:
+                    from app.etl.queue.queue_manager import QueueManager
+                    queue_manager = QueueManager()
+                    provider_name = message.get('provider', 'Jira')
+
+                    logger.info(f"🎯 [COMPLETION] Publishing completion message to transform queue (no dev_status data)")
+                    success = queue_manager.publish_transform_job(
+                        tenant_id=tenant_id,
+                        integration_id=integration_id,
+                        data_type='jira_dev_status',
+                        raw_data_id=None,  # 🔑 Key: None signals completion message
+                        job_id=job_id,
+                        provider=provider_name,
+                        last_sync_date=message.get('last_sync_date'),  # ✅ Preserved
+                        first_item=first_item,    # ✅ Preserved
+                        last_item=last_item,      # ✅ Preserved (True)
+                        last_job_item=last_job_item  # ✅ Preserved (True)
+                    )
+                    logger.info(f"🎯 [COMPLETION] Transform completion message published: {success}")
+
+                # Send WebSocket status: extraction worker finished (on last_item) even if no data
+                if job_id and last_item:
+                    import asyncio
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        loop.run_until_complete(self._send_worker_status("extraction", tenant_id, job_id, "finished", "jira_dev_status"))
+                    finally:
+                        loop.close()
                 return True  # Not an error, just no data
 
             # Check if dev_status has actual PR data (not just empty arrays)
@@ -258,11 +291,42 @@ class ExtractionWorker(BaseWorker):
                     break
 
             if not has_pr_data:
-                logger.debug(f"Dev_status for issue {issue_key} has no PR data (empty arrays) - skipping")
+                logger.info(f"🔍 [DEBUG] Dev_status for issue {issue_key} has no PR data (empty arrays) - EARLY RETURN (flags: first={first_item}, last={last_item}, job_end={last_job_item})")
+
+                # 🎯 COMPLETION CHAIN: If this is the last item, publish completion message to transform queue
+                if last_item:
+                    from app.etl.queue.queue_manager import QueueManager
+                    queue_manager = QueueManager()
+                    provider_name = message.get('provider', 'Jira')
+
+                    logger.info(f"🎯 [COMPLETION] Publishing completion message to transform queue (no PR data)")
+                    success = queue_manager.publish_transform_job(
+                        tenant_id=tenant_id,
+                        integration_id=integration_id,
+                        data_type='jira_dev_status',
+                        raw_data_id=None,  # 🔑 Key: None signals completion message
+                        job_id=job_id,
+                        provider=provider_name,
+                        last_sync_date=message.get('last_sync_date'),  # ✅ Preserved
+                        first_item=first_item,    # ✅ Preserved
+                        last_item=last_item,      # ✅ Preserved (True)
+                        last_job_item=last_job_item  # ✅ Preserved (True)
+                    )
+                    logger.info(f"🎯 [COMPLETION] Transform completion message published: {success}")
+
+                # Send WebSocket status: extraction worker finished (on last_item) even if no useful data
+                if job_id and last_item:
+                    import asyncio
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        loop.run_until_complete(self._send_worker_status("extraction", tenant_id, job_id, "finished", "jira_dev_status"))
+                    finally:
+                        loop.close()
                 return True  # Not an error, just no useful data
 
-            logger.debug(f"Fetched dev_status for issue {issue_key}: {len(detail)} items with PR data")
-            
+            logger.info(f"🔍 [DEBUG] Fetched dev_status for issue {issue_key}: {len(detail)} items with PR data - PROCEEDING TO STORE AND PUBLISH")
+
             # Store raw data in raw_extraction_data table
             with self.get_db_session() as db:
                 insert_query = text("""
@@ -291,12 +355,14 @@ class ExtractionWorker(BaseWorker):
                 logger.debug(f"Stored dev_status as raw_data_id={raw_data_id}")
             
             # Queue for transformation with ETL job tracking
+            from app.etl.queue.queue_manager import QueueManager
             queue_manager = QueueManager()
 
             # 🔄 NEW ARCHITECTURE: Get provider name for message
             provider_name = message.get('provider', 'Jira')  # Fixed: use provider instead of provider_name
 
             logger.info(f"🎯 [DEV_STATUS] Processing dev_status for {issue_key} (first={first_item}, last={last_item}, job_end={last_job_item})")
+            logger.info(f"🔍 [DEBUG] About to publish transform job with flags: first_item={first_item}, last_item={last_item}, last_job_item={last_job_item}")
 
             success = queue_manager.publish_transform_job(
                 tenant_id=tenant_id,
@@ -305,11 +371,14 @@ class ExtractionWorker(BaseWorker):
                 raw_data_id=raw_data_id,
                 job_id=job_id,  # Fixed: use job_id parameter name
                 provider=provider_name,  # Fixed: use provider parameter name
+                last_sync_date=message.get('last_sync_date'),  # 🔧 Forward last_sync_date from incoming message
                 first_item=first_item,
                 last_item=last_item,
                 last_job_item=last_job_item  # 🎯 Forward the last_job_item flag
             )
-            
+
+            logger.info(f"🔍 [DEBUG] Published transform job: success={success}, raw_data_id={raw_data_id}, flags=(first={first_item}, last={last_item}, job_end={last_job_item})")
+
             if success:
                 logger.info(f"✅ Fetched and queued dev_status for issue {issue_key}")
 
@@ -344,6 +413,18 @@ class ExtractionWorker(BaseWorker):
             logger.error(f"Error fetching dev_status for issue {message.get('issue_key', 'unknown')}: {e}")
             import traceback
             logger.error(f"Full traceback: {traceback.format_exc()}")
+
+            # ✅ Send extraction worker "failed" status when last_item=True even on exception
+            if job_id and last_item:
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(self._send_worker_status("extraction", tenant_id, job_id, "failed", "jira_dev_status", error_message=str(e)))
+                    logger.info(f"✅ Extraction worker marked as failed for jira_dev_status (exception)")
+                finally:
+                    loop.close()
+
             return False
 
     async def _extract_jira_projects_and_issue_types(self, message: Dict[str, Any]) -> bool:
@@ -717,16 +798,16 @@ class ExtractionWorker(BaseWorker):
 
             database = get_database()
             with database.get_write_session_context() as session:
-                update_query = text("""
+                # Use string formatting for overall_status to avoid parameter binding issues
+                update_query = text(f"""
                     UPDATE etl_jobs
-                    SET status = jsonb_set(status, ARRAY['overall'], :overall_status::jsonb),
+                    SET status = jsonb_set(status, ARRAY['overall'], '"{overall_status}"'::jsonb),
                         last_updated_at = NOW()
                     WHERE id = :job_id
                 """)
 
                 session.execute(update_query, {
-                    'job_id': job_id,
-                    'overall_status': f'"{overall_status}"'
+                    'job_id': job_id
                 })
                 session.commit()
 

@@ -36,8 +36,6 @@ etlApi.interceptors.request.use(
 etlApi.interceptors.response.use(
   (response) => response,
   async (error) => {
-    const originalRequest = error.config
-
     // Handle 401 Unauthorized - logout immediately (auth service handles token refresh)
     if (error.response?.status === 401) {
       console.warn('Authentication failed - redirecting to login')

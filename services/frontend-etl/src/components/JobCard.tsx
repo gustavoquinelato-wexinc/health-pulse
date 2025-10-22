@@ -47,9 +47,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
   const [realTimeStatus, setRealTimeStatus] = useState<string>(job.status)
   const [wsVersion, setWsVersion] = useState<number>(etlWebSocketService.getInitializationVersion())
   const [isJobRunning, setIsJobRunning] = useState<boolean>(false)
-  const [isWebSocketConnected, setIsWebSocketConnected] = useState<boolean>(false)
   // Throttle state updates to prevent UI freezing from rapid WebSocket messages
-  const lastUpdateRef = useRef<number>(0)
   // Track WebSocket connection to prevent React StrictMode double connections
   const wsConnectionRef = useRef<(() => void) | null>(null)
 
@@ -75,34 +73,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
     return ['jira_projects_and_issue_types', 'jira_statuses_and_relationships', 'jira_issues_with_changelogs', 'jira_dev_status']
   }
 
-  // Helper function to get current step being processed
-  const getCurrentStep = () => {
-    if (!jobProgress?.isActive) return null
 
-    // Check which worker is currently running and return a user-friendly step name
-    if (jobProgress.extraction.status === 'running' && jobProgress.extraction.step) {
-      return `Extracting ${getStepDisplayName(jobProgress.extraction.step)}...`
-    }
-    if (jobProgress.transform.status === 'running' && jobProgress.transform.step) {
-      return `Transforming ${getStepDisplayName(jobProgress.transform.step)}...`
-    }
-    if (jobProgress.embedding.status === 'running' && jobProgress.embedding.step) {
-      return `Creating embeddings for ${getStepDisplayName(jobProgress.embedding.step)}...`
-    }
-
-    // Fallback to generic messages
-    if (jobProgress.extraction.status === 'running') {
-      return 'Extracting data...'
-    }
-    if (jobProgress.transform.status === 'running') {
-      return 'Transforming data...'
-    }
-    if (jobProgress.embedding.status === 'running') {
-      return 'Creating embeddings...'
-    }
-
-    return null
-  }
 
   // Helper function to get step status from WebSocket data
   const getStepStatus = (stepName: string, workerType: 'extraction' | 'transform' | 'embedding') => {
@@ -122,72 +93,9 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
     return 'idle'
   }
 
-  // Helper function to get step progress overview
-  const getStepProgress = (stepName: string) => {
-    const extraction = getStepStatus(stepName, 'extraction')
-    const transform = getStepStatus(stepName, 'transform')
-    const embedding = getStepStatus(stepName, 'embedding')
 
-    // Determine overall step status
-    if ([extraction, transform, embedding].includes('running')) return 'running'
-    if ([extraction, transform, embedding].includes('failed')) return 'failed'
-    if ([extraction, transform, embedding].every(s => s === 'finished')) return 'finished'
-    if ([extraction, transform, embedding].some(s => s === 'finished')) return 'partial'
 
-    return 'idle'
-  }
 
-  // Helper function to get worker status display info
-  const getWorkerStatusInfo = (workerType: 'extraction' | 'transform' | 'embedding') => {
-    if (!jobProgress) {
-      return {
-        status: 'idle',
-        color: 'bg-gray-300',
-        textColor: 'text-gray-500',
-        displayText: 'Idle',
-        stepText: ''
-      }
-    }
-
-    const worker = jobProgress[workerType]
-    const stepText = worker.step ? ` (${getStepDisplayName(worker.step)})` : ''
-
-    switch (worker.status) {
-      case 'running':
-        return {
-          status: 'running',
-          color: 'bg-blue-500 animate-pulse',
-          textColor: 'text-blue-600',
-          displayText: 'Running',
-          stepText
-        }
-      case 'finished':
-        return {
-          status: 'finished',
-          color: 'bg-green-500',
-          textColor: 'text-green-600',
-          displayText: 'Finished',
-          stepText: ''
-        }
-      case 'failed':
-        return {
-          status: 'failed',
-          color: 'bg-red-500',
-          textColor: 'text-red-600',
-          displayText: 'Failed',
-          stepText: ''
-        }
-      default:
-        return {
-          status: 'idle',
-          color: 'bg-gray-300',
-          textColor: 'text-gray-500',
-          displayText: 'Idle',
-          stepText: ''
-        }
-    }
-  }
-  const THROTTLE_MS = 500 // Only update UI every 500ms max
 
   // Get status icon and color
   const getStatusInfo = () => {
@@ -386,7 +294,6 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
         onJobProgress: (data: JobProgress) => {
           setJobProgress(data)
           setIsJobRunning(data.isActive)
-          setIsWebSocketConnected(true) // Mark as connected when receiving data
 
           // Update overall status based on job progress
           if (data.isActive) {
@@ -610,7 +517,6 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
             {/* Steps Grid - 4 steps per row on desktop, 2 on mobile */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
               {getAvailableSteps().map((stepName) => {
-                const stepProgress = getStepProgress(stepName)
                 const stepDisplayName = getStepDisplayName(stepName)
 
                 return (

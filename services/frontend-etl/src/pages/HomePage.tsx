@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import axios from 'axios'
 import { etlApi } from '../services/etlApiService'
 import CollapsedSidebar from '../components/CollapsedSidebar'
 import Header from '../components/Header'

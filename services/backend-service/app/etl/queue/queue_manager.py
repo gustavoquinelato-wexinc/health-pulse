@@ -195,7 +195,6 @@ class QueueManager:
         provider: str = None,
         last_sync_date: str = None,
         first_item: bool = False,
-        last_issue_changelog_item: bool = False,
         last_item: bool = False,
         last_job_item: bool = False
 
@@ -212,7 +211,6 @@ class QueueManager:
             provider: Provider name (jira, github, etc.)
             last_sync_date: Last sync date to update on completion
             first_item: True if this is the first item in the queue
-            last_issue_changelog_item: True if this is the last Jira extraction item
             last_item: True if this is the last item in the current step
             last_job_item: True if this item should trigger job completion
 
@@ -231,8 +229,7 @@ class QueueManager:
             'last_sync_date': last_sync_date,
             'last_job_item': last_job_item,
             # Extraction → Transform specific fields
-            'raw_data_id': raw_data_id,
-            'last_issue_changelog_item': last_issue_changelog_item
+            'raw_data_id': raw_data_id
         }
 
         # Get tenant tier and route to tier-based queue
@@ -251,7 +248,6 @@ class QueueManager:
         provider: str = None,
         last_sync_date: str = None,
         first_item: bool = False,
-        last_issue_changelog_item: bool = False,
         last_item: bool = False,
         last_job_item: bool = False
     ) -> bool:
@@ -261,13 +257,12 @@ class QueueManager:
         Args:
             tenant_id: Tenant ID
             integration_id: Integration ID
-            extraction_type: Type of extraction ('jira_dev_status_fetch', etc.)
+            extraction_type: Type of extraction ('jira_dev_status', etc.)
             extraction_data: Additional data for extraction (issue_id, issue_key, etc.)
             etl_job_id: ETL job ID (for completion tracking)
             provider_name: Provider name (Jira, GitHub, etc.)
             last_sync_date: Last sync date to update on completion
             first_item: True if this is the first item in the queue
-            last_issue_changelog_item: True if this is the last Jira extraction item
             last_item: True if this is the last item in the current step
             last_job_item: True if this item should trigger job completion
 
@@ -293,7 +288,6 @@ class QueueManager:
         message['first_item'] = first_item
         message['last_item'] = last_item
         message['last_job_item'] = last_job_item
-        message['last_issue_changelog_item'] = last_issue_changelog_item
 
         # Get tenant tier and route to tier-based queue
         tier = self._get_tenant_tier(tenant_id)
@@ -306,7 +300,6 @@ class QueueManager:
         tenant_id: int,
         table_name: str,
         external_id: str,
-        operation: str = "insert",
         job_id: int = None,
         integration_id: int = None,
         provider: str = None,
@@ -323,7 +316,6 @@ class QueueManager:
             tenant_id: Tenant ID
             table_name: Name of the table (work_items, prs, etc.)
             external_id: External ID of the entity (or internal ID for work_items_prs_links)
-            operation: Operation type ('insert', 'update', 'delete')
             job_id: ETL job ID (for completion tracking)
             integration_id: Integration ID
             provider: Provider name (jira, github, etc.)
@@ -349,8 +341,7 @@ class QueueManager:
             'last_job_item': last_job_item,
             # Transform → Embedding specific fields
             'table_name': table_name,
-            'external_id': external_id,
-            'operation': operation
+            'external_id': external_id
         }
 
         # Get tenant tier and route to tier-based queue

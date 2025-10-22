@@ -41,7 +41,7 @@ const WitsMappingsPage: React.FC<WitsMappingsPageProps> = ({ embedded = false })
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [queueing, setQueueing] = useState(false)
-  const { toasts, removeToast, showSuccess, showError, showWarning } = useToast()
+  const { toasts, removeToast, showSuccess, showError } = useToast()
   const { confirmation, confirmDelete, hideConfirmation } = useConfirmation()
 
   // Filter states

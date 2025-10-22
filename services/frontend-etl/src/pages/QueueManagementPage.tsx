@@ -175,8 +175,6 @@ export default function QueueManagementPage() {
         throw new Error(`Failed to set tenant tier: ${response.statusText}`)
       }
 
-      const data = await response.json()
-
       // Refresh config and update local state to match saved values
       await fetchWorkerConfig(true)
 
@@ -268,15 +266,7 @@ export default function QueueManagementPage() {
     }
   }
 
-  const getStatusBadge = (running: boolean, threadAlive: boolean) => {
-    if (running && threadAlive) {
-      return <Badge variant="default" className="bg-green-100 text-green-800">Running</Badge>
-    } else if (running && !threadAlive) {
-      return <Badge variant="secondary" className="bg-yellow-100 text-yellow-800">Starting</Badge>
-    } else {
-      return <Badge variant="destructive">Stopped</Badge>
-    }
-  }
+
 
   const getDataStatusIcon = (status: string) => {
     switch (status) {

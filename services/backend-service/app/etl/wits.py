@@ -4,7 +4,7 @@ Handles work item type mappings and hierarchies
 """
 
 from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, status, status
+from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel
 
 from app.auth.auth_middleware import require_authentication

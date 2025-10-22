@@ -398,15 +398,26 @@ async def refresh_token(request: Request):
 
 
 @app.post("/api/v1/logout")
-async def logout_api(request):
+async def logout_api(request: Request):
     """API logout endpoint - invalidate tokens"""
     try:
+        # Get token from Authorization header
+        auth_header = request.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ")[1]
 
-        # Placeholder logout implementation (blacklist not implemented)
+            # In a full implementation, add token to blacklist
+            # For now, we'll just log the logout
+            try:
+                payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
+                logger.info(f"User {payload.get('email')} logged out")
+            except jwt.InvalidTokenError:
+                pass
+
         return {"message": "Logged out successfully", "success": True}
     except Exception as e:
         logger.error(f"Logout error: {e}")
-        raise HTTPException(status_code=500, detail="Logout failed")
+        return {"message": "Logout failed", "success": False}
 
 
 @app.post("/api/v1/user/info")
@@ -653,25 +664,6 @@ async def permissions_matrix():
         logger.error(f"Permission matrix error: {e}")
         # Return empty but valid structure
         return PermissionMatrixResponse(roles=[], resources=[], actions=[], matrix={})
-
-        # Get token from Authorization header
-        auth_header = request.headers.get("Authorization")
-        if auth_header and auth_header.startswith("Bearer "):
-            token = auth_header.split(" ")[1]
-
-            # In a full implementation, add token to blacklist
-            # For now, we'll just log the logout
-            try:
-                payload = jwt.decode(token, settings.JWT_SECRET_KEY, algorithms=[settings.JWT_ALGORITHM])
-                logger.info(f"User {payload.get('email')} logged out")
-            except jwt.InvalidTokenError:
-                pass
-
-        return {"message": "Logged out successfully", "success": True}
-
-    except Exception as e:
-        logger.error(f"Logout error: {e}")
-        return {"message": "Logout failed", "success": False}
 
 if __name__ == "__main__":
     import uvicorn

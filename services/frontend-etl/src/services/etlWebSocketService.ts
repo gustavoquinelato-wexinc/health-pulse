@@ -126,27 +126,27 @@ class ETLWebSocketService {
 
       // Convert API response to JobProgress format
       // Aggregate worker status across all steps
-      const extractionStatuses = Object.values(data.steps).map(step => step.extraction)
-      const transformStatuses = Object.values(data.steps).map(step => step.transform)
-      const embeddingStatuses = Object.values(data.steps).map(step => step.embedding)
+      const extractionStatuses = Object.values(data.steps).map((step: any) => step.extraction)
+      const transformStatuses = Object.values(data.steps).map((step: any) => step.transform)
+      const embeddingStatuses = Object.values(data.steps).map((step: any) => step.embedding)
 
       // Determine overall worker status and current step (running > finished > failed > idle)
-      const getOverallStatusAndStep = (statuses: string[], workerType: 'extraction' | 'transform' | 'embedding') => {
+      const getOverallStatusAndStep = (statuses: string[], workerType: 'extraction' | 'transform' | 'embedding'): { status: 'idle' | 'running' | 'finished' | 'failed', step: string } => {
         // Find the step that's currently running for this worker
-        const runningStep = Object.entries(data.steps).find(([stepName, stepData]) =>
+        const runningStep = Object.entries(data.steps).find(([, stepData]: [string, any]) =>
           stepData[workerType] === 'running'
         )
 
         if (runningStep) {
           return {
-            status: 'running',
+            status: 'running' as const,
             step: runningStep[0] // Step name like 'jira_projects_and_issue_types'
           }
         }
 
-        if (statuses.includes('finished')) return { status: 'finished', step: '' }
-        if (statuses.includes('failed')) return { status: 'failed', step: '' }
-        return { status: 'idle', step: '' }
+        if (statuses.includes('finished')) return { status: 'finished' as const, step: '' }
+        if (statuses.includes('failed')) return { status: 'failed' as const, step: '' }
+        return { status: 'idle' as const, step: '' }
       }
 
       const extractionInfo = getOverallStatusAndStep(extractionStatuses, 'extraction')
@@ -156,12 +156,19 @@ class ETLWebSocketService {
       // Convert steps data to StepStatus format
       const stepsData: { [stepName: string]: StepStatus } = {}
       Object.entries(data.steps).forEach(([stepName, stepData]: [string, any]) => {
+        const validStatus = (status: string): 'idle' | 'running' | 'finished' | 'failed' => {
+          if (['idle', 'running', 'finished', 'failed'].includes(status)) {
+            return status as 'idle' | 'running' | 'finished' | 'failed'
+          }
+          return 'idle'
+        }
+
         stepsData[stepName] = {
           order: stepData.order || 0,
           display_name: stepData.display_name || stepName,
-          extraction: stepData.extraction || 'idle',
-          transform: stepData.transform || 'idle',
-          embedding: stepData.embedding || 'idle'
+          extraction: validStatus(stepData.extraction || 'idle'),
+          transform: validStatus(stepData.transform || 'idle'),
+          embedding: validStatus(stepData.embedding || 'idle')
         }
       })
 
@@ -227,7 +234,7 @@ class ETLWebSocketService {
         this.jobProgress.set(jobKey, apiStatus)
         handlers.onJobProgress?.(apiStatus)
       }
-    }).catch(error => {
+    }).catch(() => {
       // Silently handle API fallback errors
     })
 
@@ -384,14 +391,7 @@ class ETLWebSocketService {
     }
   }
 
-  /**
-   * Check if any worker is currently active
-   */
-  private isJobActive(jobProgress: JobProgress): boolean {
-    return jobProgress.extraction.status === 'running' ||
-           jobProgress.transform.status === 'running' ||
-           jobProgress.embedding.status === 'running'
-  }
+
 
   /**
    * Attempt to reconnect to a worker channel
@@ -591,7 +591,7 @@ class ETLWebSocketService {
   /**
    * Handle job activation/deactivation (legacy compatibility)
    */
-  handleJobToggle(jobName: string, active: boolean): void {
+  handleJobToggle(_jobName: string, _active: boolean): void {
     // This method is kept for backward compatibility
     // In the new implementation, connections are managed per job ID
   }
