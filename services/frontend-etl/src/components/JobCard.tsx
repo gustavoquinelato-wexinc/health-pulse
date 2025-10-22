@@ -12,7 +12,9 @@ import {
 } from 'lucide-react'
 import IntegrationLogo from './IntegrationLogo'
 import { etlWebSocketService, type JobProgress } from '../services/etlWebSocketService'
+import { jobsApi } from '../services/etlApiService'
 import { useTheme } from '../contexts/ThemeContext'
+import { useAuth } from '../contexts/AuthContext'
 
 interface JobCardProps {
   job: {
@@ -38,6 +40,7 @@ interface JobCardProps {
 
 export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, onSettings }: JobCardProps) {
   const { theme } = useTheme()
+  const { user } = useAuth()
   const [, setIsHovered] = useState(false)
   const [isToggling, setIsToggling] = useState(false)
   const [countdown, setCountdown] = useState<string>('Calculating...')
@@ -328,11 +331,23 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
                 clearTimeout(finishedTransitionTimer)
               }
 
-              // Set timer to transition to READY after 3 seconds
-              const timer = setTimeout(() => {
+              // Set timer to transition to READY after 5 seconds
+              const timer = setTimeout(async () => {
+                try {
+                  // Call backend to reset job status in database
+                  if (user?.tenant_id) {
+                    await jobsApi.resetJobStatus(job.id, user.tenant_id)
+                    console.log(`✅ Job ${job.id} status reset to READY in database`)
+                  } else {
+                    console.warn(`⚠️ Cannot reset job ${job.id} status: user or tenant_id not available`)
+                  }
+                } catch (error) {
+                  console.error(`❌ Failed to reset job ${job.id} status in database:`, error)
+                }
+                // Update frontend state regardless of backend call result
                 setRealTimeStatus('READY')
                 setFinishedTransitionTimer(null)
-              }, 3000)
+              }, 5000)
 
               setFinishedTransitionTimer(timer)
             }

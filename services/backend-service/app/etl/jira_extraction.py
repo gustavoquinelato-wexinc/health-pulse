@@ -612,16 +612,12 @@ async def _extract_statuses_and_relationships(
         project_keys = [row[1] for row in projects_result]  # Extract project keys
         logger.info(f"🔍 [DEBUG] Found {len(project_keys)} projects for status extraction: {project_keys}")
 
-
-
     # Process each project's statuses individually (better granularity)
     total_statuses_processed = 0
     total_relationships_processed = 0
 
     for i, project_key in enumerate(project_keys):
         try:
-
-
             # Call /rest/api/3/project/{project_key}/statuses for each project
             logger.info(f"🔍 [DEBUG] Calling get_project_statuses for project {project_key}")
             project_statuses_response = jira_client.get_project_statuses(project_key)

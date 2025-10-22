@@ -94,6 +94,8 @@ class ExtractionWorker(BaseWorker):
             tenant_id = message.get('tenant_id')
             integration_id = message.get('integration_id')
             job_id = message.get('job_id')
+            first_item = message.get('first_item', False)
+            last_item = message.get('last_item', False)
 
             if not all([extraction_type, tenant_id, integration_id]):
                 logger.error(f"❌ [DEBUG] Missing required fields in extraction message: {message}")
@@ -101,10 +103,21 @@ class ExtractionWorker(BaseWorker):
 
             logger.info(f"🚀 [DEBUG] Processing {extraction_type} extraction request for tenant {tenant_id}, integration {integration_id}, job {job_id}")
 
+            # Send WebSocket status update when first_item=true (worker starting)
+            if job_id and first_item:
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(self._send_worker_status("extraction", tenant_id, job_id, "running", extraction_type))
+                finally:
+                    loop.close()
+
             # Route to appropriate extraction handler
+            result = False
             if extraction_type == 'jira_dev_status':
                 logger.info(f"📋 [DEBUG] Routing to _fetch_jira_dev_status")
-                return self._fetch_jira_dev_status(message)
+                result = self._fetch_jira_dev_status(message)
             elif extraction_type == 'jira_projects_and_issue_types':
                 logger.info(f"📋 [DEBUG] Routing to _extract_jira_projects_and_issue_types")
                 # Use asyncio.create_task to run async method from sync context
@@ -112,21 +125,33 @@ class ExtractionWorker(BaseWorker):
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 try:
-                    return loop.run_until_complete(self._extract_jira_projects_and_issue_types(message))
+                    result = loop.run_until_complete(self._extract_jira_projects_and_issue_types(message))
                 finally:
                     loop.close()
             elif extraction_type == 'jira_statuses_and_relationships':
                 logger.info(f"📋 [DEBUG] Routing to _extract_jira_statuses_and_relationships")
-                return self._extract_jira_statuses_and_relationships(message)
+                result = self._extract_jira_statuses_and_relationships(message)
             elif extraction_type == 'jira_issues_with_changelogs':
                 logger.info(f"📋 [DEBUG] Routing to _extract_jira_issues_with_changelogs")
-                return self._extract_jira_issues_with_changelogs(message)
+                result = self._extract_jira_issues_with_changelogs(message)
             elif extraction_type == 'jira_custom_fields':
                 logger.info(f"📋 [DEBUG] Routing to _extract_jira_custom_fields")
-                return self._extract_jira_custom_fields(message)
+                result = self._extract_jira_custom_fields(message)
             else:
                 logger.warning(f"❓ [DEBUG] Unknown extraction type: {extraction_type}")
-                return False
+                result = False
+
+            # Send WebSocket status update when last_item=true (worker finished)
+            if job_id and last_item and result:
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(self._send_worker_status("extraction", tenant_id, job_id, "finished", extraction_type))
+                finally:
+                    loop.close()
+
+            return result
 
         except Exception as e:
             logger.error(f"💥 [DEBUG] Error processing extraction message: {e}")
@@ -565,7 +590,7 @@ class ExtractionWorker(BaseWorker):
                 try:
                     loop.run_until_complete(self._send_worker_status("extraction", tenant_id, job_id, "finished", step_name))
                     # Note: _extract_statuses_and_relationships already queues to transform internally
-                    # No need to queue again here - avoid duplicate queuing
+                    # AND now also queues the next extraction step (jira_issues_with_changelogs) when processing the last project
                 finally:
                     loop.close()
 
@@ -971,20 +996,37 @@ class ExtractionWorker(BaseWorker):
 
             queue_manager = QueueManager()
 
-            # Standardized base message structure
-            message = {
-                'tenant_id': tenant_id,
-                'integration_id': integration_id,
-                'job_id': job_id,
-                'type': next_step,  # ETL step name
-                'provider': 'jira',  # Default provider
-                'first_item': True,  # Bulk steps are always first and last
-                'last_item': True,
-                'last_sync_date': None,  # Will be set by extraction worker
-                'last_job_item': False,  # Will be determined later
-                # Extraction → Extraction specific fields
-                'bulk_processing': True  # Indicates this is a bulk step
-            }
+            # 🔧 FIX: Different steps have different message patterns
+            if next_step == 'jira_statuses_and_relationships':
+                # This step processes multiple projects and sends multiple transform messages
+                # It should NOT be treated as a single bulk operation
+                message = {
+                    'tenant_id': tenant_id,
+                    'integration_id': integration_id,
+                    'job_id': job_id,
+                    'type': next_step,  # ETL step name
+                    'provider': 'jira',
+                    'first_item': True,   # This is the first (and only) extraction message for this step
+                    'last_item': True,    # This is the last (and only) extraction message for this step
+                    'last_sync_date': None,  # Will be set by extraction worker
+                    'last_job_item': False,  # Not the final job step (issues_with_changelogs comes next)
+                    # Note: This step will internally process multiple projects and send multiple transform messages
+                }
+            else:
+                # Other steps use standard bulk processing pattern
+                message = {
+                    'tenant_id': tenant_id,
+                    'integration_id': integration_id,
+                    'job_id': job_id,
+                    'type': next_step,  # ETL step name
+                    'provider': 'jira',  # Default provider
+                    'first_item': True,  # Bulk steps are always first and last
+                    'last_item': True,
+                    'last_sync_date': None,  # Will be set by extraction worker
+                    'last_job_item': False,  # Will be determined later
+                    # Extraction → Extraction specific fields
+                    'bulk_processing': True  # Indicates this is a bulk step
+                }
 
             logger.info(f"📤 [DEBUG] Message to queue: {message}")
 

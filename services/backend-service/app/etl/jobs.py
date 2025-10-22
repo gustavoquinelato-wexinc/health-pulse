@@ -836,3 +836,81 @@ async def get_job_worker_status(
         logger.error(f"Failed to get job worker status: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to get job worker status: {str(e)}")
 
+
+@router.post("/jobs/{job_id}/reset", response_model=JobActionResponse)
+async def reset_job_status(
+    job_id: int,
+    tenant_id: int = Query(..., description="Tenant ID"),
+    db: Session = Depends(get_db_session),
+    auth_result: dict = Depends(verify_hybrid_auth)
+):
+    """
+    Reset ETL job status to READY state.
+
+    This endpoint:
+    1. Validates the job exists and belongs to the tenant
+    2. Resets all step statuses to 'idle'
+    3. Sets overall status to 'READY'
+    4. Used by frontend auto-reset after job completion
+    """
+    try:
+        from sqlalchemy import text
+        import json
+
+        # Get job details to validate existence
+        query = text("""
+            SELECT job_name, status
+            FROM etl_jobs
+            WHERE id = :job_id AND tenant_id = :tenant_id
+        """)
+        result = db.execute(query, {'job_id': job_id, 'tenant_id': tenant_id}).fetchone()
+
+        if not result:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+        job_name, current_status = result
+
+        # Parse current status to preserve step structure
+        if isinstance(current_status, str):
+            current_status = json.loads(current_status)
+
+        # Reset all step statuses to idle
+        if 'steps' in current_status:
+            for step_name, step_data in current_status['steps'].items():
+                step_data['extraction'] = 'idle'
+                step_data['transform'] = 'idle'
+                step_data['embedding'] = 'idle'
+
+        # Set overall status to READY
+        current_status['overall'] = 'READY'
+
+        # Update database
+        update_query = text("""
+            UPDATE etl_jobs
+            SET status = :status,
+                last_updated_at = NOW()
+            WHERE id = :job_id AND tenant_id = :tenant_id
+        """)
+        db.execute(update_query, {
+            'job_id': job_id,
+            'tenant_id': tenant_id,
+            'status': json.dumps(current_status)
+        })
+        db.commit()
+
+        logger.info(f"🔄 ETL job {job_name} (ID: {job_id}) status reset to READY for tenant {tenant_id}")
+
+        return JobActionResponse(
+            success=True,
+            message=f"Job {job_name} status reset successfully",
+            job_id=job_id,
+            new_status="READY"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error resetting job {job_id} status: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to reset job status: {str(e)}")
+

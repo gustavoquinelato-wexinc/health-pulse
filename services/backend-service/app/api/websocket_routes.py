@@ -32,6 +32,11 @@ class JobWebSocketManager:
         """Generate worker-specific channel name for tenant + job isolation."""
         return f"{worker_type}_status_tenant_{tenant_id}_job_{job_id}"
 
+    def clear_cache(self):
+        """Clear all cached WebSocket status data (useful for removing stale test data)"""
+        logger.info(f"[JOB-WS] 🧹 Clearing WebSocket cache - removing {len(self.latest_status)} cached entries")
+        self.latest_status.clear()
+
     async def connect(self, websocket: WebSocket, worker_type: str, tenant_id: int, job_id: int):
         """Accept a new WebSocket connection for a specific worker channel."""
         await websocket.accept()
@@ -47,12 +52,15 @@ class JobWebSocketManager:
         # Send current worker status from database for new connections
         await self._send_current_worker_status(websocket, worker_type, tenant_id, job_id)
 
-        # Also send latest cached status if available (for real-time updates)
-        if channel in self.latest_status:
-            try:
-                await websocket.send_text(json.dumps(self.latest_status[channel]))
-            except Exception as e:
-                logger.warning(f"[JOB-WS] Failed to send cached status to new connection: {e}")
+        # DISABLED: Don't send cached status to prevent stale test data from being sent
+        # The database status is the source of truth and is sent above
+        # if channel in self.latest_status:
+        #     try:
+        #         cached_data = self.latest_status[channel]
+        #         logger.info(f"[JOB-WS] 🔍 SENDING CACHED STATUS for {channel}: {json.dumps(cached_data, indent=2)}")
+        #         await websocket.send_text(json.dumps(cached_data))
+        #     except Exception as e:
+        #         logger.warning(f"[JOB-WS] Failed to send cached status to new connection: {e}")
 
     async def _send_current_worker_status(self, websocket: WebSocket, worker_type: str, tenant_id: int, job_id: int):
         """Send current job status from database to new WebSocket connection (complete JSON format)"""
@@ -713,63 +721,9 @@ async def job_websocket_endpoint(websocket: WebSocket, worker_type: str, tenant_
     finally:
         await job_websocket_manager.disconnect(websocket, worker_type, tenant_id, job_id)
 
-@router.post("/api/v1/websocket/job/test/{worker_type}/{tenant_id}/{job_id}")
-async def test_job_websocket_message(worker_type: str, tenant_id: int, job_id: int,
-                                   status: str = Query("running"), step: str = Query("test_step")):
-    """
-    Test endpoint to send sample job WebSocket messages.
-
-    Args:
-        worker_type: Type of worker (extraction, transform, embedding)
-        tenant_id: Tenant ID for isolation
-        job_id: Job ID for tracking
-        status: Status to send (running, finished, failed)
-        step: Step description
-    """
-    # Validate worker type
-    valid_workers = ['extraction', 'transform', 'embedding']
-    if worker_type not in valid_workers:
-        raise HTTPException(status_code=400, detail=f"Invalid worker type. Valid types: {valid_workers}")
-
-    # Validate status
-    valid_statuses = ['running', 'finished', 'failed']
-    if status not in valid_statuses:
-        raise HTTPException(status_code=400, detail=f"Invalid status. Valid statuses: {valid_statuses}")
-
-    # Send test status update using new job_status_update format
-    test_status = {
-        "overall": "RUNNING" if status == "running" else "READY",
-        "steps": {
-            step: {
-                "order": 1,
-                "display_name": step.replace("_", " ").title(),
-                "extraction": status if worker_type == "extraction" else "idle",
-                "transform": status if worker_type == "transform" else "idle",
-                "embedding": status if worker_type == "embedding" else "idle"
-            }
-        }
-    }
-
-    await job_websocket_manager.send_job_status_update(
-        tenant_id=tenant_id,
-        job_id=job_id,
-        status_json=test_status
-    )
-
-    channel = job_websocket_manager.get_channel_name(worker_type, tenant_id, job_id)
-    connections = len(job_websocket_manager.connections.get(channel, []))
-
-    return {
-        "success": True,
-        "message": "Test job status sent",
-        "worker_type": worker_type,
-        "tenant_id": tenant_id,
-        "job_id": job_id,
-        "status": status,
-        "step": step,
-        "channel": channel,
-        "connections": connections
-    }
+# REMOVED: Test endpoint that was corrupting real job data
+# The test endpoint was overriding real job status with test_step data
+# causing the frontend to show "Test Step" instead of proper Jira/GitHub steps
 
 @router.post("/api/v1/websocket/test/{job_name}")
 async def test_websocket_message(job_name: str, tenant_id: int = Query(1)):

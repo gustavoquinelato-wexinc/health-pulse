@@ -212,5 +212,30 @@ export const customFieldsApi = {
   },
 }
 
+// Jobs API
+export const jobsApi = {
+  getJobs: async (tenantId: number) => {
+    return await etlApi.get(`/jobs?tenant_id=${tenantId}`)
+  },
+  getJobDetails: async (jobId: number, tenantId: number) => {
+    return await etlApi.get(`/jobs/${jobId}?tenant_id=${tenantId}`)
+  },
+  toggleJobActive: async (jobId: number, tenantId: number, active: boolean) => {
+    return await etlApi.post(`/jobs/${jobId}/toggle-active?tenant_id=${tenantId}`, { active })
+  },
+  runJobNow: async (jobId: number, tenantId: number) => {
+    return await etlApi.post(`/jobs/${jobId}/run-now?tenant_id=${tenantId}`)
+  },
+  updateJobSettings: async (jobId: number, tenantId: number, settings: { schedule_interval_minutes: number, retry_interval_minutes: number }) => {
+    return await etlApi.post(`/jobs/${jobId}/settings?tenant_id=${tenantId}`, settings)
+  },
+  getJobWorkerStatus: async (jobId: number, tenantId: number) => {
+    return await etlApi.get(`/jobs/${jobId}/worker-status?tenant_id=${tenantId}`)
+  },
+  resetJobStatus: async (jobId: number, tenantId: number) => {
+    return await etlApi.post(`/jobs/${jobId}/reset?tenant_id=${tenantId}`)
+  },
+}
+
 export { etlApi }
 export default etlApi

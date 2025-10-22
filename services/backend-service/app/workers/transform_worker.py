@@ -251,6 +251,21 @@ class TransformWorker(BaseWorker):
             last_item = message.get('last_item', False)
             bulk_processing = message.get('bulk_processing', False)
 
+            # Send WebSocket status update when first_item=true (worker starting)
+            logger.info(f"🔍 [DEBUG] Checking WebSocket conditions: job_id={job_id}, first_item={first_item}")
+            if job_id and first_item:
+                logger.info(f"🚀 [DEBUG] Sending WebSocket status update: transform worker running for {message_type}")
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "running", message_type))
+                    logger.info(f"✅ [DEBUG] WebSocket status update completed for {message_type}")
+                finally:
+                    loop.close()
+            else:
+                logger.info(f"❌ [DEBUG] WebSocket conditions not met: job_id={job_id}, first_item={first_item}")
+
             # 🎯 HANDLE COMPLETION MESSAGE: raw_data_id=None signals completion (check BEFORE field validation)
             if raw_data_id is None and message_type == 'jira_dev_status':
                 logger.info(f"🎯 [COMPLETION] Received completion message for jira_dev_status (no data to process)")
@@ -282,6 +297,39 @@ class TransformWorker(BaseWorker):
                 )
 
                 logger.info(f"🎯 [COMPLETION] Completion message processed and forwarded to embedding")
+                return True
+
+            # 🎯 HANDLE COMPLETION MESSAGE: jira_issues_with_changelogs with raw_data_id=None
+            if raw_data_id is None and message_type == 'jira_issues_with_changelogs':
+                logger.info(f"🎯 [COMPLETION] Received completion message for jira_issues_with_changelogs (no data to process)")
+
+                # Send WebSocket status: transform worker finished (on last_item)
+                if last_item and job_id:
+                    import asyncio
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "finished", "jira_issues_with_changelogs"))
+                        logger.info(f"✅ Transform worker marked as finished for jira_issues_with_changelogs (completion message)")
+                    finally:
+                        loop.close()
+
+                # Send completion message to embedding queue (preserve all flags)
+                self._queue_entities_for_embedding(
+                    tenant_id=tenant_id,
+                    table_name='work_items',
+                    entities=[],  # Empty list - signals completion
+                    job_id=job_id,
+                    message_type='jira_issues_with_changelogs',
+                    integration_id=integration_id,
+                    provider=message.get('provider', 'jira'),
+                    last_sync_date=message.get('last_sync_date'),
+                    first_item=message.get('first_item', False),  # ✅ Preserved
+                    last_item=message.get('last_item', False),    # ✅ Preserved
+                    last_job_item=message.get('last_job_item', False)  # ✅ Preserved
+                )
+
+                logger.info(f"🎯 [COMPLETION] jira_issues_with_changelogs completion message processed and forwarded to embedding")
                 return True
 
             # Check required fields - for bulk processing, raw_data_id is optional
@@ -392,25 +440,9 @@ class TransformWorker(BaseWorker):
                 logger.warning(f"Unknown message type: {message_type}")
                 return False
 
-            # Handle completion and queue to embedding (on last_item)
-            if job_id and last_item:
-                # Send WebSocket status: transform worker finished
-                import asyncio
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "finished", message_type))
-                    # Queue to embedding with enhanced message including job completion flag
-                    loop.run_until_complete(self._queue_to_embedding(tenant_id, integration_id, job_id, message_type,
-                                                       provider='jira', first_item=True, last_item=True))
-                finally:
-                    loop.close()
-
-            # 🔄 NEW ARCHITECTURE: Job completion is now handled by embedding worker
-            # Transform worker no longer completes jobs - it just transforms data
-            # The embedding worker will complete the job when it processes the last_job_item=true
-
-            return True
+            # This code is unreachable because all processors return above
+            # WebSocket status updates should be handled within individual processors
+            return False  # Should never reach here
 
         except Exception as e:
             logger.error(f"Error processing transform message: {e}")
@@ -436,6 +468,17 @@ class TransformWorker(BaseWorker):
         """
         try:
             logger.info(f"Processing Jira project search data for raw_data_id={raw_data_id}")
+
+            # ✅ Send transform worker "running" status when first_item=True
+            if message and message.get('first_item') and job_id:
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "running", "jira_projects_and_issue_types"))
+                    logger.info(f"✅ Transform worker marked as running for jira_projects_and_issue_types")
+                finally:
+                    loop.close()
 
             database = get_database()
             with database.get_write_session_context() as session:
@@ -531,10 +574,10 @@ class TransformWorker(BaseWorker):
                     finally:
                         loop.close()
 
-                # ✅ Queue next extraction step: statuses and relationships (after projects are in database)
-                if job_id:
-                    logger.info(f"🔄 Projects processing complete, queuing next step: jira_statuses_and_relationships")
-                    self._queue_next_extraction_step(tenant_id, integration_id, job_id, 'jira_statuses_and_relationships')
+                # ❌ REMOVED: Transform workers should NEVER queue back to extraction
+                # The extraction worker already queued the next extraction step (jira_statuses_and_relationships)
+                # when it completed jira_projects_and_issue_types
+                logger.info(f"✅ Projects transform processing complete - extraction worker handles next extraction step")
 
                 logger.info(f"Successfully processed Jira project search data for raw_data_id={raw_data_id}")
                 return True
@@ -1606,6 +1649,17 @@ class TransformWorker(BaseWorker):
         4. Returns success status
         """
         try:
+            # ✅ Send transform worker "running" status when first_item=True
+            if message and message.get('first_item') and job_id:
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "running", "jira_statuses_and_relationships"))
+                    logger.info(f"✅ Transform worker marked as running for jira_statuses_and_relationships")
+                finally:
+                    loop.close()
+
             with self.get_db_session() as db:
                 # Load raw data
                 raw_data_query = text("""
@@ -1695,11 +1749,9 @@ class TransformWorker(BaseWorker):
                     is_first = (i == 0)
                     is_last = (i == len(all_entities) - 1)
 
-                    # 🎯 CRITICAL FIX: Only set last_job_item=True on the very last entity
-                    # when this is the last project (incoming message has last_item=True)
-                    incoming_last_item = message.get('last_item', False) if message else False
-                    incoming_last_job_item = message.get('last_job_item', False) if message else False
-                    last_job_item = incoming_last_job_item and incoming_last_item and is_last
+                    # 🎯 CORRECT: Simply forward the last_job_item flag from extraction worker
+                    # Extraction worker correctly sets last_job_item=False for statuses (not final step)
+                    last_job_item = message.get('last_job_item', False) if message else False
 
                     self._queue_entities_for_embedding(tenant_id, table_name, [entity], job_id,
                                                      message_type='jira_statuses_and_relationships',
@@ -2402,6 +2454,17 @@ class TransformWorker(BaseWorker):
                 return True
 
             logger.debug(f"Processing single jira_single_issue_changelog for raw_data_id={raw_data_id}")
+
+            # ✅ Send transform worker "running" status when first_item=True
+            if message and message.get('first_item') and job_id:
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "running", "jira_issues_with_changelogs"))
+                    logger.info(f"✅ Transform worker marked as running for jira_issues_with_changelogs")
+                finally:
+                    loop.close()
 
             with self.get_db_session() as db:
                 # Load raw data (single issue)
@@ -3701,48 +3764,6 @@ class TransformWorker(BaseWorker):
         except Exception as e:
             logger.error(f"Error updating job status: {e}")
 
-    def _queue_next_extraction_step(self, tenant_id: int, integration_id: int, job_id: int, next_step: str):
-        """
-        Queue the next extraction step.
-        """
-        try:
-            logger.info(f"🔄 [DEBUG] Queuing next extraction step: {next_step} for tenant {tenant_id}, integration {integration_id}, job {job_id}")
 
-            queue_manager = QueueManager()
-
-            # Standardized base message structure
-            message = {
-                'tenant_id': tenant_id,
-                'integration_id': integration_id,
-                'job_id': job_id,
-                'type': next_step,  # ETL step name
-                'provider': 'jira',
-                'first_item': True,
-                'last_item': False,
-                'last_sync_date': None,
-                'last_job_item': False,
-                'extraction_type': next_step,
-                'extraction_data': {}
-            }
-
-            logger.info(f"📤 [DEBUG] Message to queue: {message}")
-
-            # Get tenant tier and route to tier-based queue
-            tier = queue_manager._get_tenant_tier(tenant_id)
-            tier_queue = queue_manager.get_tier_queue_name(tier, 'extraction')
-
-            logger.info(f"🎯 [DEBUG] Publishing to queue: {tier_queue} (tier: {tier})")
-
-            success = queue_manager._publish_message(tier_queue, message)
-
-            if success:
-                logger.info(f"✅ [DEBUG] Successfully queued next extraction step: {next_step} to {tier_queue}")
-            else:
-                logger.error(f"❌ [DEBUG] Failed to queue next extraction step: {next_step} to {tier_queue}")
-
-        except Exception as e:
-            logger.error(f"💥 [DEBUG] Error queuing next extraction step: {e}")
-            import traceback
-            logger.error(f"💥 [DEBUG] Full traceback: {traceback.format_exc()}")
 
 
