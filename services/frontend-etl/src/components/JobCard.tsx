@@ -307,9 +307,10 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
 
     const interval = setInterval(() => {
       setResetCountdown(prev => {
-        if (prev === null || prev <= 1) {
+        if (prev === null || prev <= 0) {
           return null
         }
+        // Decrement, allowing it to reach 0 so the reset trigger effect can fire
         return prev - 1
       })
     }, 1000)
@@ -389,14 +390,15 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
 
       const cleanup = etlWebSocketService.connectToJob(tenantId, job.id, {
         onJobProgress: (data: JobProgress) => {
+          // Always update job progress and step statuses (even after FINISHED)
           setJobProgress(data)
           setIsJobRunning(data.isActive)
 
           // Update overall status based on job progress
-          // IMPORTANT: Once job is FINISHED or FAILED, ignore WebSocket updates that try to change status
-          // This prevents stale messages from changing the status back to RUNNING
-          if (realTimeStatus === 'FINISHED' || realTimeStatus === 'FAILED') {
-            console.log(`🔒 Ignoring WebSocket update - job already ${realTimeStatus}`)
+          // IMPORTANT: Once job is FINISHED or FAILED, don't let WebSocket change it back to RUNNING
+          // But still allow step status updates
+          if (data.isActive && (realTimeStatus === 'FINISHED' || realTimeStatus === 'FAILED')) {
+            console.log(`🔒 Ignoring WebSocket attempt to change status back to RUNNING - job already ${realTimeStatus}`)
             return
           }
 
