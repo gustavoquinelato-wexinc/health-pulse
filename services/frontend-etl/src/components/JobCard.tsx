@@ -317,6 +317,28 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
     return () => clearInterval(interval)
   }, [resetCountdown])
 
+  // Trigger reset when countdown reaches 0
+  useEffect(() => {
+    if (resetCountdown === 0) {
+      console.log(`⏰ Reset countdown reached 0, triggering reset now`)
+      // Perform the reset
+      const performReset = async () => {
+        try {
+          if (user?.tenant_id) {
+            await jobsApi.resetJobStatus(job.id, user.tenant_id)
+            console.log(`✅ Job ${job.id} status reset to READY in database (countdown timeout)`)
+          }
+        } catch (error) {
+          console.error(`❌ Failed to reset job ${job.id} status:`, error)
+        }
+        setRealTimeStatus('READY')
+        setFinishedTransitionTimer(null)
+        setResetCountdown(null)
+      }
+      performReset()
+    }
+  }, [resetCountdown, job.id, user?.tenant_id])
+
   // Sync realTimeStatus with job.status prop when it changes (handles API updates)
   useEffect(() => {
     // Only update if the job status has actually changed
@@ -371,6 +393,13 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
           setIsJobRunning(data.isActive)
 
           // Update overall status based on job progress
+          // IMPORTANT: Once job is FINISHED or FAILED, ignore WebSocket updates that try to change status
+          // This prevents stale messages from changing the status back to RUNNING
+          if (realTimeStatus === 'FINISHED' || realTimeStatus === 'FAILED') {
+            console.log(`🔒 Ignoring WebSocket update - job already ${realTimeStatus}`)
+            return
+          }
+
           if (data.isActive) {
             setRealTimeStatus('RUNNING')
             // Clear any existing finished transition timer
