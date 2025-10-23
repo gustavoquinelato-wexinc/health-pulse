@@ -13,7 +13,6 @@ from sqlalchemy import text
 from app.core.database import get_db_session, get_read_session
 from app.core.logging_config import get_logger
 from app.etl.jira_client import JiraAPIClient
-from app.api.websocket_routes import get_websocket_manager
 from app.models.unified_models import Integration
 
 logger = get_logger(__name__)
@@ -21,41 +20,7 @@ logger = get_logger(__name__)
 
 
 
-class JiraExtractionProgressTracker:
-    """Progress tracker for complete Jira extraction (all phases)."""
 
-    def __init__(self, tenant_id: int, job_id: int, total_steps: int = 4):
-        self.tenant_id = tenant_id
-        self.job_id = job_id
-        self.total_steps = total_steps
-        self.websocket_manager = get_websocket_manager()
-
-    async def update_step_progress(self, step_index: int, step_progress: float, message: str):
-        """Update progress using step-based system (like old ETL service)."""
-        try:
-            # Calculate overall percentage using step-based system
-            step_percentage = 100.0 / self.total_steps
-            step_start = step_index * step_percentage
-            overall_percentage = step_start + (step_progress * step_percentage)
-
-            # Debug logging
-            logger.info(f"[PROGRESS DEBUG] total_steps={self.total_steps}, step_index={step_index}, step_progress={step_progress:.2f}")
-            logger.info(f"[PROGRESS DEBUG] step_percentage={step_percentage:.2f}%, step_start={step_start:.2f}%, overall={overall_percentage:.2f}%")
-
-            # Log progress (no database update - progress is tracked in UI only)
-            logger.info(f"[JIRA EXTRACTION] Step {step_index + 1}/{self.total_steps} - {overall_percentage:.1f}% - {message}")
-
-            # Send WebSocket update
-            await self.websocket_manager.send_progress_update(
-                self.tenant_id, "Jira", overall_percentage, message
-            )
-
-        except Exception as e:
-            logger.error(f"Failed to update progress: {e}")
-
-    async def complete_step(self, step_index: int, message: str):
-        """Mark a step as completed."""
-        await self.update_step_progress(step_index, 1.0, message)
 
 
 async def execute_complete_jira_extraction(
@@ -76,7 +41,7 @@ async def execute_complete_jira_extraction(
     from app.core.utils import DateTimeHelper
     job_start_time = DateTimeHelper.now_default()
 
-    progress_tracker = JiraExtractionProgressTracker(tenant_id, job_id, total_steps=3)
+
 
     try:
         # Step 1: Projects & Issue Types (0% -> 33%)
@@ -88,7 +53,7 @@ async def execute_complete_jira_extraction(
         integration, jira_client = await _initialize_jira_client(integration_id, tenant_id)
 
         projects_result = await _extract_projects_and_issue_types(
-            jira_client, integration_id, tenant_id, progress_tracker, step_index=0
+            jira_client, integration_id, tenant_id
         )
 
         logger.info(f"✅ Step 1 completed: {projects_result['projects_count']} projects, {projects_result['issue_types_count']} issue types")
@@ -99,7 +64,7 @@ async def execute_complete_jira_extraction(
         logger.info("=" * 80)
 
         statuses_result = await _extract_statuses_and_relationships(
-            jira_client, integration_id, tenant_id, progress_tracker, step_index=1
+            jira_client, integration_id, tenant_id
         )
 
         logger.info(f"✅ Step 2 completed: {statuses_result['statuses_count']} statuses, {statuses_result['project_relationships_count']} relationships")
@@ -111,14 +76,12 @@ async def execute_complete_jira_extraction(
         logger.info("=" * 80)
         logger.info(f"🔍 DEBUG: Job status should be RUNNING during Step 3")
 
-        await progress_tracker.update_step_progress(
-            2, 0.0, "Starting issues and changelogs extraction"
-        )
+
 
         try:
             logger.info(f"🔍 DEBUG: About to call _extract_issues_with_changelogs_for_complete_job")
             issues_result = await _extract_issues_with_changelogs_for_complete_job(
-                jira_client, integration_id, tenant_id, progress_tracker, job_id, job_start_time
+                jira_client, integration_id, tenant_id, job_id, job_start_time
             )
             logger.info(f"✅ Step 3 completed: {issues_result}")
             logger.info(f"🔍 DEBUG: Returned from _extract_issues_with_changelogs_for_complete_job - job should still be RUNNING")
@@ -128,9 +91,7 @@ async def execute_complete_jira_extraction(
             logger.error(f"Traceback: {traceback.format_exc()}")
             raise
 
-        await progress_tracker.update_step_progress(
-            2, 1.0, f"Completed: {issues_result.get('issues_count', 0)} issues, {issues_result.get('changelogs_count', 0)} changelogs (dev status queued in background)"
-        )
+
         logger.info(f"🔍 DEBUG: Step 3 progress updated to 100% - job complete (dev status runs in background)")
 
         # Dev status extraction now happens in background via extraction_queue
@@ -167,9 +128,6 @@ async def execute_complete_jira_extraction(
 
         # Update job status to FAILED
         try:
-            await progress_tracker.websocket_manager.send_progress_update(
-                tenant_id, "Jira", 100.0, f"[ERROR] Jira extraction failed: {str(e)}"
-            )
 
             from app.core.utils import DateTimeHelper
             from datetime import timedelta
@@ -237,7 +195,7 @@ async def execute_projects_and_issue_types_extraction(
     """
     logger.info(f"Starting projects and issue types extraction for integration {integration_id}, tenant {tenant_id}")
 
-    progress_tracker = JiraExtractionProgressTracker(tenant_id, job_id, total_steps=2)
+
 
     try:
         # Step 0: Projects & Issue Types (0% -> 50%)
@@ -245,12 +203,12 @@ async def execute_projects_and_issue_types_extraction(
         integration, jira_client = await _initialize_jira_client(integration_id, tenant_id)
 
         projects_result = await _extract_projects_and_issue_types(
-            jira_client, integration_id, tenant_id, progress_tracker, step_index=0
+            jira_client, integration_id, tenant_id
         )
 
         # Step 1: Statuses & Relationships (50% -> 100%)
         statuses_result = await _extract_statuses_and_relationships(
-            jira_client, integration_id, tenant_id, progress_tracker, step_index=1
+            jira_client, integration_id, tenant_id
         )
 
         # Update job status to FINISHED
@@ -271,9 +229,6 @@ async def execute_projects_and_issue_types_extraction(
 
         # Update job status to FAILED
         try:
-            await progress_tracker.websocket_client.send_progress_update(
-                "Jira", 100.0, f"[ERROR] Jira extraction failed: {str(e)}"
-            )
             
             from app.core.utils import DateTimeHelper
             from datetime import timedelta
@@ -446,7 +401,7 @@ async def reset_job_countdown(tenant_id: int, job_id: int, message: str, job_sta
             # Step 1: Set status to FINISHED and update last_sync_date
             update_finished_query = text("""
                 UPDATE etl_jobs
-                SET status = 'FINISHED',
+                SET status = jsonb_set(status, ARRAY['overall'], to_jsonb('FINISHED'::text)),
                     last_run_finished_at = :now,
                     last_sync_date = :sync_time,
                     error_message = NULL,
@@ -463,18 +418,6 @@ async def reset_job_countdown(tenant_id: int, job_id: int, message: str, job_sta
             # Commit happens automatically
 
         logger.info(f"✅ Jira job marked as FINISHED")
-
-        # Step 2: Send WebSocket status update to FINISHED
-        from app.api.websocket_routes import get_websocket_manager
-        websocket_manager = get_websocket_manager()
-        await websocket_manager.send_status_update(tenant_id, "Jira", "FINISHED", message)
-
-        # Step 3: Send WebSocket completion update with success summary
-        await websocket_manager.send_completion_update(tenant_id, "Jira", True, {
-            "message": message,
-            "schedule_interval_minutes": schedule_interval_minutes
-        })
-
         logger.info(f"Job {job_id} completed successfully for tenant {tenant_id}: {message}")
 
         # Step 4: Wait a moment for frontend to process completion, then set to READY
@@ -484,7 +427,7 @@ async def reset_job_countdown(tenant_id: int, job_id: int, message: str, job_sta
         with database.get_write_session_context() as db:
             update_ready_query = text("""
                 UPDATE etl_jobs
-                SET status = 'READY',
+                SET status = jsonb_set(status, ARRAY['overall'], to_jsonb('READY'::text)),
                     next_run = :next_run,
                     last_updated_at = :now
                 WHERE id = :job_id AND tenant_id = :tenant_id
@@ -500,9 +443,6 @@ async def reset_job_countdown(tenant_id: int, job_id: int, message: str, job_sta
         logger.info(f"✅ Jira job set to READY - next run scheduled for {next_run}")
         logger.info(f"Next run will be calculated as: last_updated_at + {schedule_interval_minutes} minutes")
 
-        # Step 5: Send final status update to READY
-        await websocket_manager.send_status_update(tenant_id, "Jira", "READY", f"Next run at {next_run}")
-
     except Exception as e:
         logger.error(f"Error updating job completion: {e}")
 
@@ -511,8 +451,6 @@ async def _extract_projects_and_issue_types(
     jira_client: JiraAPIClient,
     integration_id: int,
     tenant_id: int,
-    progress_tracker: JiraExtractionProgressTracker,
-    step_index: int = 0,  # Internal index (0-based for 4-step tracker)
     job_id: int = None  # ETL job ID for tracking
 ) -> Dict[str, Any]:
     """Extract projects and issue types (Phase 2.1 / Step 1)."""
@@ -559,10 +497,7 @@ async def _extract_projects_and_issue_types(
 
         logger.info(f"Step 1: Using {len(project_keys)} configured projects: {project_keys}")
 
-    # Step progress: Extract projects data (0.0 -> 0.3)
-    await progress_tracker.update_step_progress(
-        step_index, 0.0, f"Step 1: Fetching {len(project_keys)} configured projects and issue types"
-    )
+
 
     # Extract configured projects with issue types using /project/search endpoint
     # Filter by the projects configured in integration settings
@@ -577,35 +512,13 @@ async def _extract_projects_and_issue_types(
     # Wrap in the expected structure for consistency with raw data storage
     projects_data = {'values': projects_list}
 
-    # Step progress: Store raw data (0.3 -> 0.6)
-    await progress_tracker.update_step_progress(
-        step_index, 0.3, f"Step 1: Storing {len(projects_list)} projects with issue types"
-    )
+
 
     raw_data_id = await store_raw_extraction_data(
         integration_id, tenant_id, "jira_project_search", projects_data
     )
 
-    # Step progress: Process transformation (0.6 -> 1.0)
-    await progress_tracker.update_step_progress(
-        step_index, 0.6, f"Step 1: Processing projects and issue types data (raw_data_id={raw_data_id})"
-    )
 
-    # Queue transformation using proper queue architecture
-    from app.etl.queue.queue_manager import QueueManager
-
-    queue_manager = QueueManager()
-    queued = queue_manager.publish_transform_job(
-        tenant_id=tenant_id,
-        integration_id=integration_id,
-        raw_data_id=raw_data_id,
-        data_type='jira_project_search',
-        etl_job_id=job_id,
-        provider_name='jira'
-    )
-
-    if not queued:
-        raise ValueError("Failed to queue projects transformation")
 
     # Count unique issue types (not n-n relationships)
     # Get unique issue types from database for accurate count
@@ -619,9 +532,7 @@ async def _extract_projects_and_issue_types(
             Wit.active == True
         ).count()
 
-    await progress_tracker.complete_step(
-        step_index, f"Step 1 complete: {len(projects_list)} projects, {unique_issue_types_count} issue types"
-    )
+
 
     # Publish to transform queue with first_item=true and job_start_time
     if job_id:
@@ -643,11 +554,12 @@ async def _extract_projects_and_issue_types(
             tenant_id=tenant_id,
             integration_id=integration_id,
             raw_data_id=raw_data_id,
-            data_type='jira_project_search',  # ✅ Match the entity_type used in store_raw_extraction_data
-            etl_job_id=job_id,
-            provider_name=provider_name,
+            data_type='jira_projects_and_issue_types',  # 🔧 Use correct step name for UI
+            job_id=job_id,
+            provider=provider_name,
             last_sync_date=job_start_time.isoformat(),
-            first_item=True  # ✅ This is the first item in the ETL flow
+            first_item=True,  # ✅ Single message (first)
+            last_item=True   # ✅ Single message (last)
         )
 
         if success:
@@ -668,17 +580,13 @@ async def _extract_statuses_and_relationships(
     jira_client: JiraAPIClient,
     integration_id: int,
     tenant_id: int,
-    progress_tracker: JiraExtractionProgressTracker,
-    step_index: int = 1  # Internal index (1 for 4-step tracker)
+    job_id: int = None
 ) -> Dict[str, Any]:
     """Extract statuses and project relationships (Phase 2.2 / Step 2)."""
 
     logger.info(f"🔍 [DEBUG] Starting _extract_statuses_and_relationships for tenant {tenant_id}, integration {integration_id}")
 
-    # Step progress: Get projects from database (0.0 -> 0.2)
-    await progress_tracker.update_step_progress(
-        step_index, 0.0, "Step 2: Fetching projects from database for status extraction"
-    )
+
 
     # Get projects from database (like old ETL)
     # Use READ replica for fast query
@@ -704,23 +612,12 @@ async def _extract_statuses_and_relationships(
         project_keys = [row[1] for row in projects_result]  # Extract project keys
         logger.info(f"🔍 [DEBUG] Found {len(project_keys)} projects for status extraction: {project_keys}")
 
-    # Step progress: Extract project-specific statuses (0.0 -> 1.0)
-    await progress_tracker.update_step_progress(
-        step_index, 0.0, f"Step 2: Fetching project-specific statuses for {len(project_keys)} projects"
-    )
-
     # Process each project's statuses individually (better granularity)
     total_statuses_processed = 0
     total_relationships_processed = 0
 
     for i, project_key in enumerate(project_keys):
         try:
-            # Update progress for each project within step (0.0 -> 0.9)
-            project_progress = (i / len(project_keys)) * 0.9
-            await progress_tracker.update_step_progress(
-                step_index, project_progress, f"Step 2: Processing project {i+1}/{len(project_keys)}: {project_key}"
-            )
-
             # Call /rest/api/3/project/{project_key}/statuses for each project
             logger.info(f"🔍 [DEBUG] Calling get_project_statuses for project {project_key}")
             project_statuses_response = jira_client.get_project_statuses(project_key)
@@ -752,13 +649,19 @@ async def _extract_statuses_and_relationships(
                 queue_manager = QueueManager()
                 logger.info(f"🔍 [DEBUG] About to queue transform job for project {project_key}, raw_data_id={raw_data_id}")
 
+                # Set flags for proper queue processing
+                first_item = (i == 0)
+                last_item = (i == len(project_keys) - 1)
+
                 queued = queue_manager.publish_transform_job(
                     tenant_id=tenant_id,
                     integration_id=integration_id,
                     raw_data_id=raw_data_id,
-                    data_type='jira_statuses_and_project_relationships',
-                    etl_job_id=progress_tracker.job_id,
-                    provider_name='jira'
+                    data_type='jira_statuses_and_relationships',  # 🔧 Use correct step name for UI
+                    job_id=job_id,
+                    provider='jira',
+                    first_item=first_item,
+                    last_item=last_item
                 )
 
                 logger.info(f"🔍 [DEBUG] Transform job queued: {queued} for project {project_key}")
@@ -800,9 +703,7 @@ async def _extract_statuses_and_relationships(
         ).count()
         logger.info(f"🔍 [DEBUG] Found {unique_statuses_count} unique statuses in database")
 
-    await progress_tracker.complete_step(
-        step_index, f"Step 2 complete: {unique_statuses_count} statuses, {total_relationships_processed} project relationships across {len(project_keys)} projects"
-    )
+
 
     logger.info(f"🔍 [DEBUG] _extract_statuses_and_relationships completed successfully - returning success=True")
 
@@ -818,7 +719,6 @@ async def _extract_issues_with_changelogs_for_complete_job(
     jira_client: JiraAPIClient,
     integration_id: int,
     tenant_id: int,
-    progress_tracker: 'JiraExtractionProgressTracker',
     job_id: int,
     job_start_time
 ) -> Dict[str, Any]:
@@ -905,9 +805,7 @@ async def _extract_issues_with_changelogs_for_complete_job(
     total_issues_processed = 0
     batches_stored = 0
 
-    await progress_tracker.update_step_progress(
-        2, 0.0, "Step 3: Starting issues extraction (fetching in batches of 100)"
-    )
+
 
     from app.etl.queue.queue_manager import QueueManager
     queue_manager = QueueManager()
@@ -998,8 +896,9 @@ async def _extract_issues_with_changelogs_for_complete_job(
             success = queue_manager.publish_transform_job(
                 tenant_id=tenant_id,
                 integration_id=integration_id,
-                data_type='jira_issue',  # Changed from 'jira_issues_changelogs'
-                raw_data_id=raw_data_id
+                raw_data_id=raw_data_id,
+                data_type='jira_issues_with_changelogs',  # 🔧 Use correct step name for UI
+                provider='jira'
             )
 
             if success:
@@ -1017,16 +916,9 @@ async def _extract_issues_with_changelogs_for_complete_job(
         # Update progress
         total_issues_processed += batch_size
 
-        # Update progress message (without knowing total, show incremental count)
-        # Use logarithmic-style progress that approaches but never reaches 100%
-        # This gives user feedback while extraction continues
-        progress_within_step = min(0.95, 1.0 - (1.0 / (batches_stored + 1)))
-        progress_message = f"Step 3: Extracting issues - {total_issues_processed:,} issues fetched ({batches_stored} batches)"
 
-        await progress_tracker.update_step_progress(
-            2, progress_within_step,
-            progress_message
-        )
+
+
 
         # Log progress every 10 batches
         if batches_stored % 10 == 0:
@@ -1040,14 +932,8 @@ async def _extract_issues_with_changelogs_for_complete_job(
     # Final completion message
     if batches_stored > 0:
         logger.info(f"Step 3: ✅ COMPLETED - Stored and queued {batches_stored} batches ({total_issues_processed:,} total issues)")
-        await progress_tracker.update_step_progress(
-            2, 1.0, f"Step 3: Complete - {total_issues_processed:,} issues extracted in {batches_stored} batches"
-        )
     else:
         logger.info(f"Step 3: ℹ️ No issues found to extract")
-        await progress_tracker.update_step_progress(
-            2, 1.0, "Step 3: Complete - No issues found"
-        )
 
     return {
         'success': True,
@@ -1061,7 +947,6 @@ async def _extract_dev_status_for_complete_job(
     jira_client: JiraAPIClient,
     integration_id: int,
     tenant_id: int,
-    progress_tracker: 'JiraExtractionProgressTracker',
     job_id: int,
     job_start_time
 ) -> Dict[str, Any]:
@@ -1079,9 +964,7 @@ async def _extract_dev_status_for_complete_job(
 
     # Get issues with code changes from database
     # Use READ replica for query, close immediately
-    await progress_tracker.update_step_progress(
-        3, 0.1, "Step 4: Finding issues with code changes"
-    )
+
 
     from sqlalchemy import text
     from app.core.database import get_database
@@ -1140,125 +1023,26 @@ async def _extract_dev_status_for_complete_job(
 
     if not issue_keys:
         logger.info("Step 4: ℹ️ No issues with code changes found - skipping dev status extraction")
-        await progress_tracker.update_step_progress(
-            3, 1.0, "Step 4: Complete - No issues with code changes"
-        )
+
         return {'success': True, 'pr_links_count': 0}
 
-    # Fetch dev status for each issue - BATCH PROCESSING
-    # Store and queue every 50 issues to avoid memory buildup
-    logger.info(f"Step 4: Starting dev status extraction for {len(issue_keys):,} issues with code changes")
-    await progress_tracker.update_step_progress(
-        3, 0.3, f"Step 4: Fetching dev status for {len(issue_keys):,} issues"
-    )
+    # Individual dev_status extraction - queue each issue separately for proper flag handling
+    logger.info(f"Step 4: Starting individual dev_status extraction for {len(issue_keys):,} issues with code changes")
 
-    from app.etl.queue.queue_manager import QueueManager
-    queue_manager = QueueManager()
+    # Note: Individual extraction is handled by the existing code below (lines 1464-1485)
+    # This ensures proper first_item/last_item/last_job_item flag handling
 
-    batch_size = 50
-    current_batch = []
-    batches_stored = 0
-    total_pr_links = 0
-    total_processed = 0
-    total_batches_expected = ((len(issue_keys) + batch_size - 1) // batch_size)
 
-    for i, issue_key in enumerate(issue_keys):
-        try:
-            dev_details = jira_client.get_issue_dev_details(issue_key)
-            if dev_details:
-                current_batch.append({
-                    'issue_key': issue_key,
-                    'dev_details': dev_details
-                })
 
-                # Count PR links in this item
-                pr_count = len(dev_details.get('detail', [{}])[0].get('pullRequests', []))
-                total_pr_links += pr_count
 
-        except Exception as e:
-            logger.warning(f"Step 4: ⚠️ Failed to fetch dev status for {issue_key}: {e}")
 
-        total_processed += 1
-
-        # Log progress every 50 issues
-        if total_processed % 50 == 0:
-            logger.info(f"Step 4: 📊 Processed {total_processed:,}/{len(issue_keys):,} issues ({total_processed/len(issue_keys)*100:.1f}%)")
-
-        # Store and queue batch when it reaches batch_size or at the end
-        if len(current_batch) >= batch_size or (i + 1) == len(issue_keys):
-            if current_batch:
-                # Store this batch - use WRITE session, close immediately
-                from sqlalchemy import text
-                from datetime import datetime, timezone
-                from app.core.database import get_database
-
-                database = get_database()
-                with database.get_write_session_context() as db:
-                    insert_query = text("""
-                        INSERT INTO raw_extraction_data (tenant_id, integration_id, type, raw_data, status, created_at, last_updated_at)
-                        VALUES (:tenant_id, :integration_id, :type, :raw_data, :status, :created_at, :last_updated_at)
-                        RETURNING id
-                    """)
-
-                    result = db.execute(insert_query, {
-                        'tenant_id': tenant_id,
-                        'integration_id': integration_id,
-                        'type': 'jira_dev_status',
-                        'raw_data': json.dumps({
-                            'dev_status': current_batch,
-                            'batch_info': {
-                                'batch_number': batches_stored + 1,
-                                'batch_size': len(current_batch),
-                                'total_issues': len(issue_keys)
-                            }
-                        }),
-                        'status': 'pending',
-                        'created_at': datetime.now(timezone.utc),
-                        'last_updated_at': datetime.now(timezone.utc)
-                    })
-
-                    raw_data_id = result.fetchone()[0]
-                    # Commit happens automatically in context manager
-
-                batches_stored += 1
-                logger.info(f"Step 4: ✅ Stored dev status batch #{batches_stored}/{total_batches_expected} with raw_data_id={raw_data_id} ({len(current_batch)} issues)")
-
-                # Publish this batch to transform queue
-                success = queue_manager.publish_transform_job(
-                    tenant_id=tenant_id,
-                    integration_id=integration_id,
-                    data_type='jira_dev_status',
-                    raw_data_id=raw_data_id
-                )
-
-                if not success:
-                    logger.error(f"Step 4: ❌ Failed to publish dev status batch #{batches_stored} to transform queue")
-                else:
-                    logger.info(f"Step 4: ✅ Published dev status batch #{batches_stored}/{total_batches_expected} to transform queue")
-
-                # Clear batch
-                current_batch = []
-
-        # Update progress periodically (every 10 issues)
-        if (i + 1) % 10 == 0:
-            progress_within_step = 0.3 + (0.6 * ((i + 1) / len(issue_keys)))
-            progress_message = f"Step 4: Extracting dev status - {total_processed:,}/{len(issue_keys):,} issues ({batches_stored} batches)"
-
-            await progress_tracker.update_step_progress(
-                3, progress_within_step,
-                progress_message
-            )
-
-    logger.info(f"Step 4: ✅ COMPLETED - Stored and queued {batches_stored} batches ({total_processed:,} issues, {total_pr_links:,} PR links)")
-
-    await progress_tracker.update_step_progress(
-        3, 1.0, f"Step 4: Complete - {total_processed:,} issues processed, {total_pr_links:,} PR links found"
-    )
+    # Individual dev_status extraction will be handled by the existing individual processing code
+    # This ensures proper first_item/last_item/last_job_item flag handling
 
     return {
-        'pr_links_count': total_pr_links,
-        'batches_count': batches_stored,
-        'issues_processed': total_processed
+        'pr_links_count': 0,  # Will be counted by individual extraction
+        'batches_count': 0,   # No batches in individual processing
+        'issues_processed': len(issue_keys)
     }
 
 
@@ -1280,51 +1064,17 @@ async def execute_issues_changelogs_dev_status_extraction(
     """
     logger.info(f"Starting issues extraction for integration {integration_id}, tenant {tenant_id}")
 
-    progress_tracker = JiraExtractionProgressTracker(tenant_id, job_id)
-
     try:
-        # Step 0: Initialize (0% -> 25%)
-        await progress_tracker.update_step_progress(
-            0, 0.0, "Initializing issues extraction"
-        )
-
         # Get integration and create client
-        integration, jira_client = await _initialize_jira_client(integration_id, tenant_id)
-
-        await progress_tracker.update_step_progress(
-            0, 1.0, "Jira client initialized successfully"
-        )
-
-        # Step 1: Fetch issues with changelogs (25% -> 75%)
-        await progress_tracker.update_step_progress(
-            1, 0.0, "Fetching issues with changelogs from Jira"
-        )
+        _, jira_client = await _initialize_jira_client(integration_id, tenant_id)
 
         issues_result = await _extract_issues_with_changelogs(
-            jira_client, integration_id, tenant_id, incremental, progress_tracker, job_id
+            jira_client, integration_id, tenant_id, incremental, job_id
         )
 
-        await progress_tracker.update_step_progress(
-            1, 1.0, f"Fetched {issues_result['issues_count']} issues with changelogs"
-        )
-
-        # Step 2: Process dev_status for issues with code changes (75% -> 90%)
-        await progress_tracker.update_step_progress(
-            2, 0.0, "Processing development status for issues with code changes"
-        )
-
-        dev_status_result = await _extract_dev_status(
-            jira_client, integration_id, tenant_id, issues_result.get('issues_with_code_changes', []), progress_tracker
-        )
-
-        await progress_tracker.update_step_progress(
-            2, 1.0, f"Processed dev_status for {dev_status_result['dev_status_count']} issues"
-        )
-
-        # Step 3: Complete (90% -> 100%)
-        await progress_tracker.update_step_progress(
-            3, 0.5, "Finalizing extraction"
-        )
+        # Dev_status extraction is now handled by individual extraction workers
+        # This ensures proper first_item/last_item/last_job_item flag handling
+        dev_status_result = {'success': True, 'dev_status_count': 0}
 
         # Update job status to FINISHED
         from app.core.database import get_database
@@ -1333,7 +1083,7 @@ async def execute_issues_changelogs_dev_status_extraction(
         with database.get_write_session_context() as db:
             update_query = text("""
                 UPDATE etl_jobs
-                SET status = 'FINISHED',
+                SET status = jsonb_set(status, ARRAY['overall'], to_jsonb('FINISHED'::text)),
                     last_run_completed_at = NOW(),
                     last_updated_at = NOW()
                 WHERE id = :job_id AND tenant_id = :tenant_id
@@ -1341,15 +1091,9 @@ async def execute_issues_changelogs_dev_status_extraction(
             db.execute(update_query, {'job_id': job_id, 'tenant_id': tenant_id})
             # Commit happens automatically
 
-        await progress_tracker.update_step_progress(
-            3, 1.0, "Issues extraction completed successfully"
-        )
 
-        # Send WebSocket completion update
-        websocket_manager = get_websocket_manager()
-        await websocket_manager.send_status_update(
-            tenant_id, "Jira", "FINISHED", "Issues extraction completed"
-        )
+
+
 
         logger.info(f"Issues extraction completed for integration {integration_id}")
 
@@ -1377,11 +1121,7 @@ async def execute_issues_changelogs_dev_status_extraction(
             db.execute(update_query, {'job_id': job_id, 'tenant_id': tenant_id})
             # Commit happens automatically
 
-        # Send WebSocket error update
-        websocket_manager = get_websocket_manager()
-        await websocket_manager.send_status_update(
-            tenant_id, "Jira", "FINISHED", f"Issues extraction failed: {str(e)}"
-        )
+
 
         raise
 
@@ -1391,7 +1131,6 @@ async def _extract_issues_with_changelogs(
     integration_id: int,
     tenant_id: int,
     incremental: bool,
-    progress_tracker: JiraExtractionProgressTracker,
     job_id: int = None
 ) -> Dict[str, Any]:
     """
@@ -1444,17 +1183,36 @@ async def _extract_issues_with_changelogs(
             project_list = ", ".join(projects)
             jql_parts.append(f"project in ({project_list})")
 
-    # Add date filter for incremental extraction
+    # Add date filter for incremental extraction with bounded range
     if incremental and last_sync_date:
-        # Use last_sync_date for incremental extraction
-        jira_date = last_sync_date.strftime('%Y-%m-%d %H:%M')
-        jql_parts.append(f"updated >= '{jira_date}'")
+        # Use bounded date range: last_sync_date <= updated <= now()
+        # This prevents future dates from breaking the query
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+
+        # Format dates for JQL (without seconds)
+        start_date = last_sync_date.strftime('%Y-%m-%d %H:%M')
+        end_date = now.strftime('%Y-%m-%d %H:%M')
+
+        jql_parts.append(f"updated >= '{start_date}' AND updated <= '{end_date}'")
+        logger.info(f"[DEBUG] Using bounded date range: {start_date} to {end_date}")
+
+        # Set the current time as the new last_sync_date for forwarding
+        last_sync_date = now
     elif incremental:
         # Fallback to 30 days if no last_sync_date
         from datetime import timedelta
-        thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
-        jira_date = thirty_days_ago.strftime('%Y-%m-%d %H:%M')
-        jql_parts.append(f"updated >= '{jira_date}'")
+        now = datetime.now(timezone.utc)
+        thirty_days_ago = now - timedelta(days=30)
+
+        start_date = thirty_days_ago.strftime('%Y-%m-%d %H:%M')
+        end_date = now.strftime('%Y-%m-%d %H:%M')
+
+        jql_parts.append(f"updated >= '{start_date}' AND updated <= '{end_date}'")
+        logger.info(f"[DEBUG] Using 30-day fallback range: {start_date} to {end_date}")
+
+        # Set the current time as the last_sync_date for forwarding
+        last_sync_date = now
 
     # Combine JQL parts
     if jql_parts:
@@ -1508,12 +1266,7 @@ async def _extract_issues_with_changelogs(
         current_count = len(all_issues)
         logger.info(f"[DEBUG] Fetched {current_count}/{total_issues} issues")
 
-        # Update progress
-        if total_issues > 0:
-            progress = current_count / total_issues
-            await progress_tracker.update_step_progress(
-                1, progress, f"[DEBUG] Fetching issues: {current_count}/{total_issues}"
-            )
+
 
         # Check if we have more pages using the new token-based pagination
         next_page_token = result.get('nextPageToken')
@@ -1537,6 +1290,37 @@ async def _extract_issues_with_changelogs(
     stored_count = 0
     published_count = 0
 
+    # 🎯 HANDLE CASE: No issues found - send completion message to transform
+    if not all_issues:
+        logger.info(f"[DEBUG] No issues found - sending completion message to transform queue")
+
+        # Send completion message with raw_data_id=None to signal job completion
+        success = queue_manager.publish_transform_job(
+            tenant_id=tenant_id,
+            integration_id=integration_id,
+            raw_data_id=None,  # 🔧 None signals completion message
+            data_type='jira_issues_with_changelogs',
+            job_id=job_id,
+            provider=provider_name,
+            last_sync_date=last_sync_date_str,
+            first_item=True,
+            last_item=True,
+            last_job_item=True  # 🎯 Complete the job since no data to process
+        )
+
+        if success:
+            logger.info(f"✅ Sent completion message to transform queue (no issues found)")
+            published_count = 1
+        else:
+            logger.error(f"❌ Failed to send completion message to transform queue")
+
+        return {
+            'success': True,
+            'issues_count': 0,
+            'issues_with_code_changes': [],
+            'dev_status_queued': 0
+        }
+
     for i, issue in enumerate(all_issues):
         # Store individual issue as raw data
         raw_data_id = await store_raw_extraction_data(
@@ -1547,130 +1331,103 @@ async def _extract_issues_with_changelogs(
         )
         stored_count += 1
 
-        # Determine if this is the last issue
-        is_last_item = (i == len(all_issues) - 1)
+        # Set flags for proper queue processing
+        first_item = (i == 0)
+        last_item = (i == len(all_issues) - 1)
+
+        # 🎯 CRITICAL: Issues should NEVER complete the job when there are development issues
+        # If issues have development field, dev_status extraction will complete the job
+        # If NO issues have development field, the last issue should complete the job
+        has_development_issues = len(issues_with_code_changes) > 0
+        last_job_item = last_item and not has_development_issues
 
         # Publish individual issue to transform queue
         success = queue_manager.publish_transform_job(
             tenant_id=tenant_id,
             integration_id=integration_id,
             raw_data_id=raw_data_id,
-            data_type='jira_single_issue_changelog',
-            etl_job_id=job_id,
-            provider_name=provider_name,
+            data_type='jira_issues_with_changelogs',  # 🔧 Use correct step name for UI
+            job_id=job_id,
+            provider=provider_name,
             last_sync_date=last_sync_date_str,
-            first_item=False,
-            last_issue_changelog_item=is_last_item
+            first_item=first_item,
+            last_item=last_item,
+            last_job_item=last_job_item  # 🎯 Complete job if no dev_status needed
         )
 
         if success:
             published_count += 1
+            if last_job_item:
+                logger.info(f"✅ Issue {issue.get('key')} queued with last_job_item=True (will complete job)")
+            else:
+                logger.debug(f"📝 Issue {issue.get('key')} queued (first={first_item}, last={last_item})")
 
     logger.info(f"[DEBUG] Stored {stored_count} individual issues and published {published_count} to transform queue")
+
+    # Log the decision about job completion
+    if issues_with_code_changes:
+        logger.info(f"[DEBUG] Found {len(issues_with_code_changes)} issues with development field - job completion will be handled by dev_status extraction")
+    else:
+        logger.info(f"[DEBUG] No issues with development field - job completion handled by last issue transform")
+
+    # 🎯 NEW ARCHITECTURE: Queue dev_status extractions for issues with development field
+    # This is where we have full context to set proper first_item/last_item/last_job_item flags
+    dev_status_queued = 0
+
+    if issues_with_code_changes:
+        logger.info(f"[DEBUG] Queueing {len(issues_with_code_changes)} issues for dev_status extraction")
+
+        for i, issue_key in enumerate(issues_with_code_changes):
+            # Find the issue data by key
+            issue_data = None
+            for issue in all_issues:
+                if issue.get('key') == issue_key:
+                    issue_data = issue
+                    break
+
+            if not issue_data:
+                logger.warning(f"Could not find issue data for {issue_key}")
+                continue
+
+            # Set flags for dev_status extraction
+            first_item = (i == 0)
+            last_item = (i == len(issues_with_code_changes) - 1)
+            last_job_item = last_item  # 🎯 Mark the final dev_status as the job completion trigger
+
+            # Queue dev_status extraction
+            success = queue_manager.publish_extraction_job(
+                tenant_id=tenant_id,
+                integration_id=integration_id,
+                extraction_type='jira_dev_status',
+                extraction_data={
+                    'issue_id': issue_data.get('id'),
+                    'issue_key': issue_data.get('key')
+                },
+                job_id=job_id,
+                provider=provider_name,
+                last_sync_date=last_sync_date_str,
+                first_item=first_item,
+                last_item=last_item,
+                last_job_item=last_job_item
+            )
+
+            if success:
+                dev_status_queued += 1
+                logger.debug(f"✅ Queued dev_status extraction for {issue_key} (first={first_item}, last={last_item}, job_end={last_job_item})")
+            else:
+                logger.error(f"❌ Failed to queue dev_status extraction for {issue_key}")
+
+    logger.info(f"[DEBUG] Queued {dev_status_queued} dev_status extractions")
 
     return {
         'success': True,
         'issues_count': len(all_issues),
-        'issues_with_code_changes': issues_with_code_changes
+        'issues_with_code_changes': issues_with_code_changes,
+        'dev_status_queued': dev_status_queued
     }
 
 
-async def _extract_dev_status(
-    jira_client: JiraAPIClient,
-    integration_id: int,
-    tenant_id: int,
-    issue_keys: List[str],
-    progress_tracker: JiraExtractionProgressTracker
-) -> Dict[str, Any]:
-    """
-    Extract dev_status for issues with code changes.
-
-    Returns:
-        Dict containing:
-        - dev_status_count: Number of dev_status records extracted
-    """
-
-    from app.etl.queue.queue_manager import get_queue_manager
-
-    if not issue_keys:
-        logger.info("No issues with code changes to process")
-        return {'success': True, 'dev_status_count': 0}
-
-    logger.info(f"Extracting dev_status for {len(issue_keys)} issues")
-
-    # Get issue external IDs from database
-    # Use READ replica for fast query
-    from app.core.database import get_database
-    database = get_database()
-
-    with database.get_read_session_context() as db:
-        query = text("""
-            SELECT key, external_id
-            FROM work_items
-            WHERE tenant_id = :tenant_id AND integration_id = :integration_id
-            AND key = ANY(:issue_keys)
-        """)
-        results = db.execute(query, {
-            'tenant_id': tenant_id,
-            'integration_id': integration_id,
-            'issue_keys': issue_keys
-        }).fetchall()
-
-        issue_map = {row[0]: row[1] for row in results}
-
-    # Fetch dev_status for each issue
-    dev_status_data = []
-    processed_count = 0
-
-    for issue_key in issue_keys:
-        external_id = issue_map.get(issue_key)
-        if not external_id:
-            logger.warning(f"No external_id found for issue {issue_key}")
-            continue
-
-        try:
-            dev_details = jira_client.get_issue_dev_details(external_id)
-            if dev_details:
-                dev_status_data.append({
-                    'issue_key': issue_key,
-                    'issue_external_id': external_id,
-                    'dev_details': dev_details
-                })
-        except Exception as e:
-            logger.warning(f"Failed to fetch dev_status for issue {issue_key}: {e}")
-
-        processed_count += 1
-        if processed_count % 10 == 0:
-            progress = processed_count / len(issue_keys)
-            await progress_tracker.update_step_progress(
-                2, progress, f"Processing dev_status: {processed_count}/{len(issue_keys)}"
-            )
-
-    logger.info(f"Fetched dev_status for {len(dev_status_data)} issues")
-
-    if dev_status_data:
-        # Store raw data
-        raw_data_id = await store_raw_extraction_data(
-            integration_id=integration_id,
-            tenant_id=tenant_id,
-            entity_type='jira_dev_status',
-            raw_data={'dev_status': dev_status_data}
-        )
-
-        logger.info(f"Stored raw dev_status data with ID: {raw_data_id}")
-
-        # Publish to transform queue
-        queue_manager = get_queue_manager()
-        queue_manager.publish_transform_job(
-            tenant_id=tenant_id,
-            integration_id=integration_id,
-            raw_data_id=raw_data_id,
-            data_type='jira_dev_status'
-        )
-
-        logger.info(f"Published dev_status to transform queue")
-
-    return {'success': True, 'dev_status_count': len(dev_status_data)}
+# Legacy _extract_dev_status function removed - dev_status extraction now handled by individual extraction workers
 
 
 # FastAPI Router
@@ -1743,7 +1500,7 @@ async def extract_projects_and_issue_types_endpoint(
         # Set job to RUNNING
         update_query = text("""
             UPDATE etl_jobs
-            SET status = 'RUNNING',
+            SET status = jsonb_set(status, ARRAY['overall'], to_jsonb('RUNNING'::text)),
                 last_run_started_at = NOW(),
                 last_updated_at = NOW()
             WHERE id = :job_id AND tenant_id = :tenant_id
@@ -1751,10 +1508,7 @@ async def extract_projects_and_issue_types_endpoint(
         db.execute(update_query, {'job_id': job_id, 'tenant_id': tenant_id})
         db.commit()
 
-        # Send WebSocket status update
-        from app.api.websocket_routes import get_websocket_manager
-        websocket_manager = get_websocket_manager()
-        await websocket_manager.send_status_update(tenant_id, "Jira", "RUNNING", "Job started")
+
 
         # Log before adding background task
         logger.info(f"📋 Adding background task: execute_complete_jira_extraction(integration_id={integration_id}, tenant_id={tenant_id}, job_id={job_id})")
@@ -1841,7 +1595,7 @@ async def extract_issues_changelogs_dev_status_endpoint(
         # Set job to RUNNING
         update_query = text("""
             UPDATE etl_jobs
-            SET status = 'RUNNING',
+            SET status = jsonb_set(status, ARRAY['overall'], to_jsonb('RUNNING'::text)),
                 last_run_started_at = NOW(),
                 last_updated_at = NOW()
             WHERE id = :job_id AND tenant_id = :tenant_id
@@ -1849,10 +1603,7 @@ async def extract_issues_changelogs_dev_status_endpoint(
         db.execute(update_query, {'job_id': job_id, 'tenant_id': tenant_id})
         db.commit()
 
-        # Send WebSocket status update
-        from app.api.websocket_routes import get_websocket_manager
-        websocket_manager = get_websocket_manager()
-        await websocket_manager.send_status_update(tenant_id, "Jira", "RUNNING", "Issues extraction started")
+
 
         # Add background task for issues extraction
         background_tasks.add_task(

@@ -10,7 +10,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import desc, func, distinct
 from app.core.database import get_db_session
 from app.models.unified_models import (
-    JobSchedule, Project, Wit, Status, WorkItem, Changelog, WitPrLinks
+    EtlJob, Project, Wit, Status, WorkItem, Changelog, WitPrLinks
 )
 from app.schemas.api_schemas import (
     JobRunRequest, JobRunResponse, JobStatusResponse, JobStatus
@@ -47,14 +47,14 @@ async def run_jira_job(
     try:
         # Get or create Jira job schedule
         # ✅ SECURITY: Filter by tenant_id to prevent cross-client data access
-        jira_job = db.query(JobSchedule).filter(
-            JobSchedule.job_name == 'jira_sync',
-            JobSchedule.tenant_id == user.tenant_id
+        jira_job = db.query(EtlJob).filter(
+            EtlJob.job_name == 'jira_sync',
+            EtlJob.tenant_id == user.tenant_id
         ).first()
 
         if not jira_job:
             # Create new job schedule
-            jira_job = JobSchedule(
+            jira_job = EtlJob(
                 job_name='jira_sync',
                 status='PENDING',
                 active=True
@@ -222,14 +222,14 @@ async def run_github_job(
     try:
         # Get or create GitHub job schedule
         # ✅ SECURITY: Filter by tenant_id to prevent cross-client data access
-        github_job = db.query(JobSchedule).filter(
-            JobSchedule.job_name == 'github_sync',
-            JobSchedule.tenant_id == user.tenant_id
+        github_job = db.query(EtlJob).filter(
+            EtlJob.job_name == 'github_sync',
+            EtlJob.tenant_id == user.tenant_id
         ).first()
 
         if not github_job:
             # Create new job schedule
-            github_job = JobSchedule(
+            github_job = EtlJob(
                 job_name='github_sync',
                 status='PENDING',
                 active=True

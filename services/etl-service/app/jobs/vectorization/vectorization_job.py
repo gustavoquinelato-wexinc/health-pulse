@@ -19,7 +19,7 @@ from typing import Dict, Any, Optional
 
 from app.core.logging_config import get_logger
 from app.core.database import get_database
-from app.models.unified_models import JobSchedule, Integration
+from app.models.unified_models import EtlJob, Integration
 from app.core.orchestrator_scheduler import get_orchestrator_scheduler
 from app.core.websocket_manager import websocket_manager
 

@@ -517,28 +517,114 @@ def apply(connection):
                 "job_name": "Jira",
                 "integration_id": integrations.get('Jira'),
                 "schedule_interval_minutes": 60,  # 1 hour
-                "status": "READY",
+                "status": {
+                    "overall": "READY",
+                    "steps": {
+                        "jira_projects_and_issue_types": {
+                            "order": 1,
+                            "display_name": "Projects & Types",
+                            "extraction": "idle",
+                            "transform": "idle",
+                            "embedding": "idle"
+                        },
+                        "jira_statuses_and_relationships": {
+                            "order": 2,
+                            "display_name": "Statuses & Relations",
+                            "extraction": "idle",
+                            "transform": "idle",
+                            "embedding": "idle"
+                        },
+                        "jira_issues_with_changelogs": {
+                            "order": 3,
+                            "display_name": "Issues & Changelogs",
+                            "extraction": "idle",
+                            "transform": "idle",
+                            "embedding": "idle"
+                        },
+                        "jira_dev_status": {
+                            "order": 4,
+                            "display_name": "Development Status",
+                            "extraction": "idle",
+                            "transform": "idle",
+                            "embedding": "idle"
+                        }
+                    }
+                },
                 "active": False  # Inactive by default - user must activate
             },
             {
                 "job_name": "GitHub",
                 "integration_id": integrations.get('GitHub'),
                 "schedule_interval_minutes": 60,  # 1 hour
-                "status": "READY",
+                "status": {
+                    "overall": "READY",
+                    "steps": {
+                        "github_repositories": {
+                            "order": 1,
+                            "display_name": "Repositories",
+                            "extraction": "idle",
+                            "transform": "idle",
+                            "embedding": "idle"
+                        },
+                        "github_pull_requests": {
+                            "order": 2,
+                            "display_name": "Pull Requests",
+                            "extraction": "idle",
+                            "transform": "idle",
+                            "embedding": "idle"
+                        },
+                        "github_commits": {
+                            "order": 3,
+                            "display_name": "Commits",
+                            "extraction": "idle",
+                            "transform": "idle",
+                            "embedding": "idle"
+                        },
+                        "github_reviews": {
+                            "order": 4,
+                            "display_name": "Reviews",
+                            "extraction": "idle",
+                            "transform": "idle",
+                            "embedding": "idle"
+                        }
+                    }
+                },
                 "active": False  # Inactive by default - user must activate
             },
             {
                 "job_name": "WEX Fabric",
                 "integration_id": integrations.get('WEX Fabric'),
                 "schedule_interval_minutes": 1440,  # 24 hours
-                "status": "READY",
+                "status": {
+                    "overall": "READY",
+                    "steps": {
+                        "wex_fabric_data": {
+                            "order": 1,
+                            "display_name": "Fabric Data",
+                            "extraction": "idle",
+                            "transform": "idle",
+                            "embedding": "idle"
+                        }
+                    }
+                },
                 "active": False  # Inactive by default (not implemented yet)
             },
             {
                 "job_name": "WEX AD",
                 "integration_id": integrations.get('WEX AD'),
                 "schedule_interval_minutes": 720,  # 12 hours
-                "status": "READY",
+                "status": {
+                    "overall": "READY",
+                    "steps": {
+                        "wex_ad_users": {
+                            "order": 1,
+                            "display_name": "AD Users",
+                            "extraction": "idle",
+                            "transform": "idle",
+                            "embedding": "idle"
+                        }
+                    }
+                },
                 "active": False  # Inactive by default (not implemented yet)
             }
             # NOTE: No Vectorization job - now integrated into transform workers
@@ -563,7 +649,7 @@ def apply(connection):
                     ON CONFLICT (job_name, tenant_id) DO NOTHING;
                 """, (
                     job["job_name"],
-                    job["status"],
+                    json.dumps(job["status"]),  # Convert dict to JSON string
                     job["schedule_interval_minutes"],
                     15,  # retry_interval_minutes (15 min for all jobs)
                     job["integration_id"],

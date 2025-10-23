@@ -25,7 +25,7 @@ from app.core.database import get_database
 from app.core.logging_config import get_logger
 from app.core.job_manager import get_job_manager
 from app.core.utils import DateTimeHelper
-from app.models.unified_models import JobSchedule, Integration
+from app.models.unified_models import EtlJob, Integration
 from fastapi import BackgroundTasks
 import asyncio
 
@@ -120,7 +120,7 @@ def _clear_system_token(tenant_id: int):
     _system_tokens.pop(tenant_id, None)
 
 
-def find_next_ready_job(session: Session, tenant_id: int, current_order: int) -> JobSchedule:
+def find_next_ready_job(session: Session, tenant_id: int, current_order: int) -> EtlJob:
     """
     Find the next ready job in execution order that's not paused.
 
@@ -130,26 +130,26 @@ def find_next_ready_job(session: Session, tenant_id: int, current_order: int) ->
         current_order: Current job's execution order
 
     Returns:
-        Next ready JobSchedule or None if no ready jobs found
+        Next ready EtlJob or None if no ready jobs found
     """
     # First, try to find next job after current order that's ready to run
-    next_job = session.query(JobSchedule).filter(
-        JobSchedule.tenant_id == tenant_id,
-        JobSchedule.active == True,
-        JobSchedule.status != 'PAUSED',  # Skip paused jobs
-        JobSchedule.execution_order > current_order
-    ).order_by(JobSchedule.execution_order.asc()).first()
+    next_job = session.query(EtlJob).filter(
+        EtlJob.tenant_id == tenant_id,
+        EtlJob.active == True,
+        EtlJob.status != 'PAUSED',  # Skip paused jobs
+        EtlJob.execution_order > current_order
+    ).order_by(EtlJob.execution_order.asc()).first()
 
     if next_job:
         return next_job
 
     # If no next job, cycle back to first ready job (excluding current)
-    first_job = session.query(JobSchedule).filter(
-        JobSchedule.tenant_id == tenant_id,
-        JobSchedule.active == True,
-        JobSchedule.status != 'PAUSED',  # Skip paused jobs
-        JobSchedule.execution_order != current_order  # Exclude current job
-    ).order_by(JobSchedule.execution_order.asc()).first()
+    first_job = session.query(EtlJob).filter(
+        EtlJob.tenant_id == tenant_id,
+        EtlJob.active == True,
+        EtlJob.status != 'PAUSED',  # Skip paused jobs
+        EtlJob.execution_order != current_order  # Exclude current job
+    ).order_by(EtlJob.execution_order.asc()).first()
 
     return first_job
 
@@ -168,8 +168,8 @@ def check_integration_active(job_schedule_id: int) -> dict:
         database = get_database()
         with database.get_session() as session:
             # Get the job schedule
-            job_schedule = session.query(JobSchedule).filter(
-                JobSchedule.id == job_schedule_id
+            job_schedule = session.query(EtlJob).filter(
+                EtlJob.id == job_schedule_id
             ).first()
 
             if not job_schedule:
@@ -233,8 +233,8 @@ def skip_job_due_to_inactive_integration(job_schedule_id: int, error_message: st
         database = get_database()
         with database.get_session() as session:
             # Get the job schedule
-            job_schedule = session.query(JobSchedule).filter(
-                JobSchedule.id == job_schedule_id
+            job_schedule = session.query(EtlJob).filter(
+                EtlJob.id == job_schedule_id
             ).first()
 
             if not job_schedule:
@@ -300,25 +300,25 @@ async def trigger_jira_sync(force_manual=False, execution_params=None, tenant_id
         database = get_database()
         with database.get_session() as session:
             # SECURITY: Find or create jobs filtered by tenant_id (case-insensitive)
-            jira_job = session.query(JobSchedule).filter(
-                func.lower(JobSchedule.job_name) == 'jira',
-                JobSchedule.tenant_id == tenant_id
+            jira_job = session.query(EtlJob).filter(
+                func.lower(EtlJob.job_name) == 'jira',
+                EtlJob.tenant_id == tenant_id
             ).first()
-            github_job = session.query(JobSchedule).filter(
-                func.lower(JobSchedule.job_name) == 'github',
-                JobSchedule.tenant_id == tenant_id
+            github_job = session.query(EtlJob).filter(
+                func.lower(EtlJob.job_name) == 'github',
+                EtlJob.tenant_id == tenant_id
             ).first()
 
             if not jira_job or not github_job:
                 # Initialize job schedules if they don't exist for this client
                 initialize_job_schedules_for_client(tenant_id)
-                jira_job = session.query(JobSchedule).filter(
-                    JobSchedule.job_name == 'jira_sync',
-                    JobSchedule.tenant_id == tenant_id
+                jira_job = session.query(EtlJob).filter(
+                    EtlJob.job_name == 'jira_sync',
+                    EtlJob.tenant_id == tenant_id
                 ).first()
-                github_job = session.query(JobSchedule).filter(
-                    JobSchedule.job_name == 'github_sync',
-                    JobSchedule.tenant_id == tenant_id
+                github_job = session.query(EtlJob).filter(
+                    EtlJob.job_name == 'github_sync',
+                    EtlJob.tenant_id == tenant_id
                 ).first()
 
             if not jira_job or not github_job:
@@ -408,25 +408,25 @@ async def trigger_github_sync(force_manual=False, execution_params=None, tenant_
         database = get_database()
         with database.get_session() as session:
             # SECURITY: Find or create jobs filtered by tenant_id (case-insensitive)
-            jira_job = session.query(JobSchedule).filter(
-                func.lower(JobSchedule.job_name) == 'jira',
-                JobSchedule.tenant_id == tenant_id
+            jira_job = session.query(EtlJob).filter(
+                func.lower(EtlJob.job_name) == 'jira',
+                EtlJob.tenant_id == tenant_id
             ).first()
-            github_job = session.query(JobSchedule).filter(
-                func.lower(JobSchedule.job_name) == 'github',
-                JobSchedule.tenant_id == tenant_id
+            github_job = session.query(EtlJob).filter(
+                func.lower(EtlJob.job_name) == 'github',
+                EtlJob.tenant_id == tenant_id
             ).first()
 
             if not jira_job or not github_job:
                 # Initialize job schedules if they don't exist for this client
                 initialize_job_schedules_for_client(tenant_id)
-                jira_job = session.query(JobSchedule).filter(
-                    JobSchedule.job_name == 'jira_sync',
-                    JobSchedule.tenant_id == tenant_id
+                jira_job = session.query(EtlJob).filter(
+                    EtlJob.job_name == 'jira_sync',
+                    EtlJob.tenant_id == tenant_id
                 ).first()
-                github_job = session.query(JobSchedule).filter(
-                    JobSchedule.job_name == 'github_sync',
-                    JobSchedule.tenant_id == tenant_id
+                github_job = session.query(EtlJob).filter(
+                    EtlJob.job_name == 'github_sync',
+                    EtlJob.tenant_id == tenant_id
                 ).first()
 
             if not jira_job or not github_job:
@@ -556,10 +556,10 @@ async def should_run_orchestrator_for_client(tenant_id: int) -> bool:
         database = get_database()
         with database.get_session() as session:
             # Find the most recent job run for this client
-            last_run = session.query(JobSchedule.last_run_started_at).filter(
-                JobSchedule.tenant_id == tenant_id,
-                JobSchedule.last_run_started_at.isnot(None)
-            ).order_by(JobSchedule.last_run_started_at.desc()).first()
+            last_run = session.query(EtlJob.last_run_started_at).filter(
+                EtlJob.tenant_id == tenant_id,
+                EtlJob.last_run_started_at.isnot(None)
+            ).order_by(EtlJob.last_run_started_at.desc()).first()
 
             if not last_run or not last_run[0]:
                 # No previous runs - should run now
@@ -605,13 +605,13 @@ async def run_orchestrator_for_client(tenant_id: int):
         with database.get_session() as session:
             # SECURITY: First look for PENDING jobs by execution_order filtered by tenant_id
             result = session.query(
-                JobSchedule.id,
-                JobSchedule.job_name
+                EtlJob.id,
+                EtlJob.job_name
             ).filter(
-                JobSchedule.tenant_id == tenant_id,
-                JobSchedule.active == True,
-                JobSchedule.status == 'PENDING'
-            ).order_by(JobSchedule.execution_order.asc()).first()
+                EtlJob.tenant_id == tenant_id,
+                EtlJob.active == True,
+                EtlJob.status == 'PENDING'
+            ).order_by(EtlJob.execution_order.asc()).first()
 
             if result:
                 pending_job_id, pending_job_name = result.id, result.job_name
@@ -620,13 +620,13 @@ async def run_orchestrator_for_client(tenant_id: int):
                 # No PENDING jobs found - look for READY jobs
                 logger.info(f"INFO: No PENDING jobs found for client {tenant_id} - checking for READY jobs")
                 result = session.query(
-                    JobSchedule.id,
-                    JobSchedule.job_name
+                    EtlJob.id,
+                    EtlJob.job_name
                 ).filter(
-                    JobSchedule.tenant_id == tenant_id,
-                    JobSchedule.active == True,
-                    JobSchedule.status == 'READY'
-                ).order_by(JobSchedule.execution_order.asc()).first()
+                    EtlJob.tenant_id == tenant_id,
+                    EtlJob.active == True,
+                    EtlJob.status == 'READY'
+                ).order_by(EtlJob.execution_order.asc()).first()
 
                 if not result:
                     logger.info(f"INFO: No READY jobs found for client {tenant_id} - no jobs to run")
@@ -638,10 +638,10 @@ async def run_orchestrator_for_client(tenant_id: int):
         # Step 2: Quick atomic update to lock the job (separate short session)
         with database.get_session() as session:
             # SECURITY: Atomic update with tenant_id verification (handles both PENDING and READY)
-            updated_rows = session.query(JobSchedule).filter(
-                JobSchedule.id == pending_job_id,
-                JobSchedule.tenant_id == tenant_id,  # Verify tenant_id
-                JobSchedule.status.in_(['PENDING', 'READY'])  # Accept both statuses
+            updated_rows = session.query(EtlJob).filter(
+                EtlJob.id == pending_job_id,
+                EtlJob.tenant_id == tenant_id,  # Verify tenant_id
+                EtlJob.status.in_(['PENDING', 'READY'])  # Accept both statuses
             ).update({
                 'status': 'RUNNING',
                 'last_run_started_at': DateTimeHelper.now_default(),
@@ -691,7 +691,7 @@ async def run_orchestrator_for_client(tenant_id: int):
             logger.info("SKIPPING: Vectorization job (moved to backend-service embedding workers)")
             # Mark job as finished since vectorization is now handled by backend-service
             with database.get_session() as session:
-                job_schedule = session.query(JobSchedule).filter(JobSchedule.id == pending_job_id).first()
+                job_schedule = session.query(EtlJob).filter(EtlJob.id == pending_job_id).first()
                 if job_schedule:
                     job_schedule.set_finished()
                     session.commit()
@@ -702,8 +702,8 @@ async def run_orchestrator_for_client(tenant_id: int):
             logger.error(f"ERROR: Unknown job name: {pending_job_name}")
             # Reset job to PENDING if unknown (separate session)
             with database.get_session() as session:
-                session.query(JobSchedule).filter(
-                    JobSchedule.id == pending_job_id
+                session.query(EtlJob).filter(
+                    EtlJob.id == pending_job_id
                 ).update({'status': 'PENDING'})
                 session.commit()
 
@@ -742,7 +742,7 @@ async def run_jira_sync_async(job_schedule_id: int, execution_params=None):
         # Step 1: Quick session to get job schedule info
         job_schedule_id_copy = job_schedule_id
         with database.get_session() as session:
-            job_schedule = session.query(JobSchedule).filter(JobSchedule.id == job_schedule_id).first()
+            job_schedule = session.query(EtlJob).filter(EtlJob.id == job_schedule_id).first()
             if not job_schedule:
                 logger.error(f"ERROR: Job schedule {job_schedule_id} not found")
                 return
@@ -756,7 +756,7 @@ async def run_jira_sync_async(job_schedule_id: int, execution_params=None):
         # Use shorter session for job execution
         database = get_database()
         with database.get_job_session_context() as session:
-            job_schedule = session.query(JobSchedule).filter(JobSchedule.id == job_schedule_id_copy).first()
+            job_schedule = session.query(EtlJob).filter(EtlJob.id == job_schedule_id_copy).first()
             if not job_schedule:
                 logger.error(f"Job schedule {job_schedule_id_copy} not found")
                 return
@@ -796,7 +796,7 @@ async def run_github_sync_async(job_schedule_id: int, execution_params=None):
         # Step 1: Quick session to get job schedule info
         job_schedule_id_copy = job_schedule_id
         with database.get_session() as session:
-            job_schedule = session.query(JobSchedule).filter(JobSchedule.id == job_schedule_id).first()
+            job_schedule = session.query(EtlJob).filter(EtlJob.id == job_schedule_id).first()
             if not job_schedule:
                 logger.error(f"ERROR: Job schedule {job_schedule_id} not found")
                 return
@@ -810,7 +810,7 @@ async def run_github_sync_async(job_schedule_id: int, execution_params=None):
         # Use shorter session for job execution
         database = get_database()
         with database.get_job_session_context() as session:
-            job_schedule = session.query(JobSchedule).filter(JobSchedule.id == job_schedule_id_copy).first()
+            job_schedule = session.query(EtlJob).filter(EtlJob.id == job_schedule_id_copy).first()
             if not job_schedule:
                 logger.error(f"Job schedule {job_schedule_id_copy} not found")
                 return
@@ -855,7 +855,7 @@ async def run_fabric_sync_async(job_schedule_id: int):
 
         # Get job schedule and determine sync date
         with database.get_session() as session:
-            job_schedule = session.query(JobSchedule).get(job_schedule_id)
+            job_schedule = session.query(EtlJob).get(job_schedule_id)
             if not job_schedule:
                 logger.error(f"Job schedule {job_schedule_id} not found")
                 return
@@ -889,7 +889,7 @@ async def run_fabric_sync_async(job_schedule_id: int):
 
         # Mark job as completed and set next job to PENDING
         with database.get_write_session_context() as session:
-            job_schedule = session.query(JobSchedule).get(job_schedule_id)
+            job_schedule = session.query(EtlJob).get(job_schedule_id)
             if not job_schedule:
                 logger.error(f"Job schedule {job_schedule_id} not found")
                 return
@@ -918,11 +918,11 @@ async def run_fabric_sync_async(job_schedule_id: int):
             if next_job:
                 # Check if this is cycling back to the first job (restart)
                 with database.get_read_session_context() as check_session:
-                    first_job = check_session.query(JobSchedule).filter(
-                        JobSchedule.tenant_id == tenant_id,
-                        JobSchedule.active == True,
-                        JobSchedule.status != 'PAUSED'
-                    ).order_by(JobSchedule.execution_order.asc()).first()
+                    first_job = check_session.query(EtlJob).filter(
+                        EtlJob.tenant_id == tenant_id,
+                        EtlJob.active == True,
+                        EtlJob.status != 'PAUSED'
+                    ).order_by(EtlJob.execution_order.asc()).first()
 
                     is_cycle_restart = (first_job and next_job.id == first_job.id)
 
@@ -949,7 +949,7 @@ async def run_fabric_sync_async(job_schedule_id: int):
 
         try:
             with database.get_write_session_context() as fresh_session:
-                job_schedule = fresh_session.query(JobSchedule).get(job_schedule_id)
+                job_schedule = fresh_session.query(EtlJob).get(job_schedule_id)
                 if job_schedule:
                     job_schedule.status = 'PENDING'
                     job_schedule.error_message = str(e)
@@ -979,7 +979,7 @@ async def run_ad_sync_async(job_schedule_id: int):
 
         # Get job schedule and determine sync date
         with database.get_session() as session:
-            job_schedule = session.query(JobSchedule).get(job_schedule_id)
+            job_schedule = session.query(EtlJob).get(job_schedule_id)
             if not job_schedule:
                 logger.error(f"Job schedule {job_schedule_id} not found")
                 return
@@ -1013,7 +1013,7 @@ async def run_ad_sync_async(job_schedule_id: int):
 
         # Mark job as completed and set next job to PENDING
         with database.get_write_session_context() as session:
-            job_schedule = session.query(JobSchedule).get(job_schedule_id)
+            job_schedule = session.query(EtlJob).get(job_schedule_id)
             if not job_schedule:
                 logger.error(f"Job schedule {job_schedule_id} not found")
                 return
@@ -1042,11 +1042,11 @@ async def run_ad_sync_async(job_schedule_id: int):
             if next_job:
                 # Check if this is cycling back to the first job (restart)
                 with database.get_read_session_context() as check_session:
-                    first_job = check_session.query(JobSchedule).filter(
-                        JobSchedule.tenant_id == tenant_id,
-                        JobSchedule.active == True,
-                        JobSchedule.status != 'PAUSED'
-                    ).order_by(JobSchedule.execution_order.asc()).first()
+                    first_job = check_session.query(EtlJob).filter(
+                        EtlJob.tenant_id == tenant_id,
+                        EtlJob.active == True,
+                        EtlJob.status != 'PAUSED'
+                    ).order_by(EtlJob.execution_order.asc()).first()
 
                     is_cycle_restart = (first_job and next_job.id == first_job.id)
 
@@ -1073,7 +1073,7 @@ async def run_ad_sync_async(job_schedule_id: int):
 
         try:
             with database.get_write_session_context() as fresh_session:
-                job_schedule = fresh_session.query(JobSchedule).get(job_schedule_id)
+                job_schedule = fresh_session.query(EtlJob).get(job_schedule_id)
                 if job_schedule:
                     job_schedule.status = 'PENDING'
                     job_schedule.error_message = str(e)
@@ -1105,9 +1105,9 @@ async def trigger_fabric_sync(force_manual=False, execution_params=None, tenant_
 
         with database.get_session() as session:
             # Get the fabric job for this client (case-insensitive)
-            fabric_job = session.query(JobSchedule).filter(
-                func.lower(JobSchedule.job_name) == 'wex fabric',
-                JobSchedule.tenant_id == tenant_id
+            fabric_job = session.query(EtlJob).filter(
+                func.lower(EtlJob.job_name) == 'wex fabric',
+                EtlJob.tenant_id == tenant_id
             ).first()
 
             if not fabric_job:
@@ -1118,9 +1118,9 @@ async def trigger_fabric_sync(force_manual=False, execution_params=None, tenant_
 
             if force_manual:
                 # Set fabric job to PENDING, preserve PAUSED jobs, reset others to READY
-                all_jobs = session.query(JobSchedule).filter(
-                    JobSchedule.tenant_id == tenant_id,
-                    JobSchedule.active == True
+                all_jobs = session.query(EtlJob).filter(
+                    EtlJob.tenant_id == tenant_id,
+                    EtlJob.active == True
                 ).all()
 
                 for job in all_jobs:
@@ -1170,9 +1170,9 @@ async def trigger_ad_sync(force_manual=False, execution_params=None, tenant_id=N
 
         with database.get_session() as session:
             # Get the AD job for this client (case-insensitive)
-            ad_job = session.query(JobSchedule).filter(
-                func.lower(JobSchedule.job_name) == 'wex ad',
-                JobSchedule.tenant_id == tenant_id
+            ad_job = session.query(EtlJob).filter(
+                func.lower(EtlJob.job_name) == 'wex ad',
+                EtlJob.tenant_id == tenant_id
             ).first()
 
             if not ad_job:
@@ -1183,9 +1183,9 @@ async def trigger_ad_sync(force_manual=False, execution_params=None, tenant_id=N
 
             if force_manual:
                 # Set AD job to PENDING, preserve PAUSED jobs, reset others to NOT_STARTED
-                all_jobs = session.query(JobSchedule).filter(
-                    JobSchedule.tenant_id == tenant_id,
-                    JobSchedule.active == True
+                all_jobs = session.query(EtlJob).filter(
+                    EtlJob.tenant_id == tenant_id,
+                    EtlJob.active == True
                 ).all()
 
                 for job in all_jobs:
@@ -1258,7 +1258,7 @@ def initialize_job_schedules_for_client(tenant_id: int):
         database = get_database()
         with database.get_session() as session:
             # SECURITY: Check if jobs already exist for this client
-            existing_jobs = session.query(JobSchedule).filter(JobSchedule.tenant_id == tenant_id).count()
+            existing_jobs = session.query(EtlJob).filter(EtlJob.tenant_id == tenant_id).count()
             if existing_jobs > 0:
                 logger.info(f"INFO: Job schedules already initialized for client {tenant_id} ({existing_jobs} jobs found)")
                 return True
@@ -1282,14 +1282,14 @@ def initialize_job_schedules_for_client(tenant_id: int):
             ).first()
 
             # Create initial job schedules for this client
-            jira_job = JobSchedule(
+            jira_job = EtlJob(
                 job_name='Jira',
                 status='PENDING',  # Start with Jira ready to run
                 integration_id=jira_integration.id if jira_integration else None,
                 tenant_id=tenant_id  # SECURITY: Use provided tenant_id
             )
 
-            github_job = JobSchedule(
+            github_job = EtlJob(
                 job_name='GitHub',
                 status='READY',  # Start with GitHub ready (prevents wrong execution)
                 integration_id=github_integration.id if github_integration else None,
@@ -1325,9 +1325,9 @@ def get_job_status(tenant_id: int = None):
         database = get_database()
         with database.get_session() as session:
             # SECURITY: Filter jobs by tenant_id (include all jobs, not just active)
-            query = session.query(JobSchedule)
+            query = session.query(EtlJob)
             if tenant_id is not None:
-                query = query.filter(JobSchedule.tenant_id == tenant_id)
+                query = query.filter(EtlJob.tenant_id == tenant_id)
             jobs = query.all()
 
             status = {}
@@ -1371,7 +1371,7 @@ async def run_vectorization_sync_async(job_schedule_id: int):
 
         try:
             with database.get_job_session_context() as session:
-                job_schedule = session.query(JobSchedule).filter(JobSchedule.id == job_schedule_id).first()
+                job_schedule = session.query(EtlJob).filter(EtlJob.id == job_schedule_id).first()
                 if not job_schedule:
                     logger.error(f"Job schedule {job_schedule_id} not found")
                     return
@@ -1396,7 +1396,7 @@ async def run_vectorization_sync_async(job_schedule_id: int):
         while retry_count < max_retries:
             try:
                 with database.get_write_session_context() as session:
-                    job_schedule = session.query(JobSchedule).get(job_schedule_id)
+                    job_schedule = session.query(EtlJob).get(job_schedule_id)
                     if not job_schedule:
                         logger.error(f"Job schedule {job_schedule_id} not found")
                         return
@@ -1507,7 +1507,7 @@ async def run_vectorization_sync_async(job_schedule_id: int):
             if result and result.get('status') == 'success':
                 # Try to get next job info for scheduling
                 with database.get_read_session_context() as check_session:
-                    current_job = check_session.query(JobSchedule).get(job_schedule_id)
+                    current_job = check_session.query(EtlJob).get(job_schedule_id)
                     if current_job:
                         tenant_id = current_job.tenant_id
                         current_order = current_job.execution_order
@@ -1517,11 +1517,11 @@ async def run_vectorization_sync_async(job_schedule_id: int):
 
                         if next_job:
                             # Check if this is cycling back to the first job (restart)
-                            first_job = check_session.query(JobSchedule).filter(
-                                JobSchedule.tenant_id == tenant_id,
-                                JobSchedule.active == True,
-                                JobSchedule.status != 'PAUSED'
-                            ).order_by(JobSchedule.execution_order.asc()).first()
+                            first_job = check_session.query(EtlJob).filter(
+                                EtlJob.tenant_id == tenant_id,
+                                EtlJob.active == True,
+                                EtlJob.status != 'PAUSED'
+                            ).order_by(EtlJob.execution_order.asc()).first()
 
                             is_cycle_restart = (first_job and next_job.id == first_job.id)
 
@@ -1554,7 +1554,7 @@ async def run_vectorization_sync_async(job_schedule_id: int):
         database = get_database()
         try:
             with database.get_write_session_context() as fresh_session:
-                job_schedule = fresh_session.query(JobSchedule).get(job_schedule_id)
+                job_schedule = fresh_session.query(EtlJob).get(job_schedule_id)
                 if job_schedule:
                     job_schedule.status = 'PENDING'
                     job_schedule.error_message = str(e)
@@ -1586,9 +1586,9 @@ async def trigger_vectorization_sync(force_manual=False, execution_params=None, 
 
         with database.get_session() as session:
             # Get the vectorization job for this client (case-insensitive)
-            vectorization_job = session.query(JobSchedule).filter(
-                func.lower(JobSchedule.job_name) == 'vectorization',
-                JobSchedule.tenant_id == tenant_id
+            vectorization_job = session.query(EtlJob).filter(
+                func.lower(EtlJob.job_name) == 'vectorization',
+                EtlJob.tenant_id == tenant_id
             ).first()
 
             if not vectorization_job:
@@ -1599,9 +1599,9 @@ async def trigger_vectorization_sync(force_manual=False, execution_params=None, 
 
             if force_manual:
                 # Set vectorization job to PENDING, preserve PAUSED jobs, reset others to READY
-                all_jobs = session.query(JobSchedule).filter(
-                    JobSchedule.tenant_id == tenant_id,
-                    JobSchedule.active == True
+                all_jobs = session.query(EtlJob).filter(
+                    EtlJob.tenant_id == tenant_id,
+                    EtlJob.active == True
                 ).all()
 
                 for job in all_jobs:

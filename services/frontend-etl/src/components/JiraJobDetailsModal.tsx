@@ -17,7 +17,6 @@ interface JobDetails {
   last_updated_at: string
   error_message?: string
   retry_count: number
-  progress_percentage?: number
   current_step?: string
 }
 
@@ -231,23 +230,13 @@ export default function JiraJobDetailsModal({ jobId, onClose }: JiraJobDetailsMo
                   </div>
                 )}
 
-                {/* Progress Information */}
-                {(jobDetails.progress_percentage !== undefined || jobDetails.current_step) && (
+                {/* Current Step Information */}
+                {jobDetails.current_step && (
                   <div className="card p-4">
-                    <h3 className="text-lg font-semibold text-primary mb-4">Progress</h3>
-                    {jobDetails.current_step && (
-                      <p className="text-sm text-secondary mb-2">
-                        Current Step: <span className="text-primary font-medium">{jobDetails.current_step}</span>
-                      </p>
-                    )}
-                    {jobDetails.progress_percentage !== undefined && (
-                      <div className="w-full bg-tertiary rounded-full h-2">
-                        <div
-                          className="h-full bg-gradient-to-r from-blue-500 to-blue-600 rounded-full transition-all duration-300"
-                          style={{ width: `${jobDetails.progress_percentage}%` }}
-                        />
-                      </div>
-                    )}
+                    <h3 className="text-lg font-semibold text-primary mb-4">Current Status</h3>
+                    <p className="text-sm text-secondary mb-2">
+                      Current Step: <span className="text-primary font-medium">{jobDetails.current_step}</span>
+                    </p>
                   </div>
                 )}
               </div>

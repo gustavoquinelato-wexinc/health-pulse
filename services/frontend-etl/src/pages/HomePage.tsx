@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import axios from 'axios'
 import { etlApi } from '../services/etlApiService'
 import CollapsedSidebar from '../components/CollapsedSidebar'
 import Header from '../components/Header'
@@ -78,7 +77,6 @@ export default function HomePage() {
             ? {
                 ...job,
                 status: success ? 'FINISHED' : 'FAILED',
-                progress_percentage: null,
                 current_step: null
               }
             : job
@@ -124,7 +122,7 @@ export default function HomePage() {
       setJobs(prevJobs =>
         prevJobs.map(job =>
           job.id === jobId
-            ? { ...job, status: 'RUNNING', next_run: undefined, progress_percentage: 0, current_step: 'Starting...' }
+            ? { ...job, status: 'RUNNING', next_run: undefined, current_step: 'Starting...' }
             : job
         )
       )
