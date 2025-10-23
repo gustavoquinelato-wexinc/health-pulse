@@ -51,6 +51,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
   const [wsVersion, setWsVersion] = useState<number>(etlWebSocketService.getInitializationVersion())
   const [isJobRunning, setIsJobRunning] = useState<boolean>(false)
   const [finishedTransitionTimer, setFinishedTransitionTimer] = useState<NodeJS.Timeout | null>(null)
+  const [resetCountdown, setResetCountdown] = useState<number | null>(null)
   // Throttle state updates to prevent UI freezing from rapid WebSocket messages
   // Track WebSocket connection to prevent React StrictMode double connections
   const wsConnectionRef = useRef<(() => void) | null>(null)
@@ -255,6 +256,24 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
     return () => clearInterval(interval)
   }, [job.next_run, job.active, realTimeStatus])
 
+  // Reset countdown timer - decrements every second
+  useEffect(() => {
+    if (resetCountdown === null || resetCountdown <= 0) {
+      return
+    }
+
+    const interval = setInterval(() => {
+      setResetCountdown(prev => {
+        if (prev === null || prev <= 1) {
+          return null
+        }
+        return prev - 1
+      })
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [resetCountdown])
+
   // Check for WebSocket service reinitialization (e.g., after logout/login)
   useEffect(() => {
     const currentVersion = etlWebSocketService.getInitializationVersion()
@@ -338,6 +357,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
                   if (!user?.tenant_id) {
                     console.warn(`⚠️ Cannot check job completion: user or tenant_id not available`)
                     // Fallback: wait 30s and reset anyway
+                    setResetCountdown(30)
                     setTimeout(performReset, 30000)
                     return
                   }
@@ -353,12 +373,14 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
                   } else {
                     // Not all steps finished yet, wait 30 seconds and try again
                     console.log(`⏳ Not all steps finished yet, waiting 30 seconds...`)
+                    setResetCountdown(30)
                     const timer = setTimeout(checkAndReset, 30000)
                     setFinishedTransitionTimer(timer)
                   }
                 } catch (error) {
                   console.error(`❌ Error checking job completion:`, error)
                   // Fallback: wait 30s and reset anyway
+                  setResetCountdown(30)
                   const timer = setTimeout(performReset, 30000)
                   setFinishedTransitionTimer(timer)
                 }
@@ -379,6 +401,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
                 // Update frontend state regardless of backend call result
                 setRealTimeStatus('READY')
                 setFinishedTransitionTimer(null)
+                setResetCountdown(null)
               }
 
               // Start the check and reset process
@@ -491,6 +514,14 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
                   {statusInfo.icon}
                   <span className="text-sm font-medium">{statusInfo.label}</span>
                 </div>
+
+                {/* Reset Countdown Timer - Show when resetting */}
+                {resetCountdown !== null && (
+                  <div className="flex items-center space-x-1 text-blue-500">
+                    <Clock className="w-4 h-4" />
+                    <span className="text-sm font-medium">Resetting in {resetCountdown}s</span>
+                  </div>
+                )}
 
                 {/* Schedule Interval */}
                 <span className="text-sm text-secondary">
