@@ -882,6 +882,7 @@ async def check_job_completion(
         steps = status_json.get('steps', {})
 
         # Check if ALL steps are FINISHED
+        # Special case: dev_status can be idle (when no issues were extracted)
         all_steps_finished = True
         if overall_status == 'FINISHED':
             for step_name, step_data in steps.items():
@@ -889,13 +890,27 @@ async def check_job_completion(
                 transform_status = step_data.get('transform', 'idle')
                 embedding_status = step_data.get('embedding', 'idle')
 
-                # All three must be 'finished' for the step to be complete
-                if not (extraction_status == 'finished' and
-                        transform_status == 'finished' and
-                        embedding_status == 'finished'):
-                    all_steps_finished = False
-                    logger.info(f"🔍 Step {step_name} not fully finished: extraction={extraction_status}, transform={transform_status}, embedding={embedding_status}")
-                    break
+                # For dev_status step: can be either all finished OR all idle (no issues extracted)
+                if step_name == 'jira_dev_status':
+                    is_finished = (extraction_status == 'finished' and
+                                   transform_status == 'finished' and
+                                   embedding_status == 'finished')
+                    is_idle = (extraction_status == 'idle' and
+                               transform_status == 'idle' and
+                               embedding_status == 'idle')
+
+                    if not (is_finished or is_idle):
+                        all_steps_finished = False
+                        logger.info(f"🔍 Step {step_name} not in valid state: extraction={extraction_status}, transform={transform_status}, embedding={embedding_status}")
+                        break
+                else:
+                    # All other steps must be 'finished'
+                    if not (extraction_status == 'finished' and
+                            transform_status == 'finished' and
+                            embedding_status == 'finished'):
+                        all_steps_finished = False
+                        logger.info(f"🔍 Step {step_name} not fully finished: extraction={extraction_status}, transform={transform_status}, embedding={embedding_status}")
+                        break
 
         logger.info(f"🔍 Job {job_id} completion check: overall={overall_status}, all_steps_finished={all_steps_finished}")
 
