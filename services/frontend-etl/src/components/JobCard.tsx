@@ -52,6 +52,8 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
   const [isJobRunning, setIsJobRunning] = useState<boolean>(false)
   const [finishedTransitionTimer, setFinishedTransitionTimer] = useState<NodeJS.Timeout | null>(null)
   const [resetCountdown, setResetCountdown] = useState<number | null>(null)
+  // Track if we're currently resetting to prevent WebSocket from interfering
+  const isResettingRef = useRef<boolean>(false)
   // Throttle state updates to prevent UI freezing from rapid WebSocket messages
   // Track WebSocket connection to prevent React StrictMode double connections
   const wsConnectionRef = useRef<(() => void) | null>(null)
@@ -323,6 +325,9 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
       // Perform the reset
       const performReset = async () => {
         try {
+          // Mark that we're resetting to prevent WebSocket interference
+          isResettingRef.current = true
+
           if (user?.tenant_id) {
             await jobsApi.resetJobStatus(job.id, user.tenant_id)
             console.log(`✅ Job ${job.id} status reset to READY in database (countdown timeout)`)
@@ -355,6 +360,11 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
           }
         } catch (error) {
           console.error(`❌ Failed to reset job ${job.id} status:`, error)
+        } finally {
+          // Clear the resetting flag after a short delay to allow UI to update
+          setTimeout(() => {
+            isResettingRef.current = false
+          }, 500)
         }
         setRealTimeStatus('READY')
         setFinishedTransitionTimer(null)
@@ -414,6 +424,12 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
 
       const cleanup = etlWebSocketService.connectToJob(tenantId, job.id, {
         onJobProgress: (data: JobProgress) => {
+          // If we're currently resetting, ignore WebSocket updates to prevent interference
+          if (isResettingRef.current) {
+            console.log(`🔒 Ignoring WebSocket update during reset process`)
+            return
+          }
+
           // Always update job progress and step statuses (even after FINISHED)
           setJobProgress(data)
           setIsJobRunning(data.isActive)
