@@ -914,10 +914,15 @@ async def check_job_completion(
 
         logger.info(f"🔍 Job {job_id} completion check: overall={overall_status}, all_steps_finished={all_steps_finished}")
 
+        # Include server timestamp for accurate client-side calculations
+        from datetime import datetime
+        server_time = datetime.utcnow().isoformat()
+
         return {
             "all_finished": all_steps_finished,
             "overall_status": overall_status,
-            "steps": steps
+            "steps": steps,
+            "server_time": server_time
         }
 
     except HTTPException:

@@ -52,6 +52,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
   const [isJobRunning, setIsJobRunning] = useState<boolean>(false)
   const [finishedTransitionTimer, setFinishedTransitionTimer] = useState<NodeJS.Timeout | null>(null)
   const [resetCountdown, setResetCountdown] = useState<number | null>(null)
+  const [resetStartTime, setResetStartTime] = useState<number | null>(null)
   // Throttle state updates to prevent UI freezing from rapid WebSocket messages
   // Track WebSocket connection to prevent React StrictMode double connections
   const wsConnectionRef = useRef<(() => void) | null>(null)
@@ -260,31 +261,43 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
   useEffect(() => {
     if (realTimeStatus === 'FINISHED' && resetCountdown === null) {
       // Job is finished but countdown not started - initialize it
-      // Calculate how long ago the job finished
-      if (job.last_run_finished_at) {
-        const finishedTime = new Date(job.last_run_finished_at).getTime()
-        const now = new Date().getTime()
-        const elapsedSeconds = Math.floor((now - finishedTime) / 1000)
-        const remainingSeconds = Math.max(0, 30 - elapsedSeconds)
+      // Query the server to get accurate server time
+      const initializeCountdown = async () => {
+        try {
+          if (!user?.tenant_id) {
+            console.warn(`⚠️ Cannot initialize countdown: user or tenant_id not available`)
+            return
+          }
 
-        console.log(`🔄 Reset countdown calculation:`)
-        console.log(`   last_run_finished_at: ${job.last_run_finished_at}`)
-        console.log(`   finishedTime: ${finishedTime}`)
-        console.log(`   now: ${now}`)
-        console.log(`   elapsedSeconds: ${elapsedSeconds}`)
-        console.log(`   remainingSeconds: ${remainingSeconds}`)
+          const response = await jobsApi.checkJobCompletion(job.id, user.tenant_id)
+          const serverTime = new Date(response.data.server_time).getTime()
+          const finishedTime = job.last_run_finished_at ? new Date(job.last_run_finished_at).getTime() : 0
+          const elapsedSeconds = Math.floor((serverTime - finishedTime) / 1000)
+          const remainingSeconds = Math.max(0, 30 - elapsedSeconds)
 
-        if (remainingSeconds > 0) {
-          console.log(`🔄 Restoring reset countdown: ${remainingSeconds}s remaining`)
-          setResetCountdown(remainingSeconds)
-        } else {
-          // More than 30 seconds have passed, reset immediately
-          console.log(`🔄 More than 30s passed since job finished, resetting immediately`)
-          setResetCountdown(null)
+          console.log(`🔄 Reset countdown calculation (using server time):`)
+          console.log(`   last_run_finished_at: ${job.last_run_finished_at}`)
+          console.log(`   server_time: ${response.data.server_time}`)
+          console.log(`   elapsedSeconds: ${elapsedSeconds}`)
+          console.log(`   remainingSeconds: ${remainingSeconds}`)
+
+          if (remainingSeconds > 0) {
+            console.log(`🔄 Restoring reset countdown: ${remainingSeconds}s remaining`)
+            setResetCountdown(remainingSeconds)
+            setResetStartTime(serverTime)
+          } else {
+            // More than 30 seconds have passed, reset immediately
+            console.log(`🔄 More than 30s passed since job finished, resetting immediately`)
+            setResetCountdown(null)
+          }
+        } catch (error) {
+          console.error(`❌ Error initializing countdown:`, error)
         }
       }
+
+      initializeCountdown()
     }
-  }, [realTimeStatus, job.last_run_finished_at])
+  }, [realTimeStatus, job.last_run_finished_at, job.id, user?.tenant_id])
 
   // Reset countdown timer - decrements every second
   useEffect(() => {
