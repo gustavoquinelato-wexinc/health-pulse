@@ -138,8 +138,8 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
       case 'READY':
         return {
           icon: <Clock className="w-5 h-5" />,
-          color: 'text-green-500',
-          bgColor: 'bg-green-100',
+          color: 'text-cyan-500',
+          bgColor: 'bg-cyan-100',
           label: 'Ready'
         }
       default:
