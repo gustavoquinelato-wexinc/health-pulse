@@ -54,6 +54,8 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
   const [resetCountdown, setResetCountdown] = useState<number | null>(null)
   // Track if we're currently resetting to prevent WebSocket from interfering
   const isResettingRef = useRef<boolean>(false)
+  // Track reset attempts for exponential backoff: 30s → 60s → 180s
+  const resetAttemptsRef = useRef<number>(0)
   // Throttle state updates to prevent UI freezing from rapid WebSocket messages
   // Track WebSocket connection to prevent React StrictMode double connections
   const wsConnectionRef = useRef<(() => void) | null>(null)
@@ -321,7 +323,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
   // Trigger reset when countdown reaches 0
   useEffect(() => {
     if (resetCountdown === 0) {
-      console.log(`⏰ Reset countdown reached 0, triggering reset now`)
+      console.log(`⏰ Reset countdown reached 0, triggering reset now (attempt ${resetAttemptsRef.current + 1})`)
       // Perform the reset
       const performReset = async () => {
         try {
@@ -330,32 +332,51 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
 
           if (user?.tenant_id) {
             await jobsApi.resetJobStatus(job.id, user.tenant_id)
-            console.log(`✅ Job ${job.id} status reset to READY in database (countdown timeout)`)
+            console.log(`✅ Job ${job.id} status reset to READY in database (attempt ${resetAttemptsRef.current + 1})`)
 
-            // Fetch updated job status from API to get reset step statuses
+            // Fetch updated job status from API to check if all steps are truly finished
             const updatedStatus = await jobsApi.checkJobCompletion(job.id, user.tenant_id)
             console.log(`🔄 Fetched updated job status after reset:`, updatedStatus.data)
 
-            // Update job progress with reset step statuses (all idle)
-            if (updatedStatus.data.steps) {
-              const stepsData: { [stepName: string]: any } = {}
-              Object.entries(updatedStatus.data.steps).forEach(([stepName, stepData]: [string, any]) => {
-                stepsData[stepName] = {
-                  order: stepData.order || 0,
-                  display_name: stepData.display_name || stepName,
-                  extraction: stepData.extraction || 'idle',
-                  transform: stepData.transform || 'idle',
-                  embedding: stepData.embedding || 'idle'
-                }
-              })
+            // Check if all steps are actually finished
+            if (updatedStatus.data.all_finished) {
+              // All steps are truly finished, we can complete the reset
+              console.log(`✅ All steps confirmed finished, completing reset`)
+              resetAttemptsRef.current = 0 // Reset attempt counter
 
-              setJobProgress({
-                extraction: { status: 'idle' },
-                transform: { status: 'idle' },
-                embedding: { status: 'idle' },
-                isActive: false,
-                steps: stepsData
-              })
+              // Update job progress with reset step statuses (all idle)
+              if (updatedStatus.data.steps) {
+                const stepsData: { [stepName: string]: any } = {}
+                Object.entries(updatedStatus.data.steps).forEach(([stepName, stepData]: [string, any]) => {
+                  stepsData[stepName] = {
+                    order: stepData.order || 0,
+                    display_name: stepData.display_name || stepName,
+                    extraction: stepData.extraction || 'idle',
+                    transform: stepData.transform || 'idle',
+                    embedding: stepData.embedding || 'idle'
+                  }
+                })
+
+                setJobProgress({
+                  extraction: { status: 'idle' },
+                  transform: { status: 'idle' },
+                  embedding: { status: 'idle' },
+                  isActive: false,
+                  steps: stepsData
+                })
+              }
+
+              setRealTimeStatus('READY')
+              setFinishedTransitionTimer(null)
+              setResetCountdown(null)
+            } else {
+              // Steps are still running, schedule another reset attempt with exponential backoff
+              resetAttemptsRef.current += 1
+              const nextDelay = resetAttemptsRef.current === 1 ? 60 : resetAttemptsRef.current === 2 ? 180 : 180
+              console.log(`⏳ Steps still running, scheduling next reset attempt in ${nextDelay}s (attempt ${resetAttemptsRef.current + 1})`)
+
+              setResetCountdown(nextDelay)
+              setFinishedTransitionTimer(null)
             }
           }
         } catch (error) {
@@ -366,9 +387,6 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
             isResettingRef.current = false
           }, 500)
         }
-        setRealTimeStatus('READY')
-        setFinishedTransitionTimer(null)
-        setResetCountdown(null)
       }
       performReset()
     }
