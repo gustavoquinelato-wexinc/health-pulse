@@ -372,7 +372,15 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
             } else {
               // Steps are still running, schedule another reset attempt with exponential backoff
               resetAttemptsRef.current += 1
-              const nextDelay = resetAttemptsRef.current === 1 ? 60 : resetAttemptsRef.current === 2 ? 180 : 180
+              // Backoff: 30s → 60s → 180s → 300s (and keep 300s for all subsequent attempts)
+              let nextDelay: number
+              if (resetAttemptsRef.current === 1) {
+                nextDelay = 60
+              } else if (resetAttemptsRef.current === 2) {
+                nextDelay = 180
+              } else {
+                nextDelay = 300  // Final tier: keep retrying every 5 minutes
+              }
               console.log(`⏳ Steps still running, scheduling next reset attempt in ${nextDelay}s (attempt ${resetAttemptsRef.current + 1})`)
 
               setResetCountdown(nextDelay)
