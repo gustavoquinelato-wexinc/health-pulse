@@ -317,6 +317,15 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
     return () => clearInterval(interval)
   }, [resetCountdown])
 
+  // Sync realTimeStatus with job.status prop when it changes (handles API updates)
+  useEffect(() => {
+    // Only update if the job status has actually changed
+    if (job.status !== realTimeStatus) {
+      console.log(`🔄 Job status updated from API: ${realTimeStatus} → ${job.status}`)
+      setRealTimeStatus(job.status)
+    }
+  }, [job.status])
+
   // Check for WebSocket service reinitialization (e.g., after logout/login)
   useEffect(() => {
     const currentVersion = etlWebSocketService.getInitializationVersion()
