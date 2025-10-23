@@ -268,7 +268,6 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
       const initializeCountdown = async () => {
         try {
           if (!user?.tenant_id) {
-            console.warn(`⚠️ Cannot initialize countdown: user or tenant_id not available`)
             return
           }
 
@@ -278,22 +277,14 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
           const elapsedSeconds = Math.floor((serverTime - finishedTime) / 1000)
           const remainingSeconds = Math.max(0, 30 - elapsedSeconds)
 
-          console.log(`🔄 Reset countdown calculation (using server time):`)
-          console.log(`   last_run_finished_at: ${job.last_run_finished_at}`)
-          console.log(`   server_time: ${response.data.server_time}`)
-          console.log(`   elapsedSeconds: ${elapsedSeconds}`)
-          console.log(`   remainingSeconds: ${remainingSeconds}`)
-
           if (remainingSeconds > 0) {
-            console.log(`🔄 Restoring reset countdown: ${remainingSeconds}s remaining`)
             setResetCountdown(remainingSeconds)
           } else {
             // More than 30 seconds have passed, reset immediately
-            console.log(`🔄 More than 30s passed since job finished, resetting immediately`)
             setResetCountdown(null)
           }
         } catch (error) {
-          console.error(`❌ Error initializing countdown:`, error)
+          // Silently handle error
         }
       }
 
@@ -323,7 +314,6 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
   // Trigger reset when countdown reaches 0
   useEffect(() => {
     if (resetCountdown === 0) {
-      console.log(`⏰ Reset countdown reached 0, triggering reset now (attempt ${resetAttemptsRef.current + 1})`)
       // Perform the reset
       const performReset = async () => {
         try {
@@ -332,16 +322,13 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
 
           if (user?.tenant_id) {
             await jobsApi.resetJobStatus(job.id, user.tenant_id)
-            console.log(`✅ Job ${job.id} status reset to READY in database (attempt ${resetAttemptsRef.current + 1})`)
 
             // Fetch updated job status from API to check if all steps are truly finished
             const updatedStatus = await jobsApi.checkJobCompletion(job.id, user.tenant_id)
-            console.log(`🔄 Fetched updated job status after reset:`, updatedStatus.data)
 
             // Check if all steps are actually finished
             if (updatedStatus.data.all_finished) {
               // All steps are truly finished, we can complete the reset
-              console.log(`✅ All steps confirmed finished, completing reset`)
               resetAttemptsRef.current = 0 // Reset attempt counter
 
               // Update job progress with reset step statuses (all idle)
@@ -381,14 +368,13 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
               } else {
                 nextDelay = 300  // Final tier: keep retrying every 5 minutes
               }
-              console.log(`⏳ Steps still running, scheduling next reset attempt in ${nextDelay}s (attempt ${resetAttemptsRef.current + 1})`)
 
               setResetCountdown(nextDelay)
               setFinishedTransitionTimer(null)
             }
           }
         } catch (error) {
-          console.error(`❌ Failed to reset job ${job.id} status:`, error)
+          // Silently handle error
         } finally {
           // Clear the resetting flag after a short delay to allow UI to update
           setTimeout(() => {
@@ -404,7 +390,6 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
   useEffect(() => {
     // Only update if the job status has actually changed
     if (job.status !== realTimeStatus) {
-      console.log(`🔄 Job status updated from API: ${realTimeStatus} → ${job.status}`)
       setRealTimeStatus(job.status)
     }
   }, [job.status])
@@ -452,7 +437,6 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
         onJobProgress: (data: JobProgress) => {
           // If we're currently resetting, ignore WebSocket updates to prevent interference
           if (isResettingRef.current) {
-            console.log(`🔒 Ignoring WebSocket update during reset process`)
             return
           }
 
@@ -464,7 +448,6 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
           // IMPORTANT: Once job is FINISHED or FAILED, don't let WebSocket change it back to RUNNING
           // But still allow step status updates
           if (data.isActive && (realTimeStatus === 'FINISHED' || realTimeStatus === 'FAILED')) {
-            console.log(`🔒 Ignoring WebSocket attempt to change status back to RUNNING - job already ${realTimeStatus}`)
             return
           }
 
@@ -504,7 +487,6 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
               const checkAndReset = async () => {
                 try {
                   if (!user?.tenant_id) {
-                    console.warn(`⚠️ Cannot check job completion: user or tenant_id not available`)
                     // Fallback: wait 30s and reset anyway
                     setResetCountdown(30)
                     setTimeout(performReset, 30000)
@@ -513,21 +495,17 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
 
                   // Check if all steps are truly finished
                   const completionCheck = await jobsApi.checkJobCompletion(job.id, user.tenant_id)
-                  console.log(`🔍 Job ${job.id} completion check:`, completionCheck.data)
 
                   if (completionCheck.data.all_finished) {
                     // All steps are finished, reset immediately
-                    console.log(`✅ All steps finished, resetting job immediately`)
                     await performReset()
                   } else {
                     // Not all steps finished yet, wait 30 seconds and try again
-                    console.log(`⏳ Not all steps finished yet, waiting 30 seconds...`)
                     setResetCountdown(30)
                     const timer = setTimeout(checkAndReset, 30000)
                     setFinishedTransitionTimer(timer)
                   }
                 } catch (error) {
-                  console.error(`❌ Error checking job completion:`, error)
                   // Fallback: wait 30s and reset anyway
                   setResetCountdown(30)
                   const timer = setTimeout(performReset, 30000)
@@ -540,12 +518,9 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
                   // Call backend to reset job status in database
                   if (user?.tenant_id) {
                     await jobsApi.resetJobStatus(job.id, user.tenant_id)
-                    console.log(`✅ Job ${job.id} status reset to READY in database`)
-                  } else {
-                    console.warn(`⚠️ Cannot reset job ${job.id} status: user or tenant_id not available`)
                   }
                 } catch (error) {
-                  console.error(`❌ Failed to reset job ${job.id} status in database:`, error)
+                  // Silently handle error
                 }
                 // Update frontend state regardless of backend call result
                 setRealTimeStatus('READY')
@@ -878,7 +853,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
             <div>
               <span className="text-secondary">Next Run:</span>
               <span className="ml-2 text-primary font-medium text-xs">
-                {job.next_run ? formatDateTimeWithTZ(job.next_run) : 'Calculating...'}
+                {realTimeStatus === 'RUNNING' ? 'Countdown: —' : (job.next_run ? formatDateTimeWithTZ(job.next_run) : 'Countdown: —')}
               </span>
             </div>
             <div>
