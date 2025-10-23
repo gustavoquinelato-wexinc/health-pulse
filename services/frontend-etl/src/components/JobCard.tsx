@@ -267,6 +267,13 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
         const elapsedSeconds = Math.floor((now - finishedTime) / 1000)
         const remainingSeconds = Math.max(0, 30 - elapsedSeconds)
 
+        console.log(`🔄 Reset countdown calculation:`)
+        console.log(`   last_run_finished_at: ${job.last_run_finished_at}`)
+        console.log(`   finishedTime: ${finishedTime}`)
+        console.log(`   now: ${now}`)
+        console.log(`   elapsedSeconds: ${elapsedSeconds}`)
+        console.log(`   remainingSeconds: ${remainingSeconds}`)
+
         if (remainingSeconds > 0) {
           console.log(`🔄 Restoring reset countdown: ${remainingSeconds}s remaining`)
           setResetCountdown(remainingSeconds)
