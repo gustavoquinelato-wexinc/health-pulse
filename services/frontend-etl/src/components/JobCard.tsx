@@ -52,7 +52,6 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
   const [isJobRunning, setIsJobRunning] = useState<boolean>(false)
   const [finishedTransitionTimer, setFinishedTransitionTimer] = useState<NodeJS.Timeout | null>(null)
   const [resetCountdown, setResetCountdown] = useState<number | null>(null)
-  const [resetStartTime, setResetStartTime] = useState<number | null>(null)
   // Throttle state updates to prevent UI freezing from rapid WebSocket messages
   // Track WebSocket connection to prevent React StrictMode double connections
   const wsConnectionRef = useRef<(() => void) | null>(null)
@@ -284,7 +283,6 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
           if (remainingSeconds > 0) {
             console.log(`🔄 Restoring reset countdown: ${remainingSeconds}s remaining`)
             setResetCountdown(remainingSeconds)
-            setResetStartTime(serverTime)
           } else {
             // More than 30 seconds have passed, reset immediately
             console.log(`🔄 More than 30s passed since job finished, resetting immediately`)
@@ -328,6 +326,32 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
           if (user?.tenant_id) {
             await jobsApi.resetJobStatus(job.id, user.tenant_id)
             console.log(`✅ Job ${job.id} status reset to READY in database (countdown timeout)`)
+
+            // Fetch updated job status from API to get reset step statuses
+            const updatedStatus = await jobsApi.checkJobCompletion(job.id, user.tenant_id)
+            console.log(`🔄 Fetched updated job status after reset:`, updatedStatus.data)
+
+            // Update job progress with reset step statuses (all idle)
+            if (updatedStatus.data.steps) {
+              const stepsData: { [stepName: string]: any } = {}
+              Object.entries(updatedStatus.data.steps).forEach(([stepName, stepData]: [string, any]) => {
+                stepsData[stepName] = {
+                  order: stepData.order || 0,
+                  display_name: stepData.display_name || stepName,
+                  extraction: stepData.extraction || 'idle',
+                  transform: stepData.transform || 'idle',
+                  embedding: stepData.embedding || 'idle'
+                }
+              })
+
+              setJobProgress({
+                extraction: { status: 'idle' },
+                transform: { status: 'idle' },
+                embedding: { status: 'idle' },
+                isActive: false,
+                steps: stepsData
+              })
+            }
           }
         } catch (error) {
           console.error(`❌ Failed to reset job ${job.id} status:`, error)
