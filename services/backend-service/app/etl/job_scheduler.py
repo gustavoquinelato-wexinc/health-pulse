@@ -306,7 +306,10 @@ class IndividualJobTimer:
                     return
 
                 if current_status == 'FINISHED':
-                    logger.warning(f"⚠️ Job '{self.job_name}' is still FINISHED (transitioning to READY) - skipping automatic trigger")
+                    # Edge case: Job is stuck in FINISHED (embedding still processing)
+                    # Reschedule with fast retry interval to check again soon
+                    logger.warning(f"⚠️ Job '{self.job_name}' is still FINISHED - rescheduling with fast retry interval")
+                    await self._reschedule_with_fast_retry(session)
                     return
 
                 if current_status != 'READY':
@@ -320,10 +323,10 @@ class IndividualJobTimer:
                 # Use atomic update with WHERE clause to prevent race conditions
                 update_query = text("""
                     UPDATE etl_jobs
-                    SET status = 'RUNNING',
+                    SET status = jsonb_set(status, ARRAY['overall'], to_jsonb('RUNNING'::text)),
                         last_run_started_at = :now,
                         last_updated_at = :now
-                    WHERE id = :job_id AND tenant_id = :tenant_id AND status = 'READY'
+                    WHERE id = :job_id AND tenant_id = :tenant_id AND status->>'overall' = 'READY'
                 """)
 
                 rows_updated = session.execute(update_query, {
@@ -345,6 +348,48 @@ class IndividualJobTimer:
 
         except Exception as e:
             logger.error(f"Error triggering job '{self.job_name}': {e}")
+
+    async def _reschedule_with_fast_retry(self, session):
+        """
+        Reschedule job with fast retry interval when stuck in FINISHED status.
+
+        This handles the edge case where:
+        1. Close message arrives early → sets last_run_finished_at
+        2. Embedding still processing → job stays FINISHED
+        3. Without this, job would wait full schedule_interval before trying again
+
+        Solution: Use fast retry interval (15 min) to check again soon
+        """
+        try:
+            from datetime import timedelta
+            from app.core.utils import DateTimeHelper
+
+            now = DateTimeHelper.now_default()
+
+            # Use fast retry interval (15 minutes) instead of full schedule interval
+            # This allows quick recovery when embedding is still processing
+            fast_retry_minutes = 15
+            next_run = now + timedelta(minutes=fast_retry_minutes)
+
+            update_query = text("""
+                UPDATE etl_jobs
+                SET next_run = :next_run,
+                    last_updated_at = :now
+                WHERE id = :job_id AND tenant_id = :tenant_id
+            """)
+
+            session.execute(update_query, {
+                'job_id': self.job_id,
+                'tenant_id': self.tenant_id,
+                'next_run': next_run,
+                'now': now
+            })
+            session.commit()
+
+            logger.info(f"🔄 Job '{self.job_name}' rescheduled with fast retry: next_run = {next_run} (15 min from now)")
+
+        except Exception as e:
+            logger.error(f"Error rescheduling job '{self.job_name}' with fast retry: {e}")
 
     async def _simulate_job_execution(self):
         """Simulate job execution (temporary - replace with actual job logic)"""
@@ -563,7 +608,7 @@ class IndividualJobTimer:
 
                 update_query = text("""
                     UPDATE etl_jobs
-                    SET status = 'QUEUED',
+                    SET status = jsonb_set(status, ARRAY['overall'], to_jsonb('QUEUED'::text)),
                         last_updated_at = :now,
                         error_message = NULL
                     WHERE id = :job_id AND tenant_id = :tenant_id

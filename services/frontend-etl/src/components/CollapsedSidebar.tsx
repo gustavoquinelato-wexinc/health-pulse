@@ -63,7 +63,7 @@ const adminItems: NavigationItem[] = [
 
 export default function CollapsedSidebar() {
   const { isAdmin } = useAuth()
-  const { theme, colorSchema } = useTheme()
+  const { theme } = useTheme()
   const location = useLocation()
   const [hoveredItem, setHoveredItem] = useState<string | null>(null)
   const [openSubmenu, setOpenSubmenu] = useState<string | null>(null)

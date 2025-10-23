@@ -243,6 +243,15 @@ async def lifespan(_: FastAPI):
             logger.error(f"Worker startup traceback: {traceback.format_exc()}")
             logger.warning("ETL workers not started - ETL functionality will be limited")
 
+        # Clear WebSocket cache on startup to remove any stale test data
+        try:
+            from app.api.websocket_routes import get_job_websocket_manager
+            job_websocket_manager = get_job_websocket_manager()
+            job_websocket_manager.clear_cache()
+            logger.info("✅ WebSocket cache cleared on startup")
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to clear WebSocket cache: {e}")
+
         # Clear all user sessions on startup for security
         # Skip in development mode to prevent authentication loops during frequent restarts
         from app.core.config import get_settings

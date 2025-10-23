@@ -5,7 +5,7 @@ Updated for Phase 3-1: Vector columns removed, Qdrant integration, AI provider s
 """
 
 from sqlalchemy import Column, Integer, String, ForeignKey, DateTime, Float, Text, PrimaryKeyConstraint, func, Boolean, Index, text, UniqueConstraint, ARRAY, JSON, Numeric
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import declarative_base, relationship
 from sqlalchemy.types import TypeDecorator, Text as SQLText
 from typing import Dict, Any, Optional, List, Union, TYPE_CHECKING
@@ -246,7 +246,7 @@ class Integration(Base, BaseEntity):
     prs_commits = relationship("PrCommit", back_populates="integration")
     prs_comments = relationship("PrComment", back_populates="integration")
     work_items_prs_links = relationship("WorkItemPrLink", back_populates="integration")
-    etl_jobs = relationship("JobSchedule", back_populates="integration")
+    etl_jobs = relationship("EtlJob", back_populates="integration")
     statuses_mappings = relationship("StatusMapping", back_populates="integration")
     wits_hierarchies = relationship("WitHierarchy", back_populates="integration")
     wits_mappings = relationship("WitMapping", back_populates="integration")
@@ -790,12 +790,13 @@ class SystemSettings(Base, BaseEntity):
             self.setting_value = str(value)
 
 
-class JobSchedule(Base, IntegrationBaseEntity):
+class EtlJob(Base, IntegrationBaseEntity):
     """
-    ETL Job Management with Independent Scheduling.
+    ETL Job Management with Independent Scheduling and Worker Status Tracking.
 
     Each job runs independently with its own schedule and timing.
     No orchestrator dependency - jobs are autonomous.
+    Tracks individual worker status for real-time WebSocket updates.
     """
 
     __tablename__ = 'etl_jobs'
@@ -805,7 +806,7 @@ class JobSchedule(Base, IntegrationBaseEntity):
 
     # Job identification and configuration
     job_name = Column(String, nullable=False, quote=False, name="job_name")  # 'Jira', 'GitHub', 'WEX AD', 'WEX Fabric'
-    status = Column(String, nullable=False, default='READY', quote=False, name="status")  # 'READY', 'RUNNING', 'FINISHED', 'FAILED'
+    status = Column(JSONB, nullable=False, default='{"overall": "READY", "steps": {}}', quote=False, name="status")  # JSON status structure
 
     # Scheduling configuration
     schedule_interval_minutes = Column(Integer, nullable=False, default=360, quote=False, name="schedule_interval_minutes")  # Normal interval

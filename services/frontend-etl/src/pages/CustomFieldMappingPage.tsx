@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo, useRef } from 'react';
-import { Loader2, Download, FileText, Save, Search } from 'lucide-react';
+import { Loader2, FileText, Save, Search } from 'lucide-react';
 import Header from '../components/Header';
 import CollapsedSidebar from '../components/CollapsedSidebar';
 import ToastContainer from '../components/ToastContainer';

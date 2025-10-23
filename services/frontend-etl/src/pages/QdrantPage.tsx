@@ -89,8 +89,6 @@ const QdrantPage: React.FC = () => {
   } : { totalDatabase: 0, totalVectorized: 0, overallCompletion: 0 }
 
   const entityGroups = dashboardData?.integration_groups || []
-  const queuePending = dashboardData?.queue_pending || 0
-  const queueFailed = dashboardData?.queue_failed || 0
 
   return (
     <div className="min-h-screen">
@@ -337,7 +335,7 @@ const QdrantPage: React.FC = () => {
       </div>
 
       {/* Toast Notifications */}
-      <ToastContainer toasts={toasts} removeToast={removeToast} />
+      <ToastContainer toasts={toasts} onRemoveToast={removeToast} />
     </div>
   )
 }

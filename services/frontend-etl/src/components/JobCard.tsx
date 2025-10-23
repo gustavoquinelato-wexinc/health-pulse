@@ -11,8 +11,10 @@ import {
   Settings
 } from 'lucide-react'
 import IntegrationLogo from './IntegrationLogo'
-import { etlWebSocketService, type ProgressUpdate, type StatusUpdate, type CompletionUpdate } from '../services/etlWebSocketService'
+import { etlWebSocketService, type JobProgress } from '../services/etlWebSocketService'
+import { jobsApi } from '../services/etlApiService'
 import { useTheme } from '../contexts/ThemeContext'
+import { useAuth } from '../contexts/AuthContext'
 
 interface JobCardProps {
   job: {
@@ -38,57 +40,71 @@ interface JobCardProps {
 
 export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, onSettings }: JobCardProps) {
   const { theme } = useTheme()
+  const { user } = useAuth()
   const [, setIsHovered] = useState(false)
   const [isToggling, setIsToggling] = useState(false)
   const [countdown, setCountdown] = useState<string>('Calculating...')
 
-  // Real-time progress tracking
-  const [progressPercentage, setProgressPercentage] = useState<number | null>(null)
-  const [currentStep, setCurrentStep] = useState<string | null>(null)
+  // Real-time worker status tracking
+  const [jobProgress, setJobProgress] = useState<JobProgress | null>(null)
   const [realTimeStatus, setRealTimeStatus] = useState<string>(job.status)
   const [wsVersion, setWsVersion] = useState<number>(etlWebSocketService.getInitializationVersion())
-
-  // Queue stage tracking
-  const [queueStages, setQueueStages] = useState({
-    extraction: 'ready',    // ready, in-progress, done
-    transform: 'ready',     // ready, in-progress, done
-    embedding: 'ready'      // ready, in-progress, done
-  })
-
+  const [isJobRunning, setIsJobRunning] = useState<boolean>(false)
+  const [finishedTransitionTimer, setFinishedTransitionTimer] = useState<NodeJS.Timeout | null>(null)
+  const [resetCountdown, setResetCountdown] = useState<number | null>(null)
+  // Track if we're currently resetting to prevent WebSocket from interfering
+  const isResettingRef = useRef<boolean>(false)
+  // Track reset attempts for exponential backoff: 30s → 60s → 180s
+  const resetAttemptsRef = useRef<number>(0)
   // Throttle state updates to prevent UI freezing from rapid WebSocket messages
-  const lastUpdateRef = useRef<number>(0)
   // Track WebSocket connection to prevent React StrictMode double connections
   const wsConnectionRef = useRef<(() => void) | null>(null)
 
-  // Update queue stages based on message flags
-  const updateQueueStages = (message: any) => {
-    if (message.first_item) {
-      // First item starts extraction stage
-      setQueueStages(prev => ({
-        ...prev,
-        extraction: 'in-progress',
-        transform: 'ready',
-        embedding: 'ready'
-      }))
-    } else if (message.last_issue_changelog_item) {
-      // Last changelog item completes extraction, starts transform
-      setQueueStages(prev => ({
-        ...prev,
-        extraction: 'done',
-        transform: 'in-progress',
-        embedding: 'ready'
-      }))
-    } else if (message.last_item) {
-      // Last item completes transform, starts embedding
-      setQueueStages(prev => ({
-        ...prev,
-        extraction: 'done',
-        transform: 'done',
-        embedding: 'in-progress'
-      }))
+  // Get display name for step from step data or fallback
+  const getStepDisplayName = (stepName: string) => {
+    if (jobProgress?.steps && jobProgress.steps[stepName]?.display_name) {
+      return jobProgress.steps[stepName].display_name
     }
+    // Fallback: format step name nicely
+    return stepName.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase())
   }
-  const THROTTLE_MS = 500 // Only update UI every 500ms max
+
+  // Get available steps from job progress data, sorted by order
+  const getAvailableSteps = () => {
+    if (jobProgress?.steps) {
+      // Sort steps by order field
+      return Object.entries(jobProgress.steps)
+        .sort(([, a], [, b]) => (a.order || 0) - (b.order || 0))
+        .map(([stepName]) => stepName)
+    }
+
+    // Fallback to default Jira steps if no step data available
+    return ['jira_projects_and_issue_types', 'jira_statuses_and_relationships', 'jira_issues_with_changelogs', 'jira_dev_status']
+  }
+
+
+
+  // Helper function to get step status from WebSocket data
+  const getStepStatus = (stepName: string, workerType: 'extraction' | 'transform' | 'embedding') => {
+    // Use detailed step data if available
+    if (jobProgress?.steps && jobProgress.steps[stepName]) {
+      return jobProgress.steps[stepName][workerType]
+    }
+
+    // Fallback to current worker status matching
+    if (!jobProgress) return 'idle'
+
+    const worker = jobProgress[workerType]
+    if (worker.step === stepName) {
+      return worker.status
+    }
+
+    return 'idle'
+  }
+
+
+
+
 
   // Get status icon and color
   const getStatusInfo = () => {
@@ -126,8 +142,8 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
       case 'READY':
         return {
           icon: <Clock className="w-5 h-5" />,
-          color: 'text-green-500',
-          bgColor: 'bg-green-100',
+          color: 'text-cyan-500',
+          bgColor: 'bg-cyan-100',
           label: 'Ready'
         }
       default:
@@ -192,7 +208,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
   // Calculate countdown timer
   useEffect(() => {
     // Don't show countdown if job is not active or is currently running
-    if (!job.active || ['RUNNING', 'EXTRACTING', 'QUEUED', 'QUEUED_TRANSFORM', 'TRANSFORMING', 'QUEUED_EMBEDDING', 'EMBEDDING'].includes(realTimeStatus)) {
+    if (!job.active || realTimeStatus === 'RUNNING' || isJobRunning) {
       setCountdown('—')
       return
     }
@@ -244,6 +260,140 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
     return () => clearInterval(interval)
   }, [job.next_run, job.active, realTimeStatus])
 
+  // Initialize reset countdown if job is FINISHED (handles page refresh)
+  useEffect(() => {
+    if (realTimeStatus === 'FINISHED' && resetCountdown === null) {
+      // Job is finished but countdown not started - initialize it
+      // Query the server to get accurate server time
+      const initializeCountdown = async () => {
+        try {
+          if (!user?.tenant_id) {
+            return
+          }
+
+          const response = await jobsApi.checkJobCompletion(job.id, user.tenant_id)
+          const serverTime = new Date(response.data.server_time).getTime()
+          const finishedTime = job.last_run_finished_at ? new Date(job.last_run_finished_at).getTime() : 0
+          const elapsedSeconds = Math.floor((serverTime - finishedTime) / 1000)
+          const remainingSeconds = Math.max(0, 30 - elapsedSeconds)
+
+          if (remainingSeconds > 0) {
+            setResetCountdown(remainingSeconds)
+          } else {
+            // More than 30 seconds have passed, reset immediately
+            setResetCountdown(null)
+          }
+        } catch (error) {
+          // Silently handle error
+        }
+      }
+
+      initializeCountdown()
+    }
+  }, [realTimeStatus, job.last_run_finished_at, job.id, user?.tenant_id])
+
+  // Reset countdown timer - decrements every second
+  useEffect(() => {
+    if (resetCountdown === null || resetCountdown <= 0) {
+      return
+    }
+
+    const interval = setInterval(() => {
+      setResetCountdown(prev => {
+        if (prev === null || prev <= 0) {
+          return null
+        }
+        // Decrement, allowing it to reach 0 so the reset trigger effect can fire
+        return prev - 1
+      })
+    }, 1000)
+
+    return () => clearInterval(interval)
+  }, [resetCountdown])
+
+  // Trigger reset when countdown reaches 0
+  useEffect(() => {
+    if (resetCountdown === 0) {
+      // Perform the reset
+      const performReset = async () => {
+        try {
+          // Mark that we're resetting to prevent WebSocket interference
+          isResettingRef.current = true
+
+          if (user?.tenant_id) {
+            await jobsApi.resetJobStatus(job.id, user.tenant_id)
+
+            // Fetch updated job status from API to check if all steps are truly finished
+            const updatedStatus = await jobsApi.checkJobCompletion(job.id, user.tenant_id)
+
+            // Check if all steps are actually finished
+            if (updatedStatus.data.all_finished) {
+              // All steps are truly finished, we can complete the reset
+              resetAttemptsRef.current = 0 // Reset attempt counter
+
+              // Update job progress with reset step statuses (all idle)
+              if (updatedStatus.data.steps) {
+                const stepsData: { [stepName: string]: any } = {}
+                Object.entries(updatedStatus.data.steps).forEach(([stepName, stepData]: [string, any]) => {
+                  stepsData[stepName] = {
+                    order: stepData.order || 0,
+                    display_name: stepData.display_name || stepName,
+                    extraction: stepData.extraction || 'idle',
+                    transform: stepData.transform || 'idle',
+                    embedding: stepData.embedding || 'idle'
+                  }
+                })
+
+                setJobProgress({
+                  extraction: { status: 'idle' },
+                  transform: { status: 'idle' },
+                  embedding: { status: 'idle' },
+                  isActive: false,
+                  steps: stepsData
+                })
+              }
+
+              setRealTimeStatus('READY')
+              setFinishedTransitionTimer(null)
+              setResetCountdown(null)
+            } else {
+              // Steps are still running, schedule another reset attempt with exponential backoff
+              resetAttemptsRef.current += 1
+              // Backoff: 30s → 60s → 180s → 300s (and keep 300s for all subsequent attempts)
+              let nextDelay: number
+              if (resetAttemptsRef.current === 1) {
+                nextDelay = 60
+              } else if (resetAttemptsRef.current === 2) {
+                nextDelay = 180
+              } else {
+                nextDelay = 300  // Final tier: keep retrying every 5 minutes
+              }
+
+              setResetCountdown(nextDelay)
+              setFinishedTransitionTimer(null)
+            }
+          }
+        } catch (error) {
+          // Silently handle error
+        } finally {
+          // Clear the resetting flag after a short delay to allow UI to update
+          setTimeout(() => {
+            isResettingRef.current = false
+          }, 500)
+        }
+      }
+      performReset()
+    }
+  }, [resetCountdown, job.id, user?.tenant_id])
+
+  // Sync realTimeStatus with job.status prop when it changes (handles API updates)
+  useEffect(() => {
+    // Only update if the job status has actually changed
+    if (job.status !== realTimeStatus) {
+      setRealTimeStatus(job.status)
+    }
+  }, [job.status])
+
   // Check for WebSocket service reinitialization (e.g., after logout/login)
   useEffect(() => {
     const currentVersion = etlWebSocketService.getInitializationVersion()
@@ -280,73 +430,112 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
         return () => {} // Return empty cleanup function
       }
 
-      const cleanup = etlWebSocketService.connectToJob(job.job_name, {
-      onProgress: (data: ProgressUpdate) => {
-        // Throttle progress updates to prevent UI freezing
-        const now = Date.now()
-        if (now - lastUpdateRef.current < THROTTLE_MS) {
-          return // Skip this update
+      // Get tenant ID from job or context (assuming it's available)
+      const tenantId = 1 // TODO: Get from context or job data
+
+      const cleanup = etlWebSocketService.connectToJob(tenantId, job.id, {
+        onJobProgress: (data: JobProgress) => {
+          // If we're currently resetting, ignore WebSocket updates to prevent interference
+          if (isResettingRef.current) {
+            return
+          }
+
+          // Always update job progress and step statuses (even after FINISHED)
+          setJobProgress(data)
+          setIsJobRunning(data.isActive)
+
+          // Update overall status based on job progress
+          // IMPORTANT: Once job is FINISHED or FAILED, don't let WebSocket change it back to RUNNING
+          // But still allow step status updates
+          if (data.isActive && (realTimeStatus === 'FINISHED' || realTimeStatus === 'FAILED')) {
+            return
+          }
+
+          if (data.isActive) {
+            setRealTimeStatus('RUNNING')
+            // Clear any existing finished transition timer
+            if (finishedTransitionTimer) {
+              clearTimeout(finishedTransitionTimer)
+              setFinishedTransitionTimer(null)
+            }
+          } else {
+            // Check if all workers finished successfully
+            const allFinished = data.extraction.status === 'finished' &&
+                              data.transform.status === 'finished' &&
+                              data.embedding.status === 'finished'
+            const anyFailed = data.extraction.status === 'failed' ||
+                            data.transform.status === 'failed' ||
+                            data.embedding.status === 'failed'
+
+            if (anyFailed) {
+              setRealTimeStatus('FAILED')
+              // Clear any existing finished transition timer
+              if (finishedTransitionTimer) {
+                clearTimeout(finishedTransitionTimer)
+                setFinishedTransitionTimer(null)
+              }
+            } else if (allFinished) {
+              setRealTimeStatus('FINISHED')
+
+              // Clear any existing timer first
+              if (finishedTransitionTimer) {
+                clearTimeout(finishedTransitionTimer)
+              }
+
+              // Hybrid approach: Check if all steps are truly finished
+              // If yes, reset immediately. If no, wait 30 seconds and try again.
+              const checkAndReset = async () => {
+                try {
+                  if (!user?.tenant_id) {
+                    // Fallback: wait 30s and reset anyway
+                    setResetCountdown(30)
+                    setTimeout(performReset, 30000)
+                    return
+                  }
+
+                  // Check if all steps are truly finished
+                  const completionCheck = await jobsApi.checkJobCompletion(job.id, user.tenant_id)
+
+                  if (completionCheck.data.all_finished) {
+                    // All steps are finished, reset immediately
+                    await performReset()
+                  } else {
+                    // Not all steps finished yet, wait 30 seconds and try again
+                    setResetCountdown(30)
+                    const timer = setTimeout(checkAndReset, 30000)
+                    setFinishedTransitionTimer(timer)
+                  }
+                } catch (error) {
+                  // Fallback: wait 30s and reset anyway
+                  setResetCountdown(30)
+                  const timer = setTimeout(performReset, 30000)
+                  setFinishedTransitionTimer(timer)
+                }
+              }
+
+              const performReset = async () => {
+                try {
+                  // Call backend to reset job status in database
+                  if (user?.tenant_id) {
+                    await jobsApi.resetJobStatus(job.id, user.tenant_id)
+                  }
+                } catch (error) {
+                  // Silently handle error
+                }
+                // Update frontend state regardless of backend call result
+                setRealTimeStatus('READY')
+                setFinishedTransitionTimer(null)
+                setResetCountdown(null)
+              }
+
+              // Start the check and reset process
+              checkAndReset()
+            }
+          }
         }
-        lastUpdateRef.current = now
-
-        setProgressPercentage(data.percentage)
-        setCurrentStep(data.step)
-        // Update status to RUNNING when we receive progress updates (if not already running)
-        if (realTimeStatus !== 'RUNNING') {
-          setRealTimeStatus('RUNNING')
-        }
-
-        // Update queue stages based on message flags
-        updateQueueStages(data)
-      },
-      onStatus: (data: StatusUpdate) => {
-
-        setRealTimeStatus(data.status)
-
-        // Clear progress when job finishes
-        if (!['EXTRACTING', 'QUEUED', 'QUEUED_TRANSFORM', 'TRANSFORMING', 'QUEUED_EMBEDDING', 'EMBEDDING'].includes(data.status)) {
-          setProgressPercentage(null)
-          setCurrentStep(null)
-        }
-      },
-      onCompletion: (data: CompletionUpdate) => {
-
-        setRealTimeStatus(data.success ? 'FINISHED' : 'FAILED')
-        setProgressPercentage(null)
-        setCurrentStep(null)
-
-        // Complete all queue stages on job completion
-        if (data.success) {
-          setQueueStages({
-            extraction: 'done',
-            transform: 'done',
-            embedding: 'done'
-          })
-        } else {
-          // Reset queue stages on failure
-          setQueueStages({
-            extraction: 'ready',
-            transform: 'ready',
-            embedding: 'ready'
-          })
-        }
-
-        // Notify parent component to refresh jobs
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('etl-job-completed', {
-            detail: { jobId: job.id, success: data.success }
-          }))
-        }
-      }
-    })
+      })
 
       return cleanup
-    }
-
-    // Clear progress if job is not running
-    if (!['EXTRACTING', 'QUEUED', 'QUEUED_TRANSFORM', 'TRANSFORMING', 'QUEUED_EMBEDDING', 'EMBEDDING'].includes(realTimeStatus)) {
-      setProgressPercentage(null)
-      setCurrentStep(null)
     }
 
     const cleanup = connectWithRetry()
@@ -358,28 +547,32 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
         wsConnectionRef.current()
         wsConnectionRef.current = null
       }
+      // Clear any pending finished transition timer
+      if (finishedTransitionTimer) {
+        clearTimeout(finishedTransitionTimer)
+        setFinishedTransitionTimer(null)
+      }
     }
-  }, [job.job_name, job.active, wsVersion]) // Include wsVersion to reconnect when service reinitializes
+  }, [job.id, job.active, wsVersion]) // Include wsVersion to reconnect when service reinitializes
 
   // Update real-time status when job status changes
   useEffect(() => {
     setRealTimeStatus(job.status)
   }, [job.status])
 
-  // Clear progress when job becomes inactive
+  // Clear state when job becomes inactive
   useEffect(() => {
     if (!job.active) {
-      setProgressPercentage(null)
-      setCurrentStep(null)
       setRealTimeStatus(job.status) // Reset to actual job status
-      // Reset queue stages when job becomes inactive
-      setQueueStages({
-        extraction: 'ready',
-        transform: 'ready',
-        embedding: 'ready'
-      })
+      setJobProgress(null) // Clear worker progress
+      setIsJobRunning(false)
+      // Clear any pending finished transition timer
+      if (finishedTransitionTimer) {
+        clearTimeout(finishedTransitionTimer)
+        setFinishedTransitionTimer(null)
+      }
     }
-  }, [job.active, job.status])
+  }, [job.active, job.status, finishedTransitionTimer])
 
   return (
     <motion.div
@@ -446,6 +639,14 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
                   <span className="text-sm font-medium">{statusInfo.label}</span>
                 </div>
 
+                {/* Reset Countdown Timer - Show when resetting */}
+                {resetCountdown !== null && (
+                  <div className="flex items-center space-x-1 text-blue-500">
+                    <Clock className="w-4 h-4" />
+                    <span className="text-sm font-medium">Resetting in {resetCountdown}s</span>
+                  </div>
+                )}
+
                 {/* Schedule Interval */}
                 <span className="text-sm text-secondary">
                   Interval: {formatInterval(job.schedule_interval_minutes)}
@@ -483,7 +684,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
               onClick={() => onRunNow(job.id)}
               className="btn-crud-create px-4 py-2 rounded-lg flex items-center space-x-2"
               title="Manually trigger job"
-              disabled={['EXTRACTING', 'QUEUED', 'QUEUED_TRANSFORM', 'TRANSFORMING', 'QUEUED_EMBEDDING', 'EMBEDDING'].includes(realTimeStatus)}
+              disabled={isJobRunning || realTimeStatus === 'RUNNING'}
             >
               <Play className="w-4 h-4" />
               <span>Run Now</span>
@@ -545,84 +746,90 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
         </div>
       </div>
 
-      {/* Progress Bar (if running) */}
-      {['EXTRACTING', 'QUEUED', 'QUEUED_TRANSFORM', 'TRANSFORMING', 'QUEUED_EMBEDDING', 'EMBEDDING'].includes(realTimeStatus) && (
+      {/* Worker Status Display (show when job is running or has worker progress) */}
+      {(realTimeStatus === 'RUNNING' || isJobRunning || jobProgress) && (
         <div className="mt-4">
-          {/* Progress Bar */}
-          <div className="w-full bg-tertiary rounded-full h-2 overflow-hidden">
-            <motion.div
-              className="h-full bg-gradient-to-r from-blue-500 to-blue-600"
-              initial={{ width: '0%' }}
-              animate={{
-                width: progressPercentage !== null ? `${progressPercentage}%` : '0%'
-              }}
-              transition={{ duration: 0.5, ease: 'easeOut' }}
-            />
-          </div>
+          {/* Step-Based Progress Display */}
+          <div className="mt-3 space-y-1.5">
+            {/* Steps Grid - 4 steps per row on desktop, 2 on mobile */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+              {getAvailableSteps().map((stepName) => {
+                const stepDisplayName = getStepDisplayName(stepName)
 
-          {/* Progress Info Row */}
-          <div className="flex justify-between items-center mt-1">
-            {/* Current Step Message (left) */}
-            <div className="text-xs text-secondary flex-1">
-              {currentStep || 'Processing...'}
+                return (
+                  <div key={stepName} className="flex items-center justify-between p-2 bg-background/50 rounded border border-border/30">
+                    {/* Step Name */}
+                    <span className="text-secondary font-medium text-xs leading-tight truncate flex-1 mr-2" title={stepDisplayName}>
+                      {stepDisplayName}
+                    </span>
+
+                    {/* Worker Status Grid - 3 circles with labels vertically centered */}
+                    <div className="flex items-center space-x-2">
+                      {/* Extraction */}
+                      <div className="flex flex-col items-center space-y-0.5">
+                        <div
+                          className={`w-3 h-3 rounded-full ${
+                            getStepStatus(stepName, 'extraction') === 'running' ? 'bg-blue-500 animate-pulse' :
+                            getStepStatus(stepName, 'extraction') === 'finished' ? 'bg-green-500' :
+                            getStepStatus(stepName, 'extraction') === 'failed' ? 'bg-red-500' :
+                            'bg-gray-300'
+                          }`}
+                          title={`Extraction: ${getStepStatus(stepName, 'extraction')}`}
+                        />
+                        <span className="text-[8px] text-secondary font-mono">E</span>
+                      </div>
+                      {/* Transform */}
+                      <div className="flex flex-col items-center space-y-0.5">
+                        <div
+                          className={`w-3 h-3 rounded-full ${
+                            getStepStatus(stepName, 'transform') === 'running' ? 'bg-blue-500 animate-pulse' :
+                            getStepStatus(stepName, 'transform') === 'finished' ? 'bg-green-500' :
+                            getStepStatus(stepName, 'transform') === 'failed' ? 'bg-red-500' :
+                            'bg-gray-300'
+                          }`}
+                          title={`Transform: ${getStepStatus(stepName, 'transform')}`}
+                        />
+                        <span className="text-[8px] text-secondary font-mono">T</span>
+                      </div>
+                      {/* Embedding */}
+                      <div className="flex flex-col items-center space-y-0.5">
+                        <div
+                          className={`w-3 h-3 rounded-full ${
+                            getStepStatus(stepName, 'embedding') === 'running' ? 'bg-blue-500 animate-pulse' :
+                            getStepStatus(stepName, 'embedding') === 'finished' ? 'bg-green-500' :
+                            getStepStatus(stepName, 'embedding') === 'failed' ? 'bg-red-500' :
+                            'bg-gray-300'
+                          }`}
+                          title={`Embedding: ${getStepStatus(stepName, 'embedding')}`}
+                        />
+                        <span className="text-[8px] text-secondary font-mono">E</span>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
             </div>
 
-            {/* Progress Percentage (right) */}
-            {progressPercentage !== null && (
-              <div className="text-xs text-secondary ml-2">
-                {Math.round(progressPercentage)}%
+            {/* Color Legend */}
+            <div className="mt-3 pt-2">
+              <div className="flex items-center space-x-3 text-[10px] text-secondary">
+                <div className="flex items-center space-x-1">
+                  <div className="w-2 h-2 bg-gray-300 rounded-full" />
+                  <span>Idle</span>
+                </div>
+                <div className="flex items-center space-x-1">
+                  <div className="w-2 h-2 bg-blue-500 rounded-full" />
+                  <span>Running</span>
+                </div>
+                <div className="flex items-center space-x-1">
+                  <div className="w-2 h-2 bg-green-500 rounded-full" />
+                  <span>Done</span>
+                </div>
+                <div className="flex items-center space-x-1">
+                  <div className="w-2 h-2 bg-red-500 rounded-full" />
+                  <span>Failed</span>
+                </div>
               </div>
-            )}
-          </div>
-
-          {/* Queue Status Display */}
-          <div className="mt-3 flex items-center justify-between text-xs">
-            {/* Extraction Stage */}
-            <div className="flex items-center space-x-2">
-              <div className={`w-2 h-2 rounded-full ${
-                queueStages.extraction === 'done' ? 'bg-green-500' :
-                queueStages.extraction === 'in-progress' ? 'bg-blue-500 animate-pulse' :
-                'bg-gray-300'
-              }`} />
-              <span className={`${
-                queueStages.extraction === 'done' ? 'text-green-600' :
-                queueStages.extraction === 'in-progress' ? 'text-blue-600' :
-                'text-gray-500'
-              }`}>
-                Extraction
-              </span>
-            </div>
-
-            {/* Transform Stage */}
-            <div className="flex items-center space-x-2">
-              <div className={`w-2 h-2 rounded-full ${
-                queueStages.transform === 'done' ? 'bg-green-500' :
-                queueStages.transform === 'in-progress' ? 'bg-blue-500 animate-pulse' :
-                'bg-gray-300'
-              }`} />
-              <span className={`${
-                queueStages.transform === 'done' ? 'text-green-600' :
-                queueStages.transform === 'in-progress' ? 'text-blue-600' :
-                'text-gray-500'
-              }`}>
-                Transform
-              </span>
-            </div>
-
-            {/* Embedding Stage */}
-            <div className="flex items-center space-x-2">
-              <div className={`w-2 h-2 rounded-full ${
-                queueStages.embedding === 'done' ? 'bg-green-500' :
-                queueStages.embedding === 'in-progress' ? 'bg-blue-500 animate-pulse' :
-                'bg-gray-300'
-              }`} />
-              <span className={`${
-                queueStages.embedding === 'done' ? 'text-green-600' :
-                queueStages.embedding === 'in-progress' ? 'text-blue-600' :
-                'text-gray-500'
-              }`}>
-                Embedding
-              </span>
             </div>
           </div>
         </div>
@@ -635,6 +842,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
           animate={{ opacity: 1, height: 'auto' }}
           className="mt-4 pt-4 border-t border-border"
         >
+
           <div className="grid grid-cols-3 gap-4 text-sm">
             <div>
               <span className="text-secondary">Last Run:</span>
@@ -645,7 +853,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
             <div>
               <span className="text-secondary">Next Run:</span>
               <span className="ml-2 text-primary font-medium text-xs">
-                {job.next_run ? formatDateTimeWithTZ(job.next_run) : 'Calculating...'}
+                {realTimeStatus === 'RUNNING' ? '—' : (job.next_run ? formatDateTimeWithTZ(job.next_run) : '—')}
               </span>
             </div>
             <div>

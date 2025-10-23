@@ -166,6 +166,23 @@ class JobSettingsResponse(BaseModel):
     retry_interval_minutes: int
 
 
+class StepWorkerStatus(BaseModel):
+    """Worker status for a specific step."""
+    order: int = 0
+    display_name: str = ""
+    extraction: str = "idle"
+    transform: str = "idle"
+    embedding: str = "idle"
+
+
+class JobStatusResponse(BaseModel):
+    """Response for job status (JSON structure)."""
+    job_id: int
+    overall: str  # 'READY', 'RUNNING', 'FINISHED', 'FAILED'
+    steps: Dict[str, StepWorkerStatus]
+    last_updated: datetime
+
+
 # ============================================================================
 # Helper Functions
 # ============================================================================
@@ -259,7 +276,7 @@ async def get_job_cards(
 
         query = text("""
             SELECT
-                id, job_name, status, active,
+                id, job_name, status->>'overall' as status, active,
                 schedule_interval_minutes, retry_interval_minutes,
                 integration_id, last_run_started_at, last_run_finished_at,
                 error_message, retry_count, last_updated_at
@@ -508,10 +525,10 @@ async def run_job_now(
         # Use atomic update with WHERE clause to prevent race conditions
         update_query = text("""
             UPDATE etl_jobs
-            SET status = 'RUNNING',
+            SET status = jsonb_set(status, ARRAY['overall'], to_jsonb('RUNNING'::text)),
                 last_run_started_at = :now,
                 last_updated_at = :now
-            WHERE id = :job_id AND tenant_id = :tenant_id AND status != 'RUNNING'
+            WHERE id = :job_id AND tenant_id = :tenant_id AND status->>'overall' != 'RUNNING'
         """)
 
         rows_updated = db.execute(update_query, {
@@ -751,4 +768,244 @@ async def _queue_jira_extraction_job(tenant_id: int, integration_id: int, job_id
         import traceback
         logger.error(f"Full traceback: {traceback.format_exc()}")
         return False
+
+
+@router.get("/jobs/{job_id}/worker-status", response_model=JobStatusResponse)
+async def get_job_worker_status(
+    job_id: int,
+    tenant_id: int = Query(..., description="Tenant ID"),
+    db: Session = Depends(get_db_session),
+    auth_result: dict = Depends(verify_hybrid_auth)
+):
+    """
+    Get current worker status for a job (hybrid approach fallback).
+
+    This endpoint provides database-backed worker status for cases where
+    WebSocket connections fail or when users login after a job has started.
+
+    Args:
+        job_id: Job ID to get worker status for
+        tenant_id: Tenant ID from auth
+        db: Database session
+
+    Returns:
+        JobWorkerStatusResponse: Current worker status from database
+    """
+    try:
+        from sqlalchemy import text
+
+        # Query current JSON status from database
+        query = text("""
+            SELECT status, last_updated_at
+            FROM etl_jobs
+            WHERE id = :job_id AND tenant_id = :tenant_id
+        """)
+
+        result = db.execute(query, {'job_id': job_id, 'tenant_id': tenant_id}).fetchone()
+
+        if not result:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+        (status_json, last_updated_at) = result
+
+        # Parse JSON status
+        import json
+        status_data = json.loads(status_json) if isinstance(status_json, str) else status_json
+
+        # Convert steps to StepWorkerStatus objects
+        steps = {}
+        for step_name, step_data in status_data.get('steps', {}).items():
+            steps[step_name] = StepWorkerStatus(
+                order=step_data.get('order', 0),
+                display_name=step_data.get('display_name', step_name),
+                extraction=step_data.get('extraction', 'idle'),
+                transform=step_data.get('transform', 'idle'),
+                embedding=step_data.get('embedding', 'idle')
+            )
+
+        return JobStatusResponse(
+            job_id=job_id,
+            overall=status_data.get('overall', 'READY'),
+            steps=steps,
+            last_updated=last_updated_at or datetime.now()
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Failed to get job worker status: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to get job worker status: {str(e)}")
+
+
+@router.get("/jobs/{job_id}/check-completion", response_model=dict)
+async def check_job_completion(
+    job_id: int,
+    tenant_id: int = Query(..., description="Tenant ID"),
+    db: Session = Depends(get_db_session),
+    auth_result: dict = Depends(verify_hybrid_auth)
+):
+    """
+    Check if all job steps are truly finished.
+
+    This endpoint implements the hybrid approach:
+    1. Checks if overall status is FINISHED
+    2. Checks if ALL internal steps (extraction, transform, embedding) are FINISHED
+    3. Returns whether to reset immediately or wait
+
+    Returns:
+        {
+            "all_finished": bool,  # True if all steps are FINISHED
+            "overall_status": str,  # Current overall status
+            "steps": dict  # Current step statuses
+        }
+    """
+    try:
+        from sqlalchemy import text
+        import json
+
+        # Get job status
+        query = text("""
+            SELECT status
+            FROM etl_jobs
+            WHERE id = :job_id AND tenant_id = :tenant_id
+        """)
+        result = db.execute(query, {'job_id': job_id, 'tenant_id': tenant_id}).fetchone()
+
+        if not result:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+        status_json = result[0]
+        if isinstance(status_json, str):
+            status_json = json.loads(status_json)
+
+        overall_status = status_json.get('overall', 'UNKNOWN')
+        steps = status_json.get('steps', {})
+
+        # Check if ALL steps are FINISHED
+        # Special case: dev_status can be idle (when no issues were extracted)
+        all_steps_finished = True
+        if overall_status == 'FINISHED':
+            for step_name, step_data in steps.items():
+                extraction_status = step_data.get('extraction', 'idle')
+                transform_status = step_data.get('transform', 'idle')
+                embedding_status = step_data.get('embedding', 'idle')
+
+                # For dev_status step: can be either all finished OR all idle (no issues extracted)
+                if step_name == 'jira_dev_status':
+                    is_finished = (extraction_status == 'finished' and
+                                   transform_status == 'finished' and
+                                   embedding_status == 'finished')
+                    is_idle = (extraction_status == 'idle' and
+                               transform_status == 'idle' and
+                               embedding_status == 'idle')
+
+                    if not (is_finished or is_idle):
+                        all_steps_finished = False
+                        logger.info(f"🔍 Step {step_name} not in valid state: extraction={extraction_status}, transform={transform_status}, embedding={embedding_status}")
+                        break
+                else:
+                    # All other steps must be 'finished'
+                    if not (extraction_status == 'finished' and
+                            transform_status == 'finished' and
+                            embedding_status == 'finished'):
+                        all_steps_finished = False
+                        logger.info(f"🔍 Step {step_name} not fully finished: extraction={extraction_status}, transform={transform_status}, embedding={embedding_status}")
+                        break
+
+        logger.info(f"🔍 Job {job_id} completion check: overall={overall_status}, all_steps_finished={all_steps_finished}")
+
+        # Include server timestamp for accurate client-side calculations
+        from datetime import datetime
+        server_time = datetime.utcnow().isoformat()
+
+        return {
+            "all_finished": all_steps_finished,
+            "overall_status": overall_status,
+            "steps": steps,
+            "server_time": server_time
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error checking job completion: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to check job completion: {str(e)}")
+
+
+@router.post("/jobs/{job_id}/reset", response_model=JobActionResponse)
+async def reset_job_status(
+    job_id: int,
+    tenant_id: int = Query(..., description="Tenant ID"),
+    db: Session = Depends(get_db_session),
+    auth_result: dict = Depends(verify_hybrid_auth)
+):
+    """
+    Reset ETL job status to READY state.
+
+    This endpoint:
+    1. Validates the job exists and belongs to the tenant
+    2. Resets all step statuses to 'idle'
+    3. Sets overall status to 'READY'
+    4. Used by frontend auto-reset after job completion
+    """
+    try:
+        from sqlalchemy import text
+        import json
+
+        # Get job details to validate existence
+        query = text("""
+            SELECT job_name, status
+            FROM etl_jobs
+            WHERE id = :job_id AND tenant_id = :tenant_id
+        """)
+        result = db.execute(query, {'job_id': job_id, 'tenant_id': tenant_id}).fetchone()
+
+        if not result:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+        job_name, current_status = result
+
+        # Parse current status to preserve step structure
+        if isinstance(current_status, str):
+            current_status = json.loads(current_status)
+
+        # Reset all step statuses to idle
+        if 'steps' in current_status:
+            for step_name, step_data in current_status['steps'].items():
+                step_data['extraction'] = 'idle'
+                step_data['transform'] = 'idle'
+                step_data['embedding'] = 'idle'
+
+        # Set overall status to READY
+        current_status['overall'] = 'READY'
+
+        # Update database
+        update_query = text("""
+            UPDATE etl_jobs
+            SET status = :status,
+                last_updated_at = NOW()
+            WHERE id = :job_id AND tenant_id = :tenant_id
+        """)
+        db.execute(update_query, {
+            'job_id': job_id,
+            'tenant_id': tenant_id,
+            'status': json.dumps(current_status)
+        })
+        db.commit()
+
+        logger.info(f"🔄 ETL job {job_name} (ID: {job_id}) status reset to READY for tenant {tenant_id}")
+
+        return JobActionResponse(
+            success=True,
+            message=f"Job {job_name} status reset successfully",
+            job_id=job_id,
+            new_status="READY"
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        logger.error(f"Error resetting job {job_id} status: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to reset job status: {str(e)}")
 

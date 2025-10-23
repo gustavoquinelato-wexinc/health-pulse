@@ -1,48 +1,67 @@
 /**
- * ETL WebSocket Service for real-time job progress monitoring
- * 
+ * ETL WebSocket Service for real-time worker-specific job progress monitoring
+ *
  * Handles:
- * - Job progress updates (percentage, current step)
- * - Job status changes (RUNNING, COMPLETED, FAILED)
- * - Job completion notifications
- * - Connection management per job
+ * - Worker-specific status updates (extraction, transform, embedding)
+ * - Real-time progress tracking with dedicated channels per worker
+ * - Multi-user synchronization across same tenant
+ * - Connection management per worker type and job
  */
 
-export interface ProgressUpdate {
-  percentage: number
-  step: string
-  timestamp: string
-  // Queue tracking flags
-  first_item?: boolean
-  last_issue_changelog_item?: boolean
-  last_item?: boolean
+// Note: WorkerStatusUpdate interface removed as workers now send complete job status JSON
+
+export interface StepStatus {
+  order: number
+  display_name: string
+  extraction: 'idle' | 'running' | 'finished' | 'failed'
+  transform: 'idle' | 'running' | 'finished' | 'failed'
+  embedding: 'idle' | 'running' | 'finished' | 'failed'
 }
 
-export interface StatusUpdate {
-  status: string
-  timestamp: string
+export interface JobProgress {
+  extraction: WorkerStatus
+  transform: WorkerStatus
+  embedding: WorkerStatus
+  isActive: boolean
+  steps?: {
+    [stepName: string]: StepStatus
+  }
 }
 
-export interface CompletionUpdate {
-  status: string
-  message: string
-  timestamp: string
+export interface ConnectionStatus {
+  connected: boolean
+  lastConnected?: Date
+  reconnectAttempts: number
+}
+
+export interface WorkerStatus {
+  status: 'idle' | 'running' | 'finished' | 'failed'
+  step?: string
+  timestamp?: string
+  error_message?: string
 }
 
 interface JobEventHandlers {
-  onProgress?: (data: ProgressUpdate) => void
-  onStatus?: (data: StatusUpdate) => void
-  onCompletion?: (data: CompletionUpdate) => void
+  onJobProgress?: (data: JobProgress) => void
 }
 
 interface WebSocketMessage {
   type: string
-  job: string
-  [key: string]: any
+  worker_type: string
+  status: string
+  step: string
+  tenant_id: number
+  job_id: number
+  timestamp: string
+  error_message?: string
 }
 
 class ETLWebSocketService {
-  private connections: Map<string, WebSocket> = new Map()
+  private connections: Map<string, WebSocket> = new Map() // Key: "worker_type_tenant_id_job_id"
+  private jobProgress: Map<string, JobProgress> = new Map() // Key: "tenant_id_job_id"
+  private eventHandlers: Map<string, JobEventHandlers> = new Map() // Key: "tenant_id_job_id"
+  private connectionStatus: Map<string, ConnectionStatus> = new Map() // Key: "tenant_id_job_id"
+  private fallbackIntervals: Map<string, NodeJS.Timeout> = new Map() // Key: "tenant_id_job_id"
   private token: string | null = null
   private initializationVersion: number = 0
   private reconnectAttempts: Map<string, number> = new Map()
@@ -79,203 +98,502 @@ class ETLWebSocketService {
   }
 
   /**
-   * Connect to a specific job's WebSocket for real-time updates
+   * Fetch current worker status from database (hybrid approach fallback)
    */
-  connectToJob(jobName: string, handlers: JobEventHandlers): () => void {
+  private async fetchWorkerStatusFromAPI(tenantId: number, jobId: number): Promise<JobProgress | null> {
+    try {
+      if (!this.token) {
+        return null
+      }
+
+      const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
+      const internalSecret = import.meta.env.VITE_ETL_INTERNAL_SECRET || 'dev-internal-secret-change'
+
+      const response = await fetch(`${apiBaseUrl}/app/etl/jobs/${jobId}/worker-status?tenant_id=${tenantId}`, {
+        method: 'GET',
+        headers: {
+          'Authorization': `Bearer ${this.token}`,
+          'X-Internal-Auth': internalSecret,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (!response.ok) {
+        return null
+      }
+
+      const data = await response.json()
+
+      // Convert API response to JobProgress format
+      // Aggregate worker status across all steps
+      const extractionStatuses = Object.values(data.steps).map((step: any) => step.extraction)
+      const transformStatuses = Object.values(data.steps).map((step: any) => step.transform)
+      const embeddingStatuses = Object.values(data.steps).map((step: any) => step.embedding)
+
+      // Determine overall worker status and current step (running > finished > failed > idle)
+      const getOverallStatusAndStep = (statuses: string[], workerType: 'extraction' | 'transform' | 'embedding'): { status: 'idle' | 'running' | 'finished' | 'failed', step: string } => {
+        // Find the step that's currently running for this worker
+        const runningStep = Object.entries(data.steps).find(([, stepData]: [string, any]) =>
+          stepData[workerType] === 'running'
+        )
+
+        if (runningStep) {
+          return {
+            status: 'running' as const,
+            step: runningStep[0] // Step name like 'jira_projects_and_issue_types'
+          }
+        }
+
+        if (statuses.includes('finished')) return { status: 'finished' as const, step: '' }
+        if (statuses.includes('failed')) return { status: 'failed' as const, step: '' }
+        return { status: 'idle' as const, step: '' }
+      }
+
+      const extractionInfo = getOverallStatusAndStep(extractionStatuses, 'extraction')
+      const transformInfo = getOverallStatusAndStep(transformStatuses, 'transform')
+      const embeddingInfo = getOverallStatusAndStep(embeddingStatuses, 'embedding')
+
+      // Convert steps data to StepStatus format
+      const stepsData: { [stepName: string]: StepStatus } = {}
+      Object.entries(data.steps).forEach(([stepName, stepData]: [string, any]) => {
+        const validStatus = (status: string): 'idle' | 'running' | 'finished' | 'failed' => {
+          if (['idle', 'running', 'finished', 'failed'].includes(status)) {
+            return status as 'idle' | 'running' | 'finished' | 'failed'
+          }
+          return 'idle'
+        }
+
+        stepsData[stepName] = {
+          order: stepData.order || 0,
+          display_name: stepData.display_name || stepName,
+          extraction: validStatus(stepData.extraction || 'idle'),
+          transform: validStatus(stepData.transform || 'idle'),
+          embedding: validStatus(stepData.embedding || 'idle')
+        }
+      })
+
+      const jobProgress: JobProgress = {
+        extraction: {
+          status: extractionInfo.status,
+          step: extractionInfo.step,
+          timestamp: new Date().toISOString()
+        },
+        transform: {
+          status: transformInfo.status,
+          step: transformInfo.step,
+          timestamp: new Date().toISOString()
+        },
+        embedding: {
+          status: embeddingInfo.status,
+          step: embeddingInfo.step,
+          timestamp: new Date().toISOString()
+        },
+        isActive: data.overall === 'RUNNING',
+        steps: stepsData
+      }
+
+      return jobProgress
+
+    } catch (error) {
+      console.error('[ETL-WS] Error fetching worker status from API:', error)
+      return null
+    }
+  }
+
+  /**
+   * Connect to all worker channels for a specific job
+   */
+  connectToJob(tenantId: number, jobId: number, handlers: JobEventHandlers): () => void {
     if (!this.isInitialized || !this.token) {
-      console.warn(`[ETL-WS] Service not initialized, cannot connect to ${jobName}`)
       return () => {}
     }
 
-    // Check if already connected to prevent duplicate connections (React StrictMode)
-    const existingWs = this.connections.get(jobName)
+    const jobKey = `${tenantId}_${jobId}`
+
+    // Store event handlers for this job
+    this.eventHandlers.set(jobKey, handlers)
+
+    // Initialize connection status tracking
+    this.connectionStatus.set(jobKey, {
+      connected: false,
+      reconnectAttempts: 0
+    })
+
+    // Initialize job progress tracking
+    this.jobProgress.set(jobKey, {
+      extraction: { status: 'idle' },
+      transform: { status: 'idle' },
+      embedding: { status: 'idle' },
+      isActive: false,
+      steps: {}  // Initialize with empty steps object
+    })
+
+    // Hybrid approach: First fetch current status from database
+    this.fetchWorkerStatusFromAPI(tenantId, jobId).then(apiStatus => {
+      if (apiStatus) {
+        this.jobProgress.set(jobKey, apiStatus)
+        handlers.onJobProgress?.(apiStatus)
+      }
+    }).catch(() => {
+      // Silently handle API fallback errors
+    })
+
+    // Connect to all 3 worker channels for real-time updates
+    const workers: Array<'extraction' | 'transform' | 'embedding'> = ['extraction', 'transform', 'embedding']
+
+    workers.forEach(workerType => {
+      this.connectToWorkerChannel(workerType, tenantId, jobId)
+    })
+
+    // Start periodic fallback (only if WebSocket disconnected)
+    this.startFallbackPolling(tenantId, jobId)
+
+    // Return cleanup function
+    return () => this.disconnectJob(tenantId, jobId)
+  }
+
+  /**
+   * Connect to a specific worker channel for a job
+   */
+  private connectToWorkerChannel(workerType: 'extraction' | 'transform' | 'embedding', tenantId: number, jobId: number): void {
+    const connectionKey = `${workerType}_${tenantId}_${jobId}`
+
+    // Check if already connected
+    const existingWs = this.connections.get(connectionKey)
     if (existingWs && existingWs.readyState === WebSocket.OPEN) {
-      // Already connected, return cleanup function for existing connection
-      return () => this.disconnectJob(jobName)
+      return
     }
 
     // Close existing connection if any
-    this.disconnectJob(jobName)
+    this.disconnectWorkerChannel(connectionKey)
 
     try {
       const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
       const backendHost = import.meta.env.VITE_API_BASE_URL?.replace(/^https?:\/\//, '') || 'localhost:3001'
-      const wsUrl = `${protocol}//${backendHost}/ws/progress/${encodeURIComponent(jobName)}?token=${encodeURIComponent(this.token)}`
+      const wsUrl = `${protocol}//${backendHost}/ws/job/${workerType}/${tenantId}/${jobId}?token=${encodeURIComponent(this.token!)}`
 
       const ws = new WebSocket(wsUrl)
-      this.connections.set(jobName, ws)
+      this.connections.set(connectionKey, ws)
 
       ws.onopen = () => {
-        // Connection successful - reset reconnect attempts
-        this.reconnectAttempts.set(jobName, 0)
+        this.reconnectAttempts.set(connectionKey, 0)
+        this.updateConnectionStatus(tenantId, jobId, true)
       }
 
       ws.onmessage = (event) => {
         try {
           const message: WebSocketMessage = JSON.parse(event.data)
-          this.handleMessage(message, handlers)
+          this.handleWorkerMessage(message, tenantId, jobId)
         } catch (error) {
-          console.error(`[ETL-WS] Failed to parse message for ${jobName}:`, error)
+          console.error(`[ETL-WS] Error parsing message from ${workerType}:`, error)
         }
       }
 
       ws.onclose = (event) => {
-        this.connections.delete(jobName)
+        this.connections.delete(connectionKey)
+        this.updateConnectionStatus(tenantId, jobId, false)
 
-        // Only attempt to reconnect if not manually disconnected (code 1000 = normal closure)
-        const attempts = this.reconnectAttempts.get(jobName) || 0
-        if (event.code !== 1000 && attempts < this.maxReconnectAttempts && this.isInitialized) {
-          this.reconnectAttempts.set(jobName, attempts + 1)
-          setTimeout(() => {
-            if (this.isInitialized) {
-              this.connectToJob(jobName, handlers)
-            }
-          }, this.reconnectDelay * (attempts + 1))
+        // Attempt reconnection if not a clean close
+        if (event.code !== 1000 && this.isInitialized) {
+          this.attemptReconnection(connectionKey, workerType, tenantId, jobId)
         }
       }
 
       ws.onerror = (error) => {
-        // Only log errors that aren't from React StrictMode cleanup
-        if (ws.readyState !== WebSocket.CLOSED) {
-          console.error(`[ETL-WS] WebSocket error for ${jobName}:`, error)
-        }
+        console.error(`[ETL-WS] ${workerType} worker connection error for job ${jobId}:`, error)
       }
 
-      // Return cleanup function
-      return () => this.disconnectJob(jobName)
-
     } catch (error) {
-      console.error(`[ETL-WS] Failed to connect to ${jobName}:`, error)
-      return () => {}
+      console.error(`[ETL-WS] Failed to connect to ${workerType} worker for job ${jobId}:`, error)
     }
   }
 
   /**
-   * Handle incoming WebSocket messages
+   * Handle incoming worker status messages
    */
-  private handleMessage(message: WebSocketMessage, handlers: JobEventHandlers) {
-    switch (message.type) {
-      case 'progress':
-        handlers.onProgress?.({
-          percentage: message.percentage,
-          step: message.step,
-          timestamp: message.timestamp,
-          // Pass through queue tracking flags
-          first_item: message.first_item,
-          last_issue_changelog_item: message.last_issue_changelog_item,
-          last_item: message.last_item
-        })
-        break
+  private handleWorkerMessage(message: WebSocketMessage, tenantId: number, jobId: number): void {
+    // Handle job status update message type (same JSON as database)
+    if (message.type === 'job_status_update') {
+      this.handleJobStatusUpdate(message, tenantId, jobId)
+      return
+    }
 
-      case 'status':
-        handlers.onStatus?.({
-          status: message.status,
-          timestamp: message.timestamp
-        })
-        break
+    // Note: worker_status messages are no longer sent by backend workers
+    // All status updates now use job_status_update with complete database JSON
+  }
 
-      case 'completion':
-        handlers.onCompletion?.({
-          status: message.success ? 'COMPLETED' : 'FAILED',
-          message: message.summary ? JSON.stringify(message.summary) : '',
-          timestamp: message.timestamp
-        })
-        break
+  /**
+   * Handle job status update message (same JSON structure as database)
+   */
+  private handleJobStatusUpdate(message: any, tenantId: number, jobId: number): void {
 
-      case 'pong':
-        // Ping response - connection is alive
-        break
+    const jobKey = `${tenantId}_${jobId}`
+    const handlers = this.eventHandlers.get(jobKey)
 
-      default:
-        console.warn(`[ETL-WS] Unknown message type: ${message.type}`)
+    // The message.status contains the same JSON structure as the database
+    // Convert it to the format the UI expects
+    const dbStatus = message.status
+
+    if (dbStatus && dbStatus.steps) {
+      // Convert steps data to StepStatus format
+      const stepsData: { [stepName: string]: StepStatus } = {}
+      Object.entries(dbStatus.steps).forEach(([stepName, stepData]: [string, any]) => {
+        stepsData[stepName] = {
+          order: stepData.order || 0,
+          display_name: stepData.display_name || stepName,
+          extraction: stepData.extraction || 'idle',
+          transform: stepData.transform || 'idle',
+          embedding: stepData.embedding || 'idle'
+        }
+      })
+
+      // Create job progress from database status
+      const jobProgress: JobProgress = {
+        extraction: this.getWorkerStatusFromSteps(dbStatus.steps, 'extraction'),
+        transform: this.getWorkerStatusFromSteps(dbStatus.steps, 'transform'),
+        embedding: this.getWorkerStatusFromSteps(dbStatus.steps, 'embedding'),
+        isActive: dbStatus.overall === 'RUNNING',
+        steps: stepsData  // Include the steps data for UI step indicators
+      }
+
+      // Store the updated progress
+      this.jobProgress.set(jobKey, jobProgress)
+
+      // Notify handlers
+      if (handlers?.onJobProgress) {
+        handlers.onJobProgress(jobProgress)
+      }
     }
   }
 
   /**
-   * Disconnect from a specific job
+   * Extract worker status from database steps structure
    */
-  private disconnectJob(jobName: string) {
-    const ws = this.connections.get(jobName)
+  private getWorkerStatusFromSteps(steps: any, workerType: 'extraction' | 'transform' | 'embedding'): WorkerStatus {
+    // Find any step that has this worker type status
+    for (const stepName in steps) {
+      const step = steps[stepName]
+      if (step && step[workerType]) {
+        const status = step[workerType]
+        return {
+          status: status === 'running' ? 'running' : status === 'finished' ? 'finished' : 'idle',
+          step: stepName,
+          timestamp: new Date().toISOString()
+        }
+      }
+    }
+
+    // Default to idle if no status found
+    return {
+      status: 'idle',
+      step: '',
+      timestamp: new Date().toISOString()
+    }
+  }
+
+
+
+  /**
+   * Attempt to reconnect to a worker channel
+   */
+  private attemptReconnection(connectionKey: string, workerType: 'extraction' | 'transform' | 'embedding', tenantId: number, jobId: number): void {
+    const attempts = this.reconnectAttempts.get(connectionKey) || 0
+
+    if (attempts < this.maxReconnectAttempts) {
+      this.reconnectAttempts.set(connectionKey, attempts + 1)
+
+      setTimeout(() => {
+        if (this.isInitialized) {
+          this.connectToWorkerChannel(workerType, tenantId, jobId)
+        }
+      }, this.reconnectDelay * (attempts + 1))
+    } else {
+      console.error(`[ETL-WS] Max reconnection attempts reached for ${workerType} worker`)
+    }
+  }
+
+  /**
+   * Get current job progress
+   */
+  getJobProgress(tenantId: number, jobId: number): JobProgress | null {
+    const jobKey = `${tenantId}_${jobId}`
+    return this.jobProgress.get(jobKey) || null
+  }
+
+  /**
+   * Check if a job is currently active (any worker running)
+   */
+  isJobRunning(tenantId: number, jobId: number): boolean {
+    const progress = this.getJobProgress(tenantId, jobId)
+    return progress ? progress.isActive : false
+  }
+
+  /**
+   * Disconnect from a specific job (all worker channels)
+   */
+  private disconnectJob(tenantId: number, jobId: number): void {
+    const jobKey = `${tenantId}_${jobId}`
+    const workers: Array<'extraction' | 'transform' | 'embedding'> = ['extraction', 'transform', 'embedding']
+
+    workers.forEach(workerType => {
+      const connectionKey = `${workerType}_${tenantId}_${jobId}`
+      this.disconnectWorkerChannel(connectionKey)
+    })
+
+    // Stop fallback polling
+    this.stopFallbackPolling(tenantId, jobId)
+
+    // Clean up job data
+    this.jobProgress.delete(jobKey)
+    this.eventHandlers.delete(jobKey)
+    this.connectionStatus.delete(jobKey)
+  }
+
+  /**
+   * Disconnect from a specific worker channel
+   */
+  private disconnectWorkerChannel(connectionKey: string): void {
+    const ws = this.connections.get(connectionKey)
     if (ws) {
       try {
-        // Only close if the WebSocket is open
         if (ws.readyState === WebSocket.OPEN) {
           ws.close(1000, 'Manual disconnect')
         }
-        // For other states (CONNECTING, CLOSING, CLOSED), just remove from connections
       } catch (error) {
-        // Ignore errors during cleanup (React StrictMode can cause this)
+        // Ignore errors during cleanup
       }
-      this.connections.delete(jobName)
+      this.connections.delete(connectionKey)
     }
-  }
-
-  /**
-   * Handle job activation/deactivation
-   */
-  handleJobToggle(jobName: string, active: boolean) {
-    if (!active) {
-      // Job deactivated, disconnect WebSocket
-      this.disconnectJob(jobName)
-    }
-    // If activated, connection will be established when JobCard component mounts
   }
 
   /**
    * Disconnect all WebSocket connections
    */
-  disconnectAll() {
-    for (const [jobName, ws] of this.connections) {
+  disconnectAll(): void {
+    for (const [, ws] of this.connections) {
       try {
-        // Only close if the WebSocket is open
         if (ws.readyState === WebSocket.OPEN) {
           ws.close(1000, 'Service shutdown')
         }
-        // For other states (CONNECTING, CLOSING, CLOSED), just remove from connections
       } catch (error) {
-        // Ignore errors during cleanup (React StrictMode can cause this)
+        // Ignore errors during cleanup
       }
     }
     this.connections.clear()
     this.reconnectAttempts.clear()
-    // Don't set isInitialized = false here, as this is called during reinitialization
+    this.jobProgress.clear()
+    this.eventHandlers.clear()
   }
 
   /**
    * Shutdown the service completely (used on logout)
    */
-  shutdown() {
+  shutdown(): void {
     this.disconnectAll()
     this.isInitialized = false
     this.token = null
   }
 
   /**
-   * Update authentication token
+   * Update authentication token and reconnect all active jobs
    */
-  async updateToken(newToken: string) {
+  async updateToken(newToken: string): Promise<void> {
     this.token = newToken
     // Note: We don't reconnect existing WebSockets as they remain valid
     // New connections will use the updated token
   }
 
   /**
-   * Check if connected to a specific job
+   * Check if connected to all worker channels for a job
    */
-  isConnectedToJob(jobName: string): boolean {
-    const ws = this.connections.get(jobName)
-    return ws?.readyState === WebSocket.OPEN
+  isConnectedToJob(tenantId: number, jobId: number): boolean {
+    const workers: Array<'extraction' | 'transform' | 'embedding'> = ['extraction', 'transform', 'embedding']
+
+    return workers.every(workerType => {
+      const connectionKey = `${workerType}_${tenantId}_${jobId}`
+      const ws = this.connections.get(connectionKey)
+      return ws?.readyState === WebSocket.OPEN
+    })
   }
 
   /**
-   * Get connection status for all jobs
+   * Get connection status for all worker channels
    */
   getConnectionStatus(): Record<string, boolean> {
     const status: Record<string, boolean> = {}
-    for (const [jobName, ws] of this.connections) {
-      status[jobName] = ws.readyState === WebSocket.OPEN
+    for (const [connectionKey, ws] of this.connections) {
+      status[connectionKey] = ws.readyState === WebSocket.OPEN
     }
     return status
+  }
+
+  /**
+   * Start periodic fallback polling for a job (hybrid approach)
+   */
+  private startFallbackPolling(tenantId: number, jobId: number): void {
+    const jobKey = `${tenantId}_${jobId}`
+
+    // Clear any existing interval
+    const existingInterval = this.fallbackIntervals.get(jobKey)
+    if (existingInterval) {
+      clearInterval(existingInterval)
+    }
+
+    // Start new interval (check every 30 seconds)
+    const interval = setInterval(async () => {
+      const connectionStatus = this.connectionStatus.get(jobKey)
+
+      // Only fetch from API if WebSocket is disconnected
+      if (!connectionStatus?.connected) {
+        const apiStatus = await this.fetchWorkerStatusFromAPI(tenantId, jobId)
+        if (apiStatus) {
+          this.jobProgress.set(jobKey, apiStatus)
+
+          // Notify handlers
+          const handlers = this.eventHandlers.get(jobKey)
+          if (handlers?.onJobProgress) {
+            handlers.onJobProgress(apiStatus)
+          }
+        }
+      }
+    }, 30000) // 30 seconds
+
+    this.fallbackIntervals.set(jobKey, interval)
+  }
+
+  /**
+   * Stop fallback polling for a job
+   */
+  private stopFallbackPolling(tenantId: number, jobId: number): void {
+    const jobKey = `${tenantId}_${jobId}`
+    const interval = this.fallbackIntervals.get(jobKey)
+
+    if (interval) {
+      clearInterval(interval)
+      this.fallbackIntervals.delete(jobKey)
+    }
+  }
+
+  /**
+   * Update connection status for a job
+   */
+  private updateConnectionStatus(tenantId: number, jobId: number, connected: boolean): void {
+    const jobKey = `${tenantId}_${jobId}`
+    const currentStatus = this.connectionStatus.get(jobKey)
+
+    this.connectionStatus.set(jobKey, {
+      connected,
+      lastConnected: connected ? new Date() : currentStatus?.lastConnected,
+      reconnectAttempts: connected ? 0 : (currentStatus?.reconnectAttempts || 0) + 1
+    })
+  }
+
+  /**
+   * Handle job activation/deactivation (legacy compatibility)
+   */
+  handleJobToggle(_jobName: string, _active: boolean): void {
+    // This method is kept for backward compatibility
+    // In the new implementation, connections are managed per job ID
   }
 }
 

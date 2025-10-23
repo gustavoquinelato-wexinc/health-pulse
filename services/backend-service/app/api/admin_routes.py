@@ -27,7 +27,7 @@ from app.core.database import get_database
 from app.models.unified_models import (
     User, UserPermission, UserSession, Integration, Project, WorkItem, Tenant, Changelog,
     Repository, Pr, PrCommit, PrReview, PrComment,
-    WorkItemPrLink, Wit, Status, JobSchedule, SystemSettings, TenantColors,
+    WorkItemPrLink, Wit, Status, EtlJob, SystemSettings, TenantColors,
     StatusMapping, Workflow, WitMapping, WitHierarchy, MigrationHistory,
     ProjectWits, ProjectsStatuses
 )
