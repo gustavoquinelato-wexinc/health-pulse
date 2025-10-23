@@ -853,7 +853,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
             <div>
               <span className="text-secondary">Next Run:</span>
               <span className="ml-2 text-primary font-medium text-xs">
-                {realTimeStatus === 'RUNNING' ? 'Countdown: —' : (job.next_run ? formatDateTimeWithTZ(job.next_run) : 'Countdown: —')}
+                {realTimeStatus === 'RUNNING' ? '—' : (job.next_run ? formatDateTimeWithTZ(job.next_run) : '—')}
               </span>
             </div>
             <div>
