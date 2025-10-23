@@ -256,6 +256,29 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
     return () => clearInterval(interval)
   }, [job.next_run, job.active, realTimeStatus])
 
+  // Initialize reset countdown if job is FINISHED (handles page refresh)
+  useEffect(() => {
+    if (realTimeStatus === 'FINISHED' && resetCountdown === null) {
+      // Job is finished but countdown not started - initialize it
+      // Calculate how long ago the job finished
+      if (job.last_run_finished_at) {
+        const finishedTime = new Date(job.last_run_finished_at).getTime()
+        const now = new Date().getTime()
+        const elapsedSeconds = Math.floor((now - finishedTime) / 1000)
+        const remainingSeconds = Math.max(0, 30 - elapsedSeconds)
+
+        if (remainingSeconds > 0) {
+          console.log(`🔄 Restoring reset countdown: ${remainingSeconds}s remaining`)
+          setResetCountdown(remainingSeconds)
+        } else {
+          // More than 30 seconds have passed, reset immediately
+          console.log(`🔄 More than 30s passed since job finished, resetting immediately`)
+          setResetCountdown(null)
+        }
+      }
+    }
+  }, [realTimeStatus, job.last_run_finished_at])
+
   // Reset countdown timer - decrements every second
   useEffect(() => {
     if (resetCountdown === null || resetCountdown <= 0) {
