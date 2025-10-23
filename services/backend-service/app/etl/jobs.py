@@ -837,6 +837,81 @@ async def get_job_worker_status(
         raise HTTPException(status_code=500, detail=f"Failed to get job worker status: {str(e)}")
 
 
+@router.get("/jobs/{job_id}/check-completion", response_model=dict)
+async def check_job_completion(
+    job_id: int,
+    tenant_id: int = Query(..., description="Tenant ID"),
+    db: Session = Depends(get_db_session),
+    auth_result: dict = Depends(verify_hybrid_auth)
+):
+    """
+    Check if all job steps are truly finished.
+
+    This endpoint implements the hybrid approach:
+    1. Checks if overall status is FINISHED
+    2. Checks if ALL internal steps (extraction, transform, embedding) are FINISHED
+    3. Returns whether to reset immediately or wait
+
+    Returns:
+        {
+            "all_finished": bool,  # True if all steps are FINISHED
+            "overall_status": str,  # Current overall status
+            "steps": dict  # Current step statuses
+        }
+    """
+    try:
+        from sqlalchemy import text
+        import json
+
+        # Get job status
+        query = text("""
+            SELECT status
+            FROM etl_jobs
+            WHERE id = :job_id AND tenant_id = :tenant_id
+        """)
+        result = db.execute(query, {'job_id': job_id, 'tenant_id': tenant_id}).fetchone()
+
+        if not result:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+        status_json = result[0]
+        if isinstance(status_json, str):
+            status_json = json.loads(status_json)
+
+        overall_status = status_json.get('overall', 'UNKNOWN')
+        steps = status_json.get('steps', {})
+
+        # Check if ALL steps are FINISHED
+        all_steps_finished = True
+        if overall_status == 'FINISHED':
+            for step_name, step_data in steps.items():
+                extraction_status = step_data.get('extraction', 'idle')
+                transform_status = step_data.get('transform', 'idle')
+                embedding_status = step_data.get('embedding', 'idle')
+
+                # All three must be 'finished' for the step to be complete
+                if not (extraction_status == 'finished' and
+                        transform_status == 'finished' and
+                        embedding_status == 'finished'):
+                    all_steps_finished = False
+                    logger.info(f"🔍 Step {step_name} not fully finished: extraction={extraction_status}, transform={transform_status}, embedding={embedding_status}")
+                    break
+
+        logger.info(f"🔍 Job {job_id} completion check: overall={overall_status}, all_steps_finished={all_steps_finished}")
+
+        return {
+            "all_finished": all_steps_finished,
+            "overall_status": overall_status,
+            "steps": steps
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error checking job completion: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to check job completion: {str(e)}")
+
+
 @router.post("/jobs/{job_id}/reset", response_model=JobActionResponse)
 async def reset_job_status(
     job_id: int,

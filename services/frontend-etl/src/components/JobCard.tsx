@@ -331,8 +331,40 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
                 clearTimeout(finishedTransitionTimer)
               }
 
-              // Set timer to transition to READY after 5 seconds
-              const timer = setTimeout(async () => {
+              // Hybrid approach: Check if all steps are truly finished
+              // If yes, reset immediately. If no, wait 30 seconds and try again.
+              const checkAndReset = async () => {
+                try {
+                  if (!user?.tenant_id) {
+                    console.warn(`⚠️ Cannot check job completion: user or tenant_id not available`)
+                    // Fallback: wait 30s and reset anyway
+                    setTimeout(performReset, 30000)
+                    return
+                  }
+
+                  // Check if all steps are truly finished
+                  const completionCheck = await jobsApi.checkJobCompletion(job.id, user.tenant_id)
+                  console.log(`🔍 Job ${job.id} completion check:`, completionCheck.data)
+
+                  if (completionCheck.data.all_finished) {
+                    // All steps are finished, reset immediately
+                    console.log(`✅ All steps finished, resetting job immediately`)
+                    await performReset()
+                  } else {
+                    // Not all steps finished yet, wait 30 seconds and try again
+                    console.log(`⏳ Not all steps finished yet, waiting 30 seconds...`)
+                    const timer = setTimeout(checkAndReset, 30000)
+                    setFinishedTransitionTimer(timer)
+                  }
+                } catch (error) {
+                  console.error(`❌ Error checking job completion:`, error)
+                  // Fallback: wait 30s and reset anyway
+                  const timer = setTimeout(performReset, 30000)
+                  setFinishedTransitionTimer(timer)
+                }
+              }
+
+              const performReset = async () => {
                 try {
                   // Call backend to reset job status in database
                   if (user?.tenant_id) {
@@ -347,9 +379,10 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
                 // Update frontend state regardless of backend call result
                 setRealTimeStatus('READY')
                 setFinishedTransitionTimer(null)
-              }, 5000)
+              }
 
-              setFinishedTransitionTimer(timer)
+              // Start the check and reset process
+              checkAndReset()
             }
           }
         }

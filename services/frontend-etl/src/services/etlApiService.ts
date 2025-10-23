@@ -232,6 +232,9 @@ export const jobsApi = {
   getJobWorkerStatus: async (jobId: number, tenantId: number) => {
     return await etlApi.get(`/jobs/${jobId}/worker-status?tenant_id=${tenantId}`)
   },
+  checkJobCompletion: async (jobId: number, tenantId: number) => {
+    return await etlApi.get(`/jobs/${jobId}/check-completion?tenant_id=${tenantId}`)
+  },
   resetJobStatus: async (jobId: number, tenantId: number) => {
     return await etlApi.post(`/jobs/${jobId}/reset?tenant_id=${tenantId}`)
   },
