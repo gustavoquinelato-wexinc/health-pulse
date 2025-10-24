@@ -39,7 +39,7 @@ def verify_internal_auth(request: Request):
         logger.warning("ETL_INTERNAL_SECRET not configured; rejecting internal auth request")
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Internal auth not configured")
     if not provided or provided != internal_secret:
-        logger.warning(f"Invalid internal auth: expected secret, got {provided[:10] if provided else 'None'}...")
+        # Don't log warning here - it's expected to fail when using user auth instead
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized internal request")
 
     logger.debug("Internal authentication successful")

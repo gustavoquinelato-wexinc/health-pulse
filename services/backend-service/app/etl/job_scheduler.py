@@ -77,7 +77,7 @@ class IndividualJobTimer:
                 # Get this specific job's details including next_run
                 query = text("""
                     SELECT
-                        status, active, next_run, schedule_interval_minutes
+                        status->>'overall' as overall_status, active, next_run, schedule_interval_minutes
                     FROM etl_jobs
                     WHERE id = :job_id AND tenant_id = :tenant_id
                 """)
@@ -178,7 +178,7 @@ class IndividualJobTimer:
             while elapsed < max_wait_seconds:
                 with database.get_read_session_context() as session:
                     query = text("""
-                        SELECT status
+                        SELECT status->>'overall' as overall_status
                         FROM etl_jobs
                         WHERE id = :job_id AND tenant_id = :tenant_id
                     """)
@@ -214,7 +214,7 @@ class IndividualJobTimer:
 
                 # Get updated job details including next_run
                 query = text("""
-                    SELECT status, active, next_run
+                    SELECT status->>'overall' as overall_status, active, next_run
                     FROM etl_jobs
                     WHERE id = :job_id AND tenant_id = :tenant_id
                 """)
@@ -285,7 +285,7 @@ class IndividualJobTimer:
             with database.get_read_session_context() as session:
                 # First check if job is already running
                 check_query = text("""
-                    SELECT status
+                    SELECT status->>'overall' as overall_status
                     FROM etl_jobs
                     WHERE id = :job_id AND tenant_id = :tenant_id
                 """)
@@ -299,6 +299,7 @@ class IndividualJobTimer:
                     return
 
                 current_status = result[0]
+                logger.info(f"🔍 [TRIGGER] Job '{self.job_name}' current status: {current_status}")
 
                 # Only trigger if job is in READY status
                 if current_status == 'RUNNING':
@@ -488,9 +489,14 @@ class IndividualJobTimer:
 
             elif job_name.lower() == 'github':
                 logger.info("🚀 Queuing GitHub extraction job...")
-                # TODO: Implement GitHub job queuing
-                logger.warning("GitHub job queuing not yet implemented - marking as completed")
-                await self._mark_job_completed()
+                from app.etl.jobs import _queue_github_extraction_job
+
+                success = await _queue_github_extraction_job(self.tenant_id, integration_id, self.job_id)
+                if success:
+                    logger.info(f"✅ GitHub extraction job queued successfully for integration {integration_id}")
+                else:
+                    logger.error(f"❌ Failed to queue GitHub extraction job for integration {integration_id}")
+                    await self._mark_job_failed("Failed to queue extraction job")
 
             else:
                 logger.warning(f"Unknown job type: {job_name} - marking as completed")

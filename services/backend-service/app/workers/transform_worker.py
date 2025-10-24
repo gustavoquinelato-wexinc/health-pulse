@@ -436,6 +436,10 @@ class TransformWorker(BaseWorker):
                 return self._process_jira_dev_status(
                     raw_data_id, tenant_id, integration_id, job_id, message
                 )
+            elif message_type == 'github_repositories':
+                return self._process_github_repositories(
+                    raw_data_id, tenant_id, integration_id, job_id, message
+                )
             else:
                 logger.warning(f"Unknown message type: {message_type}")
                 return False
@@ -3793,6 +3797,256 @@ class TransformWorker(BaseWorker):
 
         except Exception as e:
             logger.error(f"Error updating job status: {e}")
+
+    def _process_github_repositories(self, raw_data_id: int, tenant_id: int, integration_id: int,
+                                    job_id: int, message: Dict[str, Any] = None) -> bool:
+        """
+        Process GitHub repositories batch from raw_extraction_data.
+
+        Flow:
+        1. Load raw data containing all repositories
+        2. Transform each repository and upsert to repositories table
+        3. Queue each repository for embedding with proper first_item/last_item flags
+        4. Send WebSocket status updates
+
+        Args:
+            raw_data_id: ID of raw extraction data
+            tenant_id: Tenant ID
+            integration_id: Integration ID
+            job_id: ETL job ID
+            message: Original message with flags and metadata
+
+        Returns:
+            bool: True if processing succeeded
+        """
+        try:
+            first_item = message.get('first_item', False) if message else False
+            last_item = message.get('last_item', False) if message else False
+            last_job_item = message.get('last_job_item', False) if message else False
+            provider = message.get('provider', 'github') if message else 'github'
+            last_sync_date = message.get('last_sync_date') if message else None
+
+            logger.info(f"🚀 [GITHUB] Processing repositories batch for tenant {tenant_id}, integration {integration_id}, raw_data_id={raw_data_id}")
+
+            # Send WebSocket status: transform worker starting (on first_item)
+            if job_id and first_item:
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "running", "github_repositories"))
+                finally:
+                    loop.close()
+
+            # Fetch raw batch data
+            from app.core.database import get_database
+            database = get_database()
+
+            with database.get_read_session_context() as db:
+                raw_data_query = text("""
+                    SELECT raw_data FROM raw_extraction_data
+                    WHERE id = :raw_data_id AND tenant_id = :tenant_id
+                """)
+                result = db.execute(raw_data_query, {'raw_data_id': raw_data_id, 'tenant_id': tenant_id}).fetchone()
+
+                if not result:
+                    logger.error(f"Raw data not found for raw_data_id={raw_data_id}")
+                    return False
+
+                raw_batch_data = result[0]
+                if isinstance(raw_batch_data, str):
+                    raw_batch_data = json.loads(raw_batch_data)
+
+            # Extract repositories from batch
+            repositories = raw_batch_data.get('repositories', [])
+            logger.info(f"📦 Processing {len(repositories)} repositories from batch")
+
+            if not repositories:
+                logger.warning(f"No repositories found in raw_data_id={raw_data_id}")
+                return True
+
+            # Transform and upsert all repositories in this batch
+            # 🔑 Flag forwarding logic for looping through repositories:
+            # - first_item=True only on FIRST repo in the loop
+            # - last_item=True only on LAST repo in the loop
+            # - last_job_item=True only on LAST repo in the loop (when incoming last_job_item=True)
+            # - All middle repos: all flags=False
+
+            # Collect repos to queue AFTER database transaction completes
+            repos_to_queue = []
+
+            with database.get_write_session_context() as db:
+                for i, raw_repo_data in enumerate(repositories):
+                    is_first_repo_in_loop = (i == 0)
+                    is_last_repo_in_loop = (i == len(repositories) - 1)
+
+                    transformed_repo = {
+                        'tenant_id': tenant_id,
+                        'integration_id': integration_id,
+                        'external_id': str(raw_repo_data.get('id')),
+                        'name': raw_repo_data.get('name'),
+                        'full_name': raw_repo_data.get('full_name'),
+                        'owner': raw_repo_data.get('owner', {}).get('login'),
+                        'description': raw_repo_data.get('description'),
+                        'language': raw_repo_data.get('language'),
+                        'default_branch': raw_repo_data.get('default_branch'),
+                        'visibility': raw_repo_data.get('visibility'),
+                        'topics': json.dumps(raw_repo_data.get('topics', [])),  # Convert to JSON string for JSONB
+                        'is_private': raw_repo_data.get('private', False),
+                        'archived': raw_repo_data.get('archived', False),
+                        'disabled': raw_repo_data.get('disabled', False),
+                        'fork': raw_repo_data.get('fork', False),
+                        'is_template': raw_repo_data.get('is_template', False),
+                        'allow_forking': raw_repo_data.get('allow_forking', True),
+                        'web_commit_signoff_required': raw_repo_data.get('web_commit_signoff_required', False),
+                        'has_issues': raw_repo_data.get('has_issues', True),
+                        'has_wiki': raw_repo_data.get('has_wiki', False),
+                        'has_discussions': raw_repo_data.get('has_discussions', False),
+                        'has_projects': raw_repo_data.get('has_projects', False),
+                        'has_downloads': raw_repo_data.get('has_downloads', True),
+                        'has_pages': raw_repo_data.get('has_pages', False),
+                        'license': raw_repo_data.get('license', {}).get('name') if raw_repo_data.get('license') else None,
+                        'stargazers_count': raw_repo_data.get('stargazers_count', 0),
+                        'forks_count': raw_repo_data.get('forks_count', 0),
+                        'open_issues_count': raw_repo_data.get('open_issues_count', 0),
+                        'size': raw_repo_data.get('size', 0),
+                        'repo_created_at': self._parse_datetime(raw_repo_data.get('created_at')),
+                        'repo_updated_at': self._parse_datetime(raw_repo_data.get('updated_at')),
+                        'pushed_at': self._parse_datetime(raw_repo_data.get('pushed_at')),
+                        'active': True,
+                        'last_updated_at': datetime.now()
+                    }
+
+                    upsert_query = text("""
+                        INSERT INTO repositories (
+                            tenant_id, integration_id, external_id, name, full_name, owner,
+                            description, language, default_branch, visibility, topics,
+                            is_private, archived, disabled, fork, is_template, allow_forking,
+                            web_commit_signoff_required, has_issues, has_wiki, has_discussions,
+                            has_projects, has_downloads, has_pages, license,
+                            stargazers_count, forks_count, open_issues_count, size,
+                            repo_created_at, repo_updated_at, pushed_at, active, last_updated_at
+                        ) VALUES (
+                            :tenant_id, :integration_id, :external_id, :name, :full_name, :owner,
+                            :description, :language, :default_branch, :visibility, :topics,
+                            :is_private, :archived, :disabled, :fork, :is_template, :allow_forking,
+                            :web_commit_signoff_required, :has_issues, :has_wiki, :has_discussions,
+                            :has_projects, :has_downloads, :has_pages, :license,
+                            :stargazers_count, :forks_count, :open_issues_count, :size,
+                            :repo_created_at, :repo_updated_at, :pushed_at, :active, :last_updated_at
+                        )
+                        ON CONFLICT (tenant_id, integration_id, external_id) DO UPDATE SET
+                            name = EXCLUDED.name,
+                            full_name = EXCLUDED.full_name,
+                            owner = EXCLUDED.owner,
+                            description = EXCLUDED.description,
+                            language = EXCLUDED.language,
+                            default_branch = EXCLUDED.default_branch,
+                            visibility = EXCLUDED.visibility,
+                            topics = EXCLUDED.topics,
+                            is_private = EXCLUDED.is_private,
+                            archived = EXCLUDED.archived,
+                            disabled = EXCLUDED.disabled,
+                            fork = EXCLUDED.fork,
+                            is_template = EXCLUDED.is_template,
+                            allow_forking = EXCLUDED.allow_forking,
+                            web_commit_signoff_required = EXCLUDED.web_commit_signoff_required,
+                            has_issues = EXCLUDED.has_issues,
+                            has_wiki = EXCLUDED.has_wiki,
+                            has_discussions = EXCLUDED.has_discussions,
+                            has_projects = EXCLUDED.has_projects,
+                            has_downloads = EXCLUDED.has_downloads,
+                            has_pages = EXCLUDED.has_pages,
+                            license = EXCLUDED.license,
+                            stargazers_count = EXCLUDED.stargazers_count,
+                            forks_count = EXCLUDED.forks_count,
+                            open_issues_count = EXCLUDED.open_issues_count,
+                            size = EXCLUDED.size,
+                            repo_created_at = EXCLUDED.repo_created_at,
+                            repo_updated_at = EXCLUDED.repo_updated_at,
+                            pushed_at = EXCLUDED.pushed_at,
+                            active = EXCLUDED.active,
+                            last_updated_at = EXCLUDED.last_updated_at
+                        RETURNING id, external_id
+                    """)
+
+                    result = db.execute(upsert_query, transformed_repo)
+                    repo_record = result.fetchone()
+
+                    if repo_record:
+                        # Store repo info for queueing AFTER transaction commits
+                        repos_to_queue.append({
+                            'external_id': repo_record[1],
+                            'full_name': transformed_repo['full_name'],
+                            'is_first_in_batch': is_first_repo_in_loop,
+                            'is_last_in_batch': is_last_repo_in_loop
+                        })
+
+                        logger.debug(f"✅ Processed repository {transformed_repo['full_name']}")
+
+            # 🔑 CRITICAL: Queue for embedding AFTER database transaction commits
+            # This prevents race condition where embedding worker tries to read data before it's committed
+            # 🔑 Flag logic for looping through repositories:
+            # - first_item=True only on FIRST repo in the loop
+            # - last_item=True only on LAST repo in the loop
+            # - last_job_item=True only on LAST repo in the loop (when incoming last_job_item=True)
+            for i, repo_info in enumerate(repos_to_queue):
+                is_first_repo_in_loop = (i == 0)
+                is_last_repo_in_loop = (i == len(repos_to_queue) - 1)
+
+                # 🔑 Set flags based on position in the loop
+                repo_first_item = is_first_repo_in_loop
+                repo_last_item = is_last_repo_in_loop
+                repo_last_job_item = is_last_repo_in_loop and last_job_item
+
+                self.queue_manager.publish_embedding_job(
+                    tenant_id=tenant_id,
+                    table_name='repositories',
+                    external_id=repo_info['external_id'],
+                    job_id=job_id,
+                    step_type='github_repositories',
+                    integration_id=integration_id,
+                    provider=provider,
+                    last_sync_date=last_sync_date,
+                    first_item=repo_first_item,
+                    last_item=repo_last_item,
+                    last_job_item=repo_last_job_item
+                )
+
+                logger.debug(f"Queued repo {repo_info['full_name']} for embedding (first={repo_first_item}, last={repo_last_item}, job_end={repo_last_job_item})")
+
+            # ✅ Mark raw data as completed after all repos are queued
+            update_query = text("""
+                UPDATE raw_extraction_data
+                SET status = 'completed',
+                    last_updated_at = NOW(),
+                    error_details = NULL
+                WHERE id = :raw_data_id
+            """)
+            with database.get_write_session_context() as db:
+                db.execute(update_query, {'raw_data_id': raw_data_id})
+                db.commit()
+
+            logger.info(f"Processed {len(repos_to_queue)} repositories - marked raw_data_id={raw_data_id} as completed")
+
+            # Send WebSocket status: transform worker finished (on last_item)
+            if job_id and last_item:
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "finished", "github_repositories"))
+                finally:
+                    loop.close()
+
+            logger.info(f"✅ [GITHUB] Processed {len(repositories)} repositories and queued for embedding")
+            return True
+
+        except Exception as e:
+            logger.error(f"❌ [GITHUB] Error processing repositories: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            return False
 
 
 

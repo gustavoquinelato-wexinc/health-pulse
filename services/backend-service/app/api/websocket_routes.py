@@ -679,9 +679,9 @@ async def websocket_status(active_jobs: bool = Query(False), tenant_id: int = Qu
 # New Job WebSocket Endpoints for Worker-Specific Channels
 
 @router.websocket("/ws/job/{worker_type}/{tenant_id}/{job_id}")
-async def job_websocket_endpoint(websocket: WebSocket, worker_type: str, tenant_id: int, job_id: int):
+async def job_websocket_endpoint(websocket: WebSocket, worker_type: str, tenant_id: int, job_id: int, token: str = Query(...)):
     """
-    WebSocket endpoint for worker-specific job progress tracking.
+    Authenticated WebSocket endpoint for worker-specific job progress tracking.
 
     Creates dedicated channels for each worker type:
     - /ws/job/extraction/{tenant_id}/{job_id} - Extraction worker status
@@ -692,11 +692,32 @@ async def job_websocket_endpoint(websocket: WebSocket, worker_type: str, tenant_
         worker_type: Type of worker (extraction, transform, embedding)
         tenant_id: Tenant ID for isolation
         job_id: Specific job ID for tracking
+        token: JWT authentication token (required)
     """
     # Validate worker type
     valid_workers = ['extraction', 'transform', 'embedding']
     if worker_type not in valid_workers:
         await websocket.close(code=4000, reason=f"Invalid worker type. Valid types: {valid_workers}")
+        return
+
+    # Authenticate user with token
+    try:
+        masked_token = f"{token[:10]}...{token[-10:]}" if len(token) > 20 else "***"
+
+        from app.auth.auth_service import get_auth_service
+        auth_service = get_auth_service()
+
+        user = await auth_service.verify_token(token, suppress_errors=True)
+
+        if not user:
+            logger.warning(f"[JOB-WS] Connection rejected: Invalid token (token={masked_token})")
+            await websocket.close(code=1008, reason="Invalid or expired token")
+            return
+
+        logger.info(f"[JOB-WS] ✅ Authenticated WebSocket connection: user={user.email}, tenant={tenant_id}, worker={worker_type}, job={job_id}")
+    except Exception as e:
+        logger.error(f"[JOB-WS] Authentication error: {e}")
+        await websocket.close(code=1011, reason="Authentication error")
         return
 
     # Connect to the job-specific channel

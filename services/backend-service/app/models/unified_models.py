@@ -617,19 +617,48 @@ class Repository(Base, IntegrationBaseEntity):
     __tablename__ = 'repositories'
     __table_args__ = {'quote': False}
 
+    # Identity & Basic Info
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
     external_id = Column(String, quote=False, name="external_id")
     name = Column(String, quote=False, name="name")
     full_name = Column(String, quote=False, name="full_name")
+    owner = Column(String, quote=False, name="owner")
+
+    # Repository Metadata
     description = Column(Text, quote=False, name="description")
-    url = Column(String, quote=False, name="url")
+    language = Column(String, quote=False, name="language")
+    default_branch = Column(String, quote=False, name="default_branch")
+    visibility = Column(String, quote=False, name="visibility")
+    topics = Column(JSON, default=[], quote=False, name="topics")
+
+    # Repository Status & Configuration
     is_private = Column(Boolean, quote=False, name="is_private")
+    archived = Column(Boolean, quote=False, name="archived")
+    disabled = Column(Boolean, quote=False, name="disabled")
+    fork = Column(Boolean, quote=False, name="fork")
+    is_template = Column(Boolean, quote=False, name="is_template")
+    allow_forking = Column(Boolean, quote=False, name="allow_forking")
+    web_commit_signoff_required = Column(Boolean, quote=False, name="web_commit_signoff_required")
+
+    # Repository Features & Settings
+    has_issues = Column(Boolean, quote=False, name="has_issues")
+    has_wiki = Column(Boolean, quote=False, name="has_wiki")
+    has_discussions = Column(Boolean, quote=False, name="has_discussions")
+    has_projects = Column(Boolean, quote=False, name="has_projects")
+    has_downloads = Column(Boolean, quote=False, name="has_downloads")
+    has_pages = Column(Boolean, quote=False, name="has_pages")
+    license = Column(String, quote=False, name="license")
+
+    # Activity & Engagement Metrics
+    stargazers_count = Column(Integer, default=0, quote=False, name="stargazers_count")
+    forks_count = Column(Integer, default=0, quote=False, name="forks_count")
+    open_issues_count = Column(Integer, default=0, quote=False, name="open_issues_count")
+    size = Column(Integer, default=0, quote=False, name="size")
+
+    # Timestamps
     repo_created_at = Column(DateTime, quote=False, name="repo_created_at")
     repo_updated_at = Column(DateTime, quote=False, name="repo_updated_at")
     pushed_at = Column(DateTime, quote=False, name="pushed_at")
-    language = Column(String, quote=False, name="language")
-    default_branch = Column(String, quote=False, name="default_branch")
-    archived = Column(Boolean, quote=False, name="archived")
 
     # Relationships
     tenant = relationship("Tenant", back_populates="repositories")

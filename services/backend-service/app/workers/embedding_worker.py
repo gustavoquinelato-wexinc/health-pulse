@@ -350,10 +350,13 @@ class EmbeddingWorker(BaseWorker):
         """
         try:
             logger.debug(f"🔍 EMBEDDING WORKER: Received message: {message}")
+            logger.debug(f"🔍 EMBEDDING WORKER: Message keys: {list(message.keys())}")
             tenant_id = message.get('tenant_id')
             step_type = message.get('type')
             table_name = message.get('table_name')
             job_id = message.get('job_id')
+            external_id = message.get('external_id')
+            logger.debug(f"🔍 EMBEDDING WORKER: Extracted fields - tenant_id={tenant_id}, step_type={step_type}, table_name={table_name}, external_id={external_id!r}")
 
             # Handle mapping tables differently - bulk process entire table
             if step_type == 'mappings':
@@ -398,6 +401,7 @@ class EmbeddingWorker(BaseWorker):
             # Handle individual entity messages - use standardized fields
             elif table_name and message.get('external_id'):
                 entity_id = message.get('external_id')
+                logger.debug(f"🔍 EMBEDDING WORKER: Extracted entity_id={entity_id!r} (type: {type(entity_id).__name__}) from message")
 
                 if not all([tenant_id, table_name, entity_id]):
                     logger.error(f"❌ EMBEDDING WORKER: Missing required fields: {message}")
@@ -546,7 +550,7 @@ class EmbeddingWorker(BaseWorker):
                 # For external_id lookups, keep as string
                 entity_id_int = entity_id
 
-            # Fetch entity data
+            # Fetch entity data (async method - must await)
             entity_data = await self._fetch_entity_data(tenant_id, entity_type, entity_id_int)
             if not entity_data:
                 logger.debug(f"🔍 EMBEDDING WORKER: Entity not found: {entity_type} ID {entity_id}")
@@ -747,18 +751,19 @@ class EmbeddingWorker(BaseWorker):
     async def _fetch_entity_data(self, tenant_id: int, entity_type: str, entity_id: int) -> Optional[Dict[str, Any]]:
         """
         Fetch entity data from database for embedding generation.
-        
+
         Args:
             tenant_id: Tenant ID
             entity_type: Type of entity (work_items, prs, etc.)
             entity_id: Entity ID
-            
+
         Returns:
             Dict containing entity data or None if not found
         """
         try:
+            logger.debug(f"🔍 _fetch_entity_data called: entity_type={entity_type}, entity_id={entity_id!r} (type: {type(entity_id).__name__}), tenant_id={tenant_id}")
             database = get_database()
-            
+
             with database.get_read_session_context() as session:
                 # Map entity type to model class and fetch data
                 # All entities are queried by external_id from queue messages
@@ -815,6 +820,7 @@ class EmbeddingWorker(BaseWorker):
                         }
                     else:
                         logger.warning(f"⚠️ EMBEDDING WORKER: No project found with external_id='{entity_id}' tenant_id={tenant_id}")
+                        return None
 
                 elif entity_type == 'wits':
                     logger.info(f"🔍 EMBEDDING WORKER: Querying wits table for external_id='{entity_id}' tenant_id={tenant_id}")
@@ -835,6 +841,7 @@ class EmbeddingWorker(BaseWorker):
                         }
                     else:
                         logger.warning(f"⚠️ EMBEDDING WORKER: No wit found with external_id='{entity_id}' tenant_id={tenant_id}")
+                        return None
 
                 elif entity_type == 'statuses':
                     logger.info(f"🔍 EMBEDDING WORKER: Querying statuses table for external_id='{entity_id}' tenant_id={tenant_id}")
@@ -877,6 +884,9 @@ class EmbeddingWorker(BaseWorker):
                             'entity_type': entity_type,
                             'tenant_id': tenant_id
                         }
+                    else:
+                        logger.warning(f"⚠️ EMBEDDING WORKER: No changelog found with external_id='{entity_id}' tenant_id={tenant_id}")
+                        return None
 
                 elif entity_type == 'work_items_prs_links':
                     entity = session.query(WorkItemPrLink).filter(
@@ -895,6 +905,46 @@ class EmbeddingWorker(BaseWorker):
                             'entity_type': entity_type,
                             'tenant_id': tenant_id
                         }
+                    else:
+                        logger.warning(f"⚠️ EMBEDDING WORKER: No work_items_prs_links found with id='{entity_id}' tenant_id={tenant_id}")
+                        return None
+
+                elif entity_type == 'repositories':
+                    logger.info(f"🔍 EMBEDDING WORKER: Querying repositories table for external_id='{entity_id}' (type: {type(entity_id).__name__}) tenant_id={tenant_id}")
+                    from app.models.unified_models import Repository
+                    # Debug: log the query parameters
+                    logger.debug(f"🔍 Query params: external_id={str(entity_id)!r}, tenant_id={tenant_id}")
+                    entity = session.query(Repository).filter(
+                        Repository.external_id == str(entity_id),
+                        Repository.tenant_id == tenant_id
+                    ).first()
+                    logger.debug(f"🔍 Query result: entity={entity is not None}")
+
+                    if entity:
+                        logger.info(f"✅ EMBEDDING WORKER: Found repository entity: id={entity.id}, external_id={entity.external_id}, name={entity.full_name}")
+                        return {
+                            'id': entity.id,  # Internal ID for qdrant_vectors table
+                            'external_id': entity.external_id,
+                            'name': entity.name,
+                            'full_name': entity.full_name,
+                            'owner': entity.owner,
+                            'description': entity.description,
+                            'language': entity.language,
+                            'visibility': entity.visibility,
+                            'topics': entity.topics,
+                            'stargazers_count': entity.stargazers_count,
+                            'forks_count': entity.forks_count,
+                            'open_issues_count': entity.open_issues_count,
+                            'size': entity.size,
+                            'archived': entity.archived,
+                            'disabled': entity.disabled,
+                            'license': entity.license,
+                            'entity_type': entity_type,
+                            'tenant_id': tenant_id
+                        }
+                    else:
+                        logger.warning(f"⚠️ EMBEDDING WORKER: No repository found with external_id='{entity_id}' tenant_id={tenant_id}")
+                        return None
 
                 # Mapping tables - use internal id instead of external_id
                 elif entity_type == 'wits_hierarchies':
@@ -912,6 +962,9 @@ class EmbeddingWorker(BaseWorker):
                             'entity_type': entity_type,
                             'tenant_id': tenant_id
                         }
+                    else:
+                        logger.warning(f"⚠️ EMBEDDING WORKER: No wits_hierarchies found with id='{entity_id}' tenant_id={tenant_id}")
+                        return None
 
                 elif entity_type == 'wits_mappings':
                     entity = session.query(WitMapping).filter(
@@ -928,6 +981,9 @@ class EmbeddingWorker(BaseWorker):
                             'entity_type': entity_type,
                             'tenant_id': tenant_id
                         }
+                    else:
+                        logger.warning(f"⚠️ EMBEDDING WORKER: No wits_mappings found with id='{entity_id}' tenant_id={tenant_id}")
+                        return None
 
                 elif entity_type == 'statuses_mappings':
                     entity = session.query(StatusMapping).filter(
@@ -944,6 +1000,9 @@ class EmbeddingWorker(BaseWorker):
                             'entity_type': entity_type,
                             'tenant_id': tenant_id
                         }
+                    else:
+                        logger.warning(f"⚠️ EMBEDDING WORKER: No statuses_mappings found with id='{entity_id}' tenant_id={tenant_id}")
+                        return None
 
                 elif entity_type == 'workflows':
                     entity = session.query(Workflow).filter(
@@ -961,6 +1020,9 @@ class EmbeddingWorker(BaseWorker):
                             'entity_type': entity_type,
                             'tenant_id': tenant_id
                         }
+                    else:
+                        logger.warning(f"⚠️ EMBEDDING WORKER: No workflows found with id='{entity_id}' tenant_id={tenant_id}")
+                        return None
 
                 # Add more entity types as needed...
                 logger.warning(f"⚠️ EMBEDDING WORKER: Unknown entity type: {entity_type}")
@@ -1033,6 +1095,21 @@ class EmbeddingWorker(BaseWorker):
                 text_parts.append(f"Title: {entity_data['title']}")
             if entity_data.get('description'):
                 text_parts.append(f"Description: {entity_data['description']}")
+
+        elif entity_type == 'repositories':
+            if entity_data.get('full_name'):
+                text_parts.append(f"Repository: {entity_data['full_name']}")
+            if entity_data.get('description'):
+                text_parts.append(f"Description: {entity_data['description']}")
+            if entity_data.get('language'):
+                text_parts.append(f"Language: {entity_data['language']}")
+            if entity_data.get('topics'):
+                topics_str = ', '.join(entity_data['topics']) if isinstance(entity_data['topics'], list) else str(entity_data['topics'])
+                text_parts.append(f"Topics: {topics_str}")
+            if entity_data.get('stargazers_count'):
+                text_parts.append(f"Stars: {entity_data['stargazers_count']}")
+            if entity_data.get('visibility'):
+                text_parts.append(f"Visibility: {entity_data['visibility']}")
 
         elif entity_type == 'projects':
             if entity_data.get('key'):
@@ -1363,6 +1440,15 @@ class EmbeddingWorker(BaseWorker):
         """
         Complete the ETL job by updating its status to FINISHED and setting completion fields.
 
+        This follows the same pattern as Jira extraction:
+        1. Set status to FINISHED
+        2. Update last_run_finished_at
+        3. Update last_sync_date if provided
+        4. Calculate and set next_run
+        5. Clear error_message and reset retry_count
+        6. Wait 2 seconds for frontend to process
+        7. Set status to READY to trigger reset countdown
+
         Args:
             job_id: ETL job ID
             tenant_id: Tenant ID
@@ -1371,19 +1457,55 @@ class EmbeddingWorker(BaseWorker):
         try:
             from app.core.database import get_write_session
             from sqlalchemy import text
+            from datetime import timedelta
+            from app.core.utils import DateTimeHelper
+            import time
 
             with get_write_session() as session:
-                # Update job status to FINISHED and set completion fields
+                # First, fetch job details to calculate next_run
+                job_query = text("""
+                    SELECT last_run_started_at, schedule_interval_minutes, retry_interval_minutes, retry_count
+                    FROM etl_jobs
+                    WHERE id = :job_id AND tenant_id = :tenant_id
+                """)
+                job_result = session.execute(job_query, {
+                    'job_id': job_id,
+                    'tenant_id': tenant_id
+                }).fetchone()
+
+                if not job_result:
+                    logger.error(f"❌ Job {job_id} not found for completion")
+                    return
+
+                last_run_started_at, schedule_interval_minutes, retry_interval_minutes, retry_count = job_result
+
+                # Calculate next_run: use schedule_interval_minutes for normal completion
+                now = DateTimeHelper.now_default()
+                if schedule_interval_minutes and schedule_interval_minutes > 0:
+                    next_run = now + timedelta(minutes=schedule_interval_minutes)
+                else:
+                    # Default to 1 hour if not set
+                    next_run = now + timedelta(hours=1)
+
+                # Step 1: Update job status to FINISHED with all completion fields
                 update_query = text("""
                     UPDATE etl_jobs
                     SET status = jsonb_set(status, ARRAY['overall'], '"FINISHED"'::jsonb),
-                        last_run_finished_at = NOW(),
-                        last_updated_at = NOW()
+                        last_run_finished_at = :now,
+                        last_updated_at = :now,
+                        next_run = :next_run,
+                        error_message = NULL,
+                        retry_count = 0
                         """ + (", last_sync_date = :last_sync_date" if last_sync_date else "") + """
                     WHERE id = :job_id AND tenant_id = :tenant_id
                 """)
 
-                params = {'job_id': job_id, 'tenant_id': tenant_id}
+                params = {
+                    'job_id': job_id,
+                    'tenant_id': tenant_id,
+                    'now': now,
+                    'next_run': next_run
+                }
                 if last_sync_date:
                     params['last_sync_date'] = last_sync_date
 
@@ -1391,11 +1513,34 @@ class EmbeddingWorker(BaseWorker):
                 session.commit()
 
                 logger.info(f"🎯 [JOB COMPLETION] ETL job {job_id} marked as FINISHED")
+                logger.info(f"   last_run_finished_at: {now}")
+                logger.info(f"   next_run: {next_run}")
+                if last_sync_date:
+                    logger.info(f"   last_sync_date: {last_sync_date}")
 
-                # Note: Job completion status updates are handled by the database update above
-                # No need for additional WebSocket status updates here
+            # Step 2: Wait 2 seconds for frontend to process completion
+            time.sleep(2)
+
+            # Step 3: Set status to READY to trigger reset countdown (same as Jira)
+            with get_write_session() as session:
+                update_ready_query = text("""
+                    UPDATE etl_jobs
+                    SET status = jsonb_set(status, ARRAY['overall'], '"READY"'::jsonb),
+                        last_updated_at = :now
+                    WHERE id = :job_id AND tenant_id = :tenant_id
+                """)
+                session.execute(update_ready_query, {
+                    'job_id': job_id,
+                    'tenant_id': tenant_id,
+                    'now': now
+                })
+                session.commit()
+
+                logger.info(f"✅ ETL job {job_id} set to READY - reset countdown will trigger on frontend")
 
         except Exception as e:
             logger.error(f"❌ Error completing ETL job {job_id}: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
 
 

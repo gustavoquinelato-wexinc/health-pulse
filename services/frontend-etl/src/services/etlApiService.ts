@@ -14,12 +14,8 @@ const etlApi = axios.create({
 // Add request interceptor to include hybrid authentication
 etlApi.interceptors.request.use(
   (config) => {
-    // For ETL job operations: use service-to-service authentication
-    // For UI pages (mappings, configs): use user JWT tokens
-    const internalSecret = import.meta.env.VITE_ETL_INTERNAL_SECRET || 'dev-internal-secret-change'
-    config.headers['X-Internal-Auth'] = internalSecret
-
-    // Also include user token for UI operations (mappings, configurations, etc.)
+    // For manual "Run Now" triggers from UI: use user JWT token (NOT service-to-service auth)
+    // Service-to-service auth (X-Internal-Auth) is only for automatic scheduler
     const token = localStorage.getItem('pulse_token')
     if (token) {
       config.headers.Authorization = `Bearer ${token}`

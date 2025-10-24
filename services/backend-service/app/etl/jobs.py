@@ -30,7 +30,8 @@ def verify_internal_auth(request: Request):
         logger.warning("ETL_INTERNAL_SECRET not configured; rejecting internal auth request")
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Internal auth not configured")
     if not provided or provided != internal_secret:
-        logger.warning(f"Invalid internal auth: expected secret, got {provided[:10] if provided else 'None'}...")
+        # Don't log warning here - it's expected to fail when using user auth instead
+        # The warning will be logged in verify_hybrid_auth if BOTH auth methods fail
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized internal request")
 
     logger.debug("Internal authentication successful")
@@ -45,38 +46,55 @@ async def verify_hybrid_auth(request: Request):
     Returns: dict with auth_type ('user' or 'service') and user info if applicable
     """
     # Try service-to-service auth first (X-Internal-Auth header)
-    logger.debug(f"Hybrid auth: Checking headers: {dict(request.headers)}")
+    logger.debug(f"Hybrid auth: Checking headers for X-Internal-Auth")
     try:
         verify_internal_auth(request)
         logger.info("Hybrid auth: Service-to-service authentication successful")
         return {"auth_type": "service", "user": None}
     except HTTPException as e:
-        logger.debug(f"Hybrid auth: Service-to-service auth failed: {e}")
+        logger.debug(f"Hybrid auth: Service-to-service auth not provided, trying user auth")
         pass  # Fall through to user auth
 
     # Try user authentication (JWT token)
     try:
-        from app.auth.auth_middleware import require_authentication
-        from fastapi.security import HTTPBearer
-        from fastapi import Depends
+        token = None
 
-        # Extract token from Authorization header
+        # 1. Try Authorization header first (for REST API calls)
         auth_header = request.headers.get("Authorization")
         if auth_header and auth_header.startswith("Bearer "):
             token = auth_header.split(" ")[1]
-            # Create a mock credentials object
-            from fastapi.security.http import HTTPAuthorizationCredentials
-            credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=token)
+            logger.debug("Hybrid auth: Found token in Authorization header")
 
-            # Use the existing require_authentication function
-            user = await require_authentication(request, credentials)
+        # 2. Try query parameter (for WebSocket connections)
+        if not token:
+            token = request.query_params.get("token")
+            if token:
+                logger.debug("Hybrid auth: Found token in query parameter")
+
+        # 3. Try cookies (for session-based auth)
+        if not token:
+            token = request.cookies.get("pulse_token")
+            if token:
+                logger.debug("Hybrid auth: Found token in cookie")
+
+        if token:
+            # Verify token using auth service
+            from app.auth.auth_service import get_auth_service
+            auth_service = get_auth_service()
+            user = await auth_service.verify_token(token, suppress_errors=False)
+
             if user:
-                logger.debug(f"Hybrid auth: User authentication successful for user: {user.email}")
+                logger.info(f"Hybrid auth: User authentication successful for user: {user.email}")
                 return {"auth_type": "user", "user": user}
+            else:
+                logger.debug("Hybrid auth: Token verification returned None")
+        else:
+            logger.debug("Hybrid auth: No token found in Authorization header, query params, or cookies")
     except Exception as e:
         logger.debug(f"Hybrid auth: User authentication failed: {e}")
 
     # Both authentication methods failed
+    logger.warning("Hybrid auth: Both service-to-service and user authentication failed")
     raise HTTPException(
         status_code=status.HTTP_401_UNAUTHORIZED,
         detail="Authentication required. Provide either valid JWT token or X-Internal-Auth header."
@@ -564,7 +582,37 @@ async def run_job_now(
                 # Update job status to failed
                 update_query = text("""
                     UPDATE etl_jobs
-                    SET status = 'FAILED',
+                    SET status = jsonb_set(status, ARRAY['overall'], to_jsonb('FAILED'::text)),
+                        error_message = 'Failed to queue extraction job',
+                        last_updated_at = NOW()
+                    WHERE id = :job_id AND tenant_id = :tenant_id
+                """)
+                db.execute(update_query, {'job_id': job_id, 'tenant_id': tenant_id})
+                db.commit()
+
+                raise HTTPException(
+                    status_code=500,
+                    detail="Failed to queue extraction job"
+                )
+        elif job_name.lower() == 'github':
+            logger.info(f"🚀 Queuing GitHub extraction job for background processing (integration {integration_id})")
+
+            # Queue the job for extraction
+            success = await _queue_github_extraction_job(tenant_id, integration_id, job_id)
+
+            if success:
+                # Return HTTP 202 Accepted for non-blocking response
+                return JobActionResponse(
+                    success=True,
+                    message=f"Job {job_name} queued successfully - extraction will begin shortly",
+                    job_id=job_id,
+                    new_status="QUEUED"
+                )
+            else:
+                # Update job status to failed
+                update_query = text("""
+                    UPDATE etl_jobs
+                    SET status = jsonb_set(status, ARRAY['overall'], to_jsonb('FAILED'::text)),
                         error_message = 'Failed to queue extraction job',
                         last_updated_at = NOW()
                     WHERE id = :job_id AND tenant_id = :tenant_id
@@ -580,7 +628,7 @@ async def run_job_now(
             # For other jobs, set back to FINISHED with message
             finish_query = text("""
                 UPDATE etl_jobs
-                SET status = 'FINISHED',
+                SET status = jsonb_set(status, ARRAY['overall'], to_jsonb('FINISHED'::text)),
                     last_run_finished_at = NOW()
                 WHERE id = :job_id AND tenant_id = :tenant_id
             """)
@@ -589,7 +637,7 @@ async def run_job_now(
 
             return JobActionResponse(
                 success=True,
-                message=f"Job {job_name} completed - Phase 2.1 only supports Jira jobs",
+                message=f"Job {job_name} completed - Phase 2.1 only supports Jira and GitHub jobs",
                 job_id=job_id,
                 new_status="FINISHED"
             )
@@ -770,6 +818,62 @@ async def _queue_jira_extraction_job(tenant_id: int, integration_id: int, job_id
         return False
 
 
+async def _queue_github_extraction_job(tenant_id: int, integration_id: int, job_id: int) -> bool:
+    """
+    Queue GitHub extraction job for background processing.
+
+    Args:
+        tenant_id: Tenant ID
+        integration_id: Integration ID for the GitHub extraction
+        job_id: Job ID to update status
+
+    Returns:
+        bool: True if queued successfully
+    """
+    try:
+        from app.etl.queue.queue_manager import QueueManager
+        from sqlalchemy import text
+        from app.core.database import get_database
+
+        # Note: Job status is already set to 'RUNNING' by run_job_now function
+        # No need to update it again here to avoid database locks
+
+        logger.info(f"✅ Job {job_id} status updated to QUEUED")
+
+        # Queue the first extraction step: github_repositories
+        queue_manager = QueueManager()
+
+        message = {
+            'tenant_id': tenant_id,
+            'integration_id': integration_id,
+            'job_id': job_id,
+            'type': 'github_repositories',  # 🔑 Step name for UI
+            'provider': 'github',
+            'first_item': True,  # Single-step job, so first item is also last
+            'last_item': True
+            # 🔑 last_sync_date is fetched from database by extraction worker
+        }
+
+        # Get tenant tier and route to tier-based extraction queue
+        tier = queue_manager._get_tenant_tier(tenant_id)
+        tier_queue = queue_manager.get_tier_queue_name(tier, 'extraction')
+
+        success = queue_manager._publish_message(tier_queue, message)
+
+        if success:
+            logger.info(f"✅ GitHub extraction job queued successfully to {tier_queue}")
+            return True
+        else:
+            logger.error(f"❌ Failed to publish extraction message to {tier_queue}")
+            return False
+
+    except Exception as e:
+        logger.error(f"Error queuing GitHub extraction: {e}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+        return False
+
+
 @router.get("/jobs/{job_id}/worker-status", response_model=JobStatusResponse)
 async def get_job_worker_status(
     job_id: int,
@@ -882,7 +986,9 @@ async def check_job_completion(
         steps = status_json.get('steps', {})
 
         # Check if ALL steps are FINISHED
-        # Special case: dev_status can be idle (when no issues were extracted)
+        # Special cases:
+        # - jira_dev_status: can be either all finished OR all idle (when no issues were extracted)
+        # - GitHub steps (github_commits, github_reviews, github_pull_requests): can be idle if not executed in this job
         all_steps_finished = True
         if overall_status == 'FINISHED':
             for step_name, step_data in steps.items():
@@ -892,6 +998,19 @@ async def check_job_completion(
 
                 # For dev_status step: can be either all finished OR all idle (no issues extracted)
                 if step_name == 'jira_dev_status':
+                    is_finished = (extraction_status == 'finished' and
+                                   transform_status == 'finished' and
+                                   embedding_status == 'finished')
+                    is_idle = (extraction_status == 'idle' and
+                               transform_status == 'idle' and
+                               embedding_status == 'idle')
+
+                    if not (is_finished or is_idle):
+                        all_steps_finished = False
+                        logger.info(f"🔍 Step {step_name} not in valid state: extraction={extraction_status}, transform={transform_status}, embedding={embedding_status}")
+                        break
+                # For GitHub steps (except github_repositories): can be idle if not executed
+                elif step_name in ['github_commits', 'github_reviews', 'github_pull_requests']:
                     is_finished = (extraction_status == 'finished' and
                                    transform_status == 'finished' and
                                    embedding_status == 'finished')
