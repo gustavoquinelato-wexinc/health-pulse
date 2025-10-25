@@ -250,8 +250,10 @@ def apply(connection):
             print("   ⚠️  GitHub token not found in .env file")
 
         # GitHub settings configuration
+        github_org = os.getenv("GITHUB_ORG", "wexinc")
         github_settings = {
-            "repository_filter": "health-",  # Repository name filter
+            "organization": github_org,  # GitHub organization
+            "repository_filter": ["health-", "bp-"],  # Repository name filters (array of patterns)
             "sync_config": {
                 "batch_size": 50,
                 "rate_limit": 5000  # GitHub API rate limit
@@ -267,7 +269,7 @@ def apply(connection):
             ON CONFLICT (provider, tenant_id) DO NOTHING
             RETURNING id;
         """, (
-            "GitHub", "Data", None, github_password, "https://api.github.com", json.dumps(github_settings),
+            "GitHub", "Data", github_org, github_password, "https://api.github.com", json.dumps(github_settings),
             "github.svg", tenant_id, github_active
         ))
 

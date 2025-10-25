@@ -264,7 +264,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
   useEffect(() => {
     if (realTimeStatus === 'FINISHED' && resetCountdown === null) {
       // Job is finished but countdown not started - initialize it
-      // Query the server to get accurate server time
+      // Query the server to get accurate server time and check if steps are truly finished
       const initializeCountdown = async () => {
         try {
           if (!user?.tenant_id) {
@@ -275,16 +275,29 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
           const serverTime = new Date(response.data.server_time).getTime()
           const finishedTime = job.last_run_finished_at ? new Date(job.last_run_finished_at).getTime() : 0
           const elapsedSeconds = Math.floor((serverTime - finishedTime) / 1000)
-          const remainingSeconds = Math.max(0, 30 - elapsedSeconds)
 
-          if (remainingSeconds > 0) {
-            setResetCountdown(remainingSeconds)
+          // Check if all steps are truly finished
+          if (response.data.all_finished) {
+            // All steps finished, use standard 30-second countdown
+            const remainingSeconds = Math.max(0, 30 - elapsedSeconds)
+            if (remainingSeconds > 0) {
+              setResetCountdown(remainingSeconds)
+              resetAttemptsRef.current = 0
+            } else {
+              // More than 30 seconds have passed, trigger reset immediately
+              setResetCountdown(0)
+              resetAttemptsRef.current = 0
+            }
           } else {
-            // More than 30 seconds have passed, reset immediately
-            setResetCountdown(null)
+            // Steps still running, use exponential backoff retry logic
+            // Start with 30 seconds for first attempt
+            setResetCountdown(30)
+            resetAttemptsRef.current = 0
           }
         } catch (error) {
-          // Silently handle error
+          // Silently handle error - default to 30 second countdown
+          setResetCountdown(30)
+          resetAttemptsRef.current = 0
         }
       }
 
@@ -292,24 +305,47 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
     }
   }, [realTimeStatus, job.last_run_finished_at, job.id, user?.tenant_id])
 
-  // Reset countdown timer - decrements every second
+  // Reset countdown timer - calculates remaining time based on server time (not local state)
   useEffect(() => {
-    if (resetCountdown === null || resetCountdown <= 0) {
+    if (resetCountdown === null || realTimeStatus !== 'FINISHED') {
       return
     }
 
-    const interval = setInterval(() => {
-      setResetCountdown(prev => {
-        if (prev === null || prev <= 0) {
-          return null
+    const interval = setInterval(async () => {
+      try {
+        if (!user?.tenant_id) {
+          return
         }
-        // Decrement, allowing it to reach 0 so the reset trigger effect can fire
-        return prev - 1
-      })
+
+        // Query server to get accurate current time
+        const response = await jobsApi.checkJobCompletion(job.id, user.tenant_id)
+        const serverTime = new Date(response.data.server_time).getTime()
+        const finishedTime = job.last_run_finished_at ? new Date(job.last_run_finished_at).getTime() : 0
+        const elapsedSeconds = Math.floor((serverTime - finishedTime) / 1000)
+
+        // Calculate remaining time based on server time (not local state)
+        const remainingSeconds = Math.max(0, 30 - elapsedSeconds)
+
+        if (remainingSeconds <= 0) {
+          // Timer expired, trigger reset
+          setResetCountdown(0)
+        } else {
+          // Update countdown based on server time
+          setResetCountdown(remainingSeconds)
+        }
+      } catch (error) {
+        // Silently handle error - continue with local countdown
+        setResetCountdown(prev => {
+          if (prev === null || prev <= 0) {
+            return null
+          }
+          return prev - 1
+        })
+      }
     }, 1000)
 
     return () => clearInterval(interval)
-  }, [resetCountdown])
+  }, [realTimeStatus, job.last_run_finished_at, job.id, user?.tenant_id])
 
   // Trigger reset when countdown reaches 0
   useEffect(() => {
@@ -321,15 +357,15 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
           isResettingRef.current = true
 
           if (user?.tenant_id) {
-            await jobsApi.resetJobStatus(job.id, user.tenant_id)
+            // First check if all steps are truly finished
+            const completionCheck = await jobsApi.checkJobCompletion(job.id, user.tenant_id)
 
-            // Fetch updated job status from API to check if all steps are truly finished
-            const updatedStatus = await jobsApi.checkJobCompletion(job.id, user.tenant_id)
+            if (completionCheck.data.all_finished) {
+              // All steps are finished, proceed with reset
+              await jobsApi.resetJobStatus(job.id, user.tenant_id)
 
-            // Check if all steps are actually finished
-            if (updatedStatus.data.all_finished) {
-              // All steps are truly finished, we can complete the reset
-              resetAttemptsRef.current = 0 // Reset attempt counter
+              // Fetch updated job status to get final step states
+              const updatedStatus = await jobsApi.checkJobCompletion(job.id, user.tenant_id)
 
               // Update job progress with reset step statuses (all idle)
               if (updatedStatus.data.steps) {
@@ -353,6 +389,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
                 })
               }
 
+              resetAttemptsRef.current = 0 // Reset attempt counter
               setRealTimeStatus('READY')
               setFinishedTransitionTimer(null)
               setResetCountdown(null)
@@ -374,7 +411,17 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
             }
           }
         } catch (error) {
-          // Silently handle error
+          // Silently handle error - retry with exponential backoff
+          resetAttemptsRef.current += 1
+          let nextDelay: number
+          if (resetAttemptsRef.current === 1) {
+            nextDelay = 60
+          } else if (resetAttemptsRef.current === 2) {
+            nextDelay = 180
+          } else {
+            nextDelay = 300
+          }
+          setResetCountdown(nextDelay)
         } finally {
           // Clear the resetting flag after a short delay to allow UI to update
           setTimeout(() => {

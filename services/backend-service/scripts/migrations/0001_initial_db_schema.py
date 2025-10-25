@@ -445,24 +445,58 @@ def apply(connection):
         # 17. Repositories table - NO vector column
         cursor.execute("""
             CREATE TABLE IF NOT EXISTS repositories (
-                id SERIAL,
+                -- Identity & Basic Info
+                id SERIAL PRIMARY KEY,
                 external_id VARCHAR,
                 name VARCHAR,
                 full_name VARCHAR,
+                owner VARCHAR,
+
+                -- Repository Metadata
                 description TEXT,
-                url VARCHAR,
+                language VARCHAR,
+                default_branch VARCHAR,
+                visibility VARCHAR(50) DEFAULT 'public',
+                topics JSONB DEFAULT '[]',
+
+                -- Repository Status & Configuration
                 is_private BOOLEAN,
+                archived BOOLEAN,
+                disabled BOOLEAN DEFAULT FALSE,
+                fork BOOLEAN,
+                is_template BOOLEAN DEFAULT FALSE,
+                allow_forking BOOLEAN,
+                web_commit_signoff_required BOOLEAN DEFAULT FALSE,
+
+                -- Repository Features & Settings
+                has_issues BOOLEAN DEFAULT TRUE,
+                has_wiki BOOLEAN DEFAULT FALSE,
+                has_discussions BOOLEAN DEFAULT FALSE,
+                has_projects BOOLEAN DEFAULT FALSE,
+                has_downloads BOOLEAN DEFAULT TRUE,
+                has_pages BOOLEAN DEFAULT FALSE,
+                license VARCHAR(255),
+
+                -- Activity & Engagement Metrics
+                stargazers_count INTEGER DEFAULT 0,
+                forks_count INTEGER DEFAULT 0,
+                open_issues_count INTEGER DEFAULT 0,
+                size INTEGER DEFAULT 0,
+
+                -- Timestamps
                 repo_created_at TIMESTAMP,
                 repo_updated_at TIMESTAMP,
                 pushed_at TIMESTAMP,
-                language VARCHAR,
-                default_branch VARCHAR,
-                archived BOOLEAN,
+
+                -- Integration & Tenant (Base Entity)
                 integration_id INTEGER NOT NULL,
                 tenant_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
-                last_updated_at TIMESTAMP DEFAULT NOW()
+                last_updated_at TIMESTAMP DEFAULT NOW(),
+
+                -- Unique constraint for UPSERT operations
+                CONSTRAINT uk_repositories_tenant_integration_external_id UNIQUE (tenant_id, integration_id, external_id)
             );
         """)
 
@@ -646,6 +680,7 @@ def apply(connection):
             CREATE TABLE IF NOT EXISTS raw_extraction_data (
                 id SERIAL PRIMARY KEY,
                 type VARCHAR(50) NOT NULL,          -- 'jira_custom_fields', 'github_prs', etc.
+                external_id VARCHAR(255),           -- External system ID (e.g., GitHub repo ID)
                 raw_data JSONB NOT NULL,            -- Complete API response (exact payload)
                 status VARCHAR(20) DEFAULT 'pending', -- 'pending', 'processing', 'completed', 'failed'
                 error_details JSONB,                -- Error information if processing failed

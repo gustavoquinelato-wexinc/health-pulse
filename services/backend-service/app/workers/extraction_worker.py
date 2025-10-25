@@ -22,6 +22,7 @@ from typing import Dict, Any, List, Optional
 
 from app.workers.base_worker import BaseWorker
 from app.core.logging_config import get_logger
+from app.core.database import get_database
 from app.etl.queue.queue_manager import QueueManager
 from sqlalchemy import text
 
@@ -126,6 +127,16 @@ class ExtractionWorker(BaseWorker):
                 asyncio.set_event_loop(loop)
                 try:
                     result = loop.run_until_complete(self._extract_jira_projects_and_issue_types(message))
+                finally:
+                    loop.close()
+            elif extraction_type == 'github_repositories':
+                logger.info(f"📋 [DEBUG] Routing to _extract_github_repositories")
+                # Use asyncio.create_task to run async method from sync context
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    result = loop.run_until_complete(self._extract_github_repositories(message))
                 finally:
                     loop.close()
             elif extraction_type == 'jira_statuses_and_relationships':
@@ -1047,6 +1058,82 @@ class ExtractionWorker(BaseWorker):
             logger.error(f"💥 [DEBUG] Error queuing next extraction step: {e}")
             import traceback
             logger.error(f"💥 [DEBUG] Full traceback: {traceback.format_exc()}")
+
+    async def _extract_github_repositories(self, message: Dict[str, Any]) -> bool:
+        """
+        Extract GitHub repositories for a tenant.
+
+        Args:
+            message: Message containing extraction request details
+
+        Returns:
+            bool: True if extraction succeeded
+        """
+        try:
+            tenant_id = message.get('tenant_id')
+            integration_id = message.get('integration_id')
+            job_id = message.get('job_id')
+            first_item = message.get('first_item', False)
+            last_item = message.get('last_item', False)
+            last_job_item = message.get('last_job_item', False)
+
+            logger.info(f"🚀 [GITHUB] Starting repositories extraction for tenant {tenant_id}, integration {integration_id}")
+
+            # Update job status to RUNNING
+            step_name = message.get('type', 'github_repositories')
+            self._update_job_status(job_id, step_name, "running", "Extracting GitHub repositories")
+
+            # Send WebSocket status: extraction worker starting
+            await self._send_worker_status("extraction", tenant_id, job_id, "running", step_name)
+
+            # 🔑 Fetch last_sync_date from database (etl_jobs table)
+            # If null, use 2 years ago as default (captures all useful data)
+            database = get_database()
+            last_sync_date = None
+            with database.get_read_session_context() as session:
+                from app.models.unified_models import EtlJob
+                job = session.query(EtlJob).filter(EtlJob.id == job_id).first()
+                if job and job.last_sync_date:
+                    last_sync_date = job.last_sync_date.strftime('%Y-%m-%d')
+                    logger.info(f"📅 Using last_sync_date from database: {last_sync_date}")
+                else:
+                    # Default: 2 years ago (captures all useful data)
+                    from datetime import datetime, timedelta
+                    two_years_ago = datetime.now() - timedelta(days=730)
+                    last_sync_date = two_years_ago.strftime('%Y-%m-%d')
+                    logger.info(f"📅 No last_sync_date in database, using 2-year default: {last_sync_date}")
+
+            # Extract repositories using existing logic
+            from app.etl.github_extraction import extract_github_repositories
+
+            # Execute extraction
+            result = await extract_github_repositories(
+                integration_id, tenant_id, job_id, last_sync_date=last_sync_date
+            )
+
+            if result.get('success'):
+                logger.info(f"✅ [GITHUB] Repositories extraction completed for tenant {tenant_id}")
+                logger.info(f"📊 [GITHUB] Processed {result.get('repositories_count', 0)} repositories")
+
+                # Send WebSocket status: extraction worker finished
+                await self._send_worker_status("extraction", tenant_id, job_id, "finished", step_name)
+
+                return True
+            else:
+                logger.error(f"❌ [GITHUB] Repositories extraction failed: {result.get('error')}")
+                self._update_job_overall_status(job_id, "FAILED", f"Extraction failed: {result.get('error')}")
+
+                # Send WebSocket status: extraction worker failed
+                await self._send_worker_status("extraction", tenant_id, job_id, "failed", step_name,
+                                             error_message=result.get('error'))
+                return False
+
+        except Exception as e:
+            logger.error(f"💥 [GITHUB] Error extracting repositories: {e}")
+            import traceback
+            logger.error(f"💥 [GITHUB] Full traceback: {traceback.format_exc()}")
+            self._update_job_status_failed(job_id, str(e), tenant_id)
+            return False
 
     def _retry_message(self, message: Dict[str, Any], retry_count: int):
         """
