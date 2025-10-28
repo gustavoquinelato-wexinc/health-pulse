@@ -794,8 +794,8 @@ class EmbeddingWorker(BaseWorker):
                         return {
                             'id': entity.id,  # Internal ID for qdrant_vectors table
                             'external_id': entity.external_id,
-                            'title': entity.title,
-                            'description': entity.description,
+                            'title': entity.name,  # Column is 'name', not 'title'
+                            'description': entity.body,  # Column is 'body', not 'description'
                             'entity_type': entity_type,
                             'tenant_id': tenant_id
                         }

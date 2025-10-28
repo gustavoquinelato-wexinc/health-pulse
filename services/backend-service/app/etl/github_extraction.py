@@ -24,6 +24,8 @@ from sqlalchemy import text
 from datetime import datetime, timedelta
 
 from app.models.unified_models import Integration
+from app.core.config import AppConfig
+from app.etl.github_graphql_client import GitHubRateLimitException
 
 logger = logging.getLogger(__name__)
 
@@ -65,7 +67,7 @@ async def extract_github_repositories(
     try:
         # Get integration details
         from app.core.database_router import get_read_session_context
-        with get_read_session_context() as db:
+        with get_read_session_context() as db:  # This is a standalone function, not a method
             integration = db.query(Integration).filter(
                 Integration.id == integration_id,
                 Integration.tenant_id == tenant_id
@@ -185,71 +187,92 @@ async def extract_github_repositories(
         # This prevents large payloads and allows streaming processing
         total_repositories = 0
         is_first_batch = True
+        last_repo_pushed_date = None  # Track for rate limit recovery
 
-        repositories_generator = _search_github_repositories_paginated(
-            token=integration_data['github_token'],
-            org=integration_data['org'],
-            start_date=integration_data['start_date'],
-            end_date=integration_data['end_date'],
-            name_filters=integration_data['name_filters'],
-            additional_repo_names=list(integration_data['non_health_repo_names']) if integration_data['non_health_repo_names'] else None
-        )
+        try:
+            repositories_generator = _search_github_repositories_paginated(
+                token=integration_data['github_token'],
+                org=integration_data['org'],
+                start_date=integration_data['start_date'],
+                end_date=integration_data['end_date'],
+                name_filters=integration_data['name_filters'],
+                additional_repo_names=list(integration_data['non_health_repo_names']) if integration_data['non_health_repo_names'] else None
+            )
 
-        # Process each batch of repositories
-        for batch_repos, is_last_batch in repositories_generator:
-            logger.info(f"📊 Processing batch of {len(batch_repos)} repositories (is_last_batch={is_last_batch})")
+            # Process each batch of repositories
+            for batch_repos, is_last_batch in repositories_generator:
+                logger.info(f"📊 Processing batch of {len(batch_repos)} repositories (is_last_batch={is_last_batch})")
 
-            # Store batch in raw_extraction_data
-            raw_data_id = store_raw_extraction_data(
-                integration_id, tenant_id, "github_repositories",
-                {
-                    'repositories': batch_repos,
-                    'search_date_range': {
-                        'start_date': integration_data['start_date'],
-                        'end_date': integration_data['end_date']
-                    },
-                    'search_filters': integration_data['name_filters'],
-                    'organization': integration_data['org'],
-                    'extracted_at': datetime.now().isoformat(),
-                    'batch_info': {
-                        'is_first_batch': is_first_batch,
-                        'is_last_batch': is_last_batch
+                # Track last repo's pushed date for rate limit recovery
+                if batch_repos:
+                    last_repo = batch_repos[-1]  # Last repo in batch
+                    if 'pushed_at' in last_repo:
+                        # Extract date only (YYYY-MM-DD) without time
+                        last_repo_pushed_date = last_repo['pushed_at'].split('T')[0]
+                        logger.info(f"📅 Last repo pushed date: {last_repo_pushed_date}")
+
+                # Store batch in raw_extraction_data
+                raw_data_id = store_raw_extraction_data(
+                    integration_id, tenant_id, "github_repositories",
+                    {
+                        'repositories': batch_repos,
+                        'search_date_range': {
+                            'start_date': integration_data['start_date'],
+                            'end_date': integration_data['end_date']
+                        },
+                        'search_filters': integration_data['name_filters'],
+                        'organization': integration_data['org'],
+                        'extracted_at': datetime.now().isoformat(),
+                        'batch_info': {
+                            'is_first_batch': is_first_batch,
+                            'is_last_batch': is_last_batch
+                        }
                     }
-                }
-            )
+                )
 
-            if not raw_data_id:
-                logger.error("Failed to store raw repository batch data")
-                return {'success': False, 'error': 'Failed to store raw repository batch data'}
+                if not raw_data_id:
+                    logger.error("Failed to store raw repository batch data")
+                    return {'success': False, 'error': 'Failed to store raw repository batch data'}
 
-            # Queue for transform with proper first_item/last_item flags
-            logger.info(f"Queuing batch of {len(batch_repos)} repositories for transform (raw_data_id={raw_data_id})")
-            success = queue_manager.publish_transform_job(
-                tenant_id=tenant_id,
-                integration_id=integration_id,
-                raw_data_id=raw_data_id,
-                data_type='github_repositories',
-                job_id=job_id,
-                provider='github',
-                last_sync_date=integration_data['start_date'],
-                first_item=is_first_batch,      # 🔑 True only on first batch
-                last_item=is_last_batch,        # 🔑 True only on last batch
-                last_job_item=is_last_batch     # 🔑 Job completion on last batch
-            )
+                # Queue for transform with proper first_item/last_item flags
+                logger.info(f"Queuing batch of {len(batch_repos)} repositories for transform (raw_data_id={raw_data_id})")
+                success = queue_manager.publish_transform_job(
+                    tenant_id=tenant_id,
+                    integration_id=integration_id,
+                    raw_data_id=raw_data_id,
+                    data_type='github_repositories',
+                    job_id=job_id,
+                    provider='github',
+                    last_sync_date=last_sync_date,  # 🔑 Pass actual last_sync_date to transform worker
+                    first_item=is_first_batch,      # 🔑 True only on first batch
+                    last_item=is_last_batch,        # 🔑 True only on last batch
+                    last_job_item=is_last_batch     # 🔑 Job completion on last batch
+                )
 
-            if not success:
-                logger.error(f"Failed to queue repository batch for transform")
+                if not success:
+                    logger.error(f"Failed to queue repository batch for transform")
 
-            total_repositories += len(batch_repos)
-            is_first_batch = False
+                total_repositories += len(batch_repos)
+                is_first_batch = False
 
-        logger.info(f"✅ [GITHUB] Repository extraction completed: {total_repositories} repositories found and queued for transform")
+            logger.info(f"✅ [GITHUB] Repository extraction completed: {total_repositories} repositories found and queued for transform")
 
-        return {
-            'success': True,
-            'repositories_count': total_repositories,
-            'message': f'Successfully extracted and queued {total_repositories} repositories'
-        }
+            return {
+                'success': True,
+                'repositories_count': total_repositories,
+                'last_sync_date': last_sync_date,  # 🔑 Pass to PR extraction
+                'message': f'Successfully extracted and queued {total_repositories} repositories'
+            }
+
+        except StopIteration:
+            # Generator exhausted normally
+            logger.info(f"✅ [GITHUB] Repository extraction completed: {total_repositories} repositories found and queued for transform")
+            return {
+                'success': True,
+                'repositories_count': total_repositories,
+                'last_sync_date': last_sync_date,  # 🔑 Pass to PR extraction
+                'message': f'Successfully extracted and queued {total_repositories} repositories'
+            }
 
     except Exception as e:
         logger.error(f"❌ [GITHUB] Error extracting repositories: {e}")
@@ -440,6 +463,24 @@ def _search_github_repositories_paginated(
 
                         logger.info(f"🔍 [GITHUB SEARCH] Response status: {response.status_code}")
 
+                        # Check for rate limit (403 or 429)
+                        if response.status_code in (403, 429):
+                            logger.warning(f"⏸️ Rate limit hit during repository search: {response.status_code}")
+                            # Extract reset time from headers
+                            reset_time = response.headers.get('X-RateLimit-Reset')
+                            if reset_time:
+                                from datetime import datetime
+                                reset_at = datetime.utcfromtimestamp(int(reset_time)).isoformat() + 'Z'
+                                logger.warning(f"Rate limit resets at: {reset_at}")
+                            else:
+                                reset_at = None
+
+                            # Raise custom exception to be caught by caller
+                            raise GitHubRateLimitException(
+                                f"GitHub Search API rate limit exceeded (status {response.status_code})",
+                                reset_at=reset_at
+                            )
+
                         if response.status_code != 200:
                             logger.error(f"GitHub API error: {response.status_code} - {response.text}")
                             break
@@ -495,6 +536,25 @@ def _search_github_repositories_paginated(
                         page += 1
 
                     logger.info(f"Batch {i}/{len(pattern_batches)}: completed")
+
+                except GitHubRateLimitException as e:
+                    logger.warning(f"⏸️ Rate limit hit during repository search batch {i}/{len(pattern_batches)}")
+                    # Save checkpoint with last extracted repo's pushed date
+                    _save_rate_limit_checkpoint(
+                        job_id=job_id,
+                        tenant_id=tenant_id,
+                        rate_limit_node_type='repositories',
+                        rate_limit_reset_at=e.reset_at,
+                        last_repo_pushed_date=last_repo_pushed_date
+                    )
+                    # Return rate limit status to caller
+                    return {
+                        'success': False,
+                        'error': 'Rate limit exceeded during repository search',
+                        'is_rate_limit': True,
+                        'rate_limit_reset_at': e.reset_at,
+                        'repositories_count': total_repositories
+                    }
 
                 except Exception as e:
                     logger.error(f"Batch {i}/{len(pattern_batches)} failed: {e}")
@@ -553,6 +613,918 @@ def _batch_search_patterns(base_query: str, patterns: list, max_length: int = 25
         batches.append(current_batch)
 
     return batches
+
+
+async def github_extraction_worker(message: Dict[str, Any]) -> Dict[str, Any]:
+    """
+    Main extraction worker entry point - Routes to appropriate handler.
+
+    This is the router for Phase 4 GitHub extraction. It checks the message type
+    to determine whether to process a fresh/next PR page, nested pagination, or recovery.
+
+    Message Types:
+    1. Fresh/Next PR Page: pr_cursor (None or value), nested_type absent
+    2. Nested Continuation: pr_node_id present, nested_type present
+    3. Nested Recovery: type='github_nested_extraction_recovery', nested_nodes_status present
+
+    Args:
+        message: Queue message with extraction parameters
+
+    Returns:
+        Dictionary with extraction result
+    """
+    try:
+        tenant_id = message.get('tenant_id')
+        job_id = message.get('job_id')
+        repository_id = message.get('repository_id')
+
+        logger.info(f"🔀 [ROUTER] Extraction worker received message for repo {repository_id}")
+
+        # ROUTER: Check if this is nested recovery from rate limit checkpoint
+        if message.get('type') == 'github_nested_extraction_recovery':
+            # NESTED RECOVERY: Resume from rate limit checkpoint
+            logger.info(f"🔄 [ROUTER] Routing to extract_nested_recovery (PR {message.get('pr_id')})")
+            result = await extract_nested_recovery(
+                tenant_id=tenant_id,
+                job_id=job_id,
+                repository_id=repository_id,
+                pr_id=message.get('pr_id'),
+                pr_node_id=message.get('pr_node_id'),
+                nested_nodes_status=message.get('nested_nodes_status', {}),
+                last_sync_date=message.get('last_sync_date')
+            )
+        # ROUTER: Check if this is nested data continuation
+        elif message.get('nested_type'):
+            # NESTED CONTINUATION: Extract next page of nested data
+            logger.info(f"🔀 [ROUTER] Routing to extract_nested_pagination (nested_type={message.get('nested_type')})")
+            result = await extract_nested_pagination(
+                tenant_id=tenant_id,
+                job_id=job_id,
+                repository_id=repository_id,
+                pr_node_id=message['pr_node_id'],
+                nested_type=message['nested_type'],
+                nested_cursor=message['nested_cursor'],
+                last_sync_date=message.get('last_sync_date')  # Forward from message
+            )
+        else:
+            # FRESH OR NEXT PR PAGE
+            is_fresh = message.get('pr_cursor') is None
+            logger.info(f"🔀 [ROUTER] Routing to extract_github_prs_commits_reviews_comments ({'fresh' if is_fresh else 'next'} page)")
+            result = await extract_github_prs_commits_reviews_comments(
+                tenant_id=tenant_id,
+                job_id=job_id,
+                repository_id=repository_id,
+                pr_cursor=message.get('pr_cursor'),  # None for fresh, value for next
+                owner=message.get('owner'),  # From message (avoids DB lookup)
+                repo_name=message.get('repo_name'),  # From message (avoids DB lookup)
+                last_item=message.get('last_item', False),  # Forward from message
+                last_sync_date=message.get('last_sync_date')  # Forward from message
+            )
+
+        return result
+
+    except Exception as e:
+        logger.error(f"❌ Extraction worker error: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return {'success': False, 'error': str(e)}
+
+
+async def extract_github_prs_commits_reviews_comments(
+    tenant_id: int,
+    job_id: int,
+    repository_id: int,
+    pr_cursor: Optional[str] = None,
+    owner: Optional[str] = None,
+    repo_name: Optional[str] = None,
+    last_item: bool = False,
+    last_sync_date: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Extract PRs with nested data (commits, reviews, comments) using GraphQL.
+
+    This is Phase 4 / Step 2 of the GitHub job. It extracts pull requests with
+    all nested data in a single GraphQL query, then queues them for transformation.
+
+    Checkpoint Recovery:
+    - Saves PR cursor to etl_jobs.checkpoint_data for recovery
+    - On restart, resumes from last saved cursor
+    - Tracks nested cursors for each PR with incomplete data
+
+    Flow:
+    1. Fetch PR page (fresh or next)
+    2. Split PRs into individual raw_data entries (Type 1: PR+nested)
+    3. Queue all PRs to transform
+    4. For each PR, queue nested pagination messages if needed
+    5. Queue next PR page if exists
+    6. Send completion message if last page (raw_data_id=None, last_job_item=True)
+    7. Save checkpoint with PR cursor for recovery
+
+    Args:
+        tenant_id: Tenant ID
+        job_id: ETL job ID
+        repository_id: Repository ID
+        pr_cursor: Cursor for pagination (None for fresh, value for next page)
+        owner: Repository owner (optional, from message - avoids DB lookup)
+        repo_name: Repository name (optional, from message - avoids DB lookup)
+        last_item: True if this is the last repo (from message)
+
+    Returns:
+        Dictionary with extraction result
+    """
+    try:
+        is_fresh = (pr_cursor is None)
+        logger.info(f"🚀 Starting GitHub PR extraction - {'Fresh' if is_fresh else 'Next'} page for repo {repository_id}")
+
+        from app.core.database_router import get_read_session_context, get_write_session_context
+        from app.core.config import AppConfig
+        from app.etl.queue.queue_manager import QueueManager
+
+        # If owner and repo_name not provided, fetch from database
+        if not owner or not repo_name:
+            with get_read_session_context() as db:
+                from app.models.unified_models import Repository
+                repository = db.query(Repository).filter(
+                    Repository.id == repository_id,
+                    Repository.tenant_id == tenant_id
+                ).first()
+
+            if not repository:
+                logger.error(f"Repository {repository_id} not found")
+                return {'success': False, 'error': 'Repository not found'}
+
+            owner, repo_name = repository.full_name.split('/', 1)
+        else:
+            logger.info(f"✅ Using owner and repo_name from message: {owner}/{repo_name}")
+
+        # Get integration and GitHub token
+        with get_read_session_context() as db:
+            from app.models.unified_models import Repository
+            repository = db.query(Repository).filter(
+                Repository.id == repository_id,
+                Repository.tenant_id == tenant_id
+            ).first()
+
+            if repository:
+                integration = db.query(Integration).filter(
+                    Integration.id == repository.integration_id,
+                    Integration.tenant_id == tenant_id
+                ).first()
+            else:
+                integration = None
+
+        if not integration or not integration.password:
+            logger.error(f"Integration not found or token missing")
+            return {'success': False, 'error': 'Integration not found or token missing'}
+
+        # Decrypt the token
+        key = AppConfig.load_key()
+        github_token = AppConfig.decrypt_token(integration.password, key)
+
+        # Initialize clients
+        from app.etl.github_graphql_client import GitHubGraphQLClient
+        github_client = GitHubGraphQLClient(github_token)
+        queue_manager = QueueManager()
+
+        # STEP 1: Fetch PR page
+        logger.info(f"📥 Fetching PR page for {owner}/{repo_name} (cursor: {pr_cursor or 'None'})")
+        try:
+            pr_page = await github_client.get_pull_requests_with_details(
+                owner, repo_name, pr_cursor
+            )
+        except GitHubRateLimitException as e:
+            logger.warning(f"⏸️ Rate limit hit during PR extraction: {e}")
+            _save_rate_limit_checkpoint(
+                job_id=job_id,
+                tenant_id=tenant_id,
+                rate_limit_node_type='prs',
+                last_pr_cursor=pr_cursor,
+                rate_limit_reset_at=github_client.rate_limit_reset
+            )
+            return {
+                'success': False,
+                'error': 'Rate limit exceeded',
+                'is_rate_limit': True,
+                'rate_limit_reset_at': github_client.rate_limit_reset
+            }
+
+        if not pr_page or 'data' not in pr_page:
+            logger.error(f"Failed to fetch PR page for {owner}/{repo_name}")
+            return {'success': False, 'error': 'Failed to fetch PR page'}
+
+        prs = pr_page['data']['repository']['pullRequests']['nodes']
+        if not prs:
+            logger.warning(f"No PRs found in page for {owner}/{repo_name}")
+            return {'success': True, 'prs_processed': 0}
+
+        logger.info(f"📦 Processing {len(prs)} PRs from page")
+
+        # STEP 1.5: Filter PRs by last_sync_date for incremental sync
+        # PRs are ordered by UPDATED_AT DESC, so we can stop early when reaching old PRs
+        filtered_prs = []
+        early_termination = False
+
+        # 🔑 If no last_sync_date provided, use 2-year default (same as repository extraction)
+        if not last_sync_date:
+            from datetime import datetime, timedelta
+            two_years_ago = datetime.now() - timedelta(days=730)
+            last_sync_date = two_years_ago.strftime('%Y-%m-%d')
+            logger.info(f"📅 No last_sync_date provided, using 2-year default: {last_sync_date}")
+
+        logger.info(f"🔍 Filtering PRs by last_sync_date: {last_sync_date}")
+        from datetime import datetime, timezone
+
+        # Parse last_sync_date (format: YYYY-MM-DD or YYYY-MM-DD HH:MM)
+        try:
+            if ' ' in last_sync_date:
+                # Has time component
+                last_sync_dt = datetime.fromisoformat(last_sync_date.replace(' ', 'T'))
+            else:
+                # Date only, set to start of day (UTC timezone to match PR timestamps)
+                last_sync_dt = datetime.fromisoformat(last_sync_date + 'T00:00:00').replace(tzinfo=timezone.utc)
+        except ValueError:
+            logger.warning(f"Could not parse last_sync_date: {last_sync_date}, processing all PRs")
+            filtered_prs = prs
+        else:
+            for pr in prs:
+                try:
+                    # PR.updatedAt is ISO format: "2025-10-27T14:30:00Z"
+                    pr_updated_at_str = pr.get('updatedAt', '')
+                    if not pr_updated_at_str:
+                        logger.warning(f"PR {pr.get('number')} has no updatedAt, including it")
+                        filtered_prs.append(pr)
+                        continue
+
+                    # Parse PR updated time (already has timezone info from 'Z')
+                    pr_updated_dt = datetime.fromisoformat(pr_updated_at_str.replace('Z', '+00:00'))
+
+                    if pr_updated_dt > last_sync_dt:
+                        # PR is newer than last sync, include it
+                        filtered_prs.append(pr)
+                    else:
+                        # PR is older than last sync, stop pagination
+                        logger.info(f"🛑 PR {pr.get('number')} updated at {pr_updated_at_str} is older than last_sync_date {last_sync_date}, stopping pagination")
+                        early_termination = True
+                        break
+                except Exception as e:
+                    logger.warning(f"Error parsing PR updated time: {e}, including PR")
+                    filtered_prs.append(pr)
+
+        logger.info(f"✅ Filtered {len(filtered_prs)} PRs (from {len(prs)} total)")
+
+        # STEP 2: Split PRs into individual raw_data entries
+        raw_data_ids = []
+        with get_write_session_context() as db:
+            for pr in filtered_prs:
+                raw_data = {
+                    'pr_id': pr['id'],
+                    'repository_id': repository.id,  # 🔑 Include repository_id to avoid DB lookup in transform
+                    'pr_data': pr,
+                    'commits': pr['commits']['nodes'],
+                    'commits_cursor': pr['commits']['pageInfo']['endCursor'] if pr['commits']['pageInfo']['hasNextPage'] else None,
+                    'reviews': pr['reviews']['nodes'],
+                    'reviews_cursor': pr['reviews']['pageInfo']['endCursor'] if pr['reviews']['pageInfo']['hasNextPage'] else None,
+                    'comments': pr['comments']['nodes'],
+                    'comments_cursor': pr['comments']['pageInfo']['endCursor'] if pr['comments']['pageInfo']['hasNextPage'] else None,
+                    'review_threads': pr['reviewThreads']['nodes']
+                }
+                raw_data_id = _store_raw_extraction_data(
+                    db, tenant_id, repository.integration_id,
+                    'github_prs_commits_reviews_comments',
+                    raw_data, repository.external_id  # 🔑 Use repository external_id, not PR id
+                )
+                raw_data_ids.append(raw_data_id)
+
+        logger.info(f"💾 Stored {len(raw_data_ids)} raw data entries")
+
+        # Get page info early to determine if there are more pages
+        page_info = pr_page['data']['repository']['pullRequests']['pageInfo']
+        has_next_page = page_info['hasNextPage']
+
+        # STEP 3: Queue all PRs to transform
+        for i, raw_data_id in enumerate(raw_data_ids):
+            is_first = (i == 0 and is_fresh)  # First only on fresh request
+            is_last = (i == len(raw_data_ids) - 1 and is_fresh)  # Last only on fresh request
+
+            queue_manager.publish_transform_job(
+                tenant_id=tenant_id,
+                integration_id=integration.id,
+                raw_data_id=raw_data_id,
+                data_type='github_prs_commits_reviews_comments',
+                job_id=job_id,
+                provider='github',
+                first_item=is_first,
+                last_item=is_last,
+                last_job_item=False  # 🔑 Never set to True here - only in completion message
+            )
+
+        logger.info(f"📤 Queued {len(raw_data_ids)} PRs to transform")
+
+        # STEP 4: Loop through each PR and queue nested pagination if needed
+        for pr in filtered_prs:
+            pr_node_id = pr['id']
+
+            if pr['commits']['pageInfo']['hasNextPage']:
+                queue_manager.publish_extraction_job(
+                    tenant_id=tenant_id,
+                    integration_id=repository.integration_id,
+                    extraction_type='github_prs_commits_reviews_comments',  # Route to github_extraction_worker
+                    extraction_data={
+                        'repository_id': repository_id,
+                        'pr_node_id': pr_node_id,
+                        'nested_type': 'commits',
+                        'nested_cursor': pr['commits']['pageInfo']['endCursor']
+                    },
+                    job_id=job_id,
+                    provider='github',
+                    last_sync_date=last_sync_date,
+                    first_item=False,
+                    last_item=False,
+                    last_job_item=False
+                )
+
+            if pr['reviews']['pageInfo']['hasNextPage']:
+                queue_manager.publish_extraction_job(
+                    tenant_id=tenant_id,
+                    integration_id=repository.integration_id,
+                    extraction_type='github_prs_commits_reviews_comments',  # Route to github_extraction_worker
+                    extraction_data={
+                        'repository_id': repository_id,
+                        'pr_node_id': pr_node_id,
+                        'nested_type': 'reviews',
+                        'nested_cursor': pr['reviews']['pageInfo']['endCursor']
+                    },
+                    job_id=job_id,
+                    provider='github',
+                    last_sync_date=last_sync_date,
+                    first_item=False,
+                    last_item=False,
+                    last_job_item=False
+                )
+
+            if pr['comments']['pageInfo']['hasNextPage']:
+                queue_manager.publish_extraction_job(
+                    tenant_id=tenant_id,
+                    integration_id=repository.integration_id,
+                    extraction_type='github_prs_commits_reviews_comments',  # Route to github_extraction_worker
+                    extraction_data={
+                        'repository_id': repository_id,
+                        'pr_node_id': pr_node_id,
+                        'nested_type': 'comments',
+                        'nested_cursor': pr['comments']['pageInfo']['endCursor']
+                    },
+                    job_id=job_id,
+                    provider='github',
+                    last_sync_date=last_sync_date,
+                    first_item=False,
+                    last_item=False,
+                    last_job_item=False
+                )
+
+            if pr['reviewThreads']['pageInfo']['hasNextPage']:
+                queue_manager.publish_extraction_job(
+                    tenant_id=tenant_id,
+                    integration_id=repository.integration_id,
+                    extraction_type='github_prs_commits_reviews_comments',  # Route to github_extraction_worker
+                    extraction_data={
+                        'repository_id': repository_id,
+                        'pr_node_id': pr_node_id,
+                        'nested_type': 'review_threads',
+                        'nested_cursor': pr['reviewThreads']['pageInfo']['endCursor']
+                    },
+                    job_id=job_id,
+                    provider='github',
+                    last_sync_date=last_sync_date,
+                    first_item=False,
+                    last_item=False,
+                    last_job_item=False
+                )
+
+        logger.info(f"📤 Queued nested pagination messages for PRs with incomplete data")
+
+        # STEP 5: Queue next PR page if exists (and we didn't hit early termination)
+        next_pr_cursor = None
+        if has_next_page and not early_termination:
+            next_pr_cursor = page_info['endCursor']
+            queue_manager.publish_extraction_job(
+                tenant_id=tenant_id,
+                integration_id=repository.integration_id,
+                extraction_type='github_prs_commits_reviews_comments',  # Same as main extraction type
+                extraction_data={
+                    'repository_id': repository_id,
+                    'pr_cursor': next_pr_cursor,
+                    'pr_node_id': None,  # Fresh request for next page
+                    'owner': owner,  # Include owner/repo_name to avoid DB lookup
+                    'repo_name': repo_name
+                },
+                job_id=job_id,
+                provider='github',
+                last_sync_date=last_sync_date,
+                first_item=False,
+                last_item=False,
+                last_job_item=False
+            )
+            logger.info(f"📤 Queued next PR page to extraction queue")
+        elif early_termination:
+            logger.info(f"🛑 Early termination due to old PRs, not queuing next page")
+
+        # STEP 6: Save checkpoint for recovery
+        _save_checkpoint(
+            job_id, tenant_id,
+            last_pr_cursor=next_pr_cursor,
+            prs_processed=len(filtered_prs)
+        )
+
+        # STEP 7: Send completion message if this is the last PR page (no more pages or early termination)
+        # 🔑 Completion message pattern (same as Jira dev_status):
+        # - raw_data_id=None signals completion
+        # - last_item=True indicates this is the last page
+        # - last_job_item=True indicates job should complete after this
+        if (not has_next_page or early_termination) and last_item:
+            logger.info(f"🎯 [COMPLETION] Sending completion message for PR extraction (last page, no more data)")
+            queue_manager.publish_transform_job(
+                tenant_id=tenant_id,
+                integration_id=integration.id,
+                raw_data_id=None,  # 🔑 Completion message marker
+                data_type='github_prs_commits_reviews_comments',
+                job_id=job_id,
+                provider='github',
+                first_item=False,
+                last_item=True,
+                last_job_item=True  # 🔑 Signal job completion
+            )
+            logger.info(f"✅ Completion message queued to transform")
+
+        logger.info(f"✅ PR extraction completed: {len(prs)} PRs processed")
+        return {
+            'success': True,
+            'prs_processed': len(prs),
+            'raw_data_ids_queued': len(raw_data_ids)
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Error in GitHub PR extraction: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return {'success': False, 'error': str(e)}
+
+
+async def extract_nested_pagination(
+    tenant_id: int,
+    job_id: int,
+    repository_id: int,
+    pr_node_id: str,
+    nested_type: str,
+    nested_cursor: str,
+    last_sync_date: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Extract next page of nested data (commits, reviews, comments) for a specific PR.
+
+    This handles pagination for nested data within a PR. When a PR has more commits,
+    reviews, or comments than fit in the first page, this function fetches the next page.
+
+    Flow:
+    1. Fetch nested page
+    2. Save to raw_data (Type 2: nested-only)
+    3. Queue to transform
+    4. If more pages exist, queue next nested page to extraction
+
+    Args:
+        tenant_id: Tenant ID
+        job_id: ETL job ID
+        repository_id: Repository ID
+        pr_node_id: GraphQL node ID of the PR
+        nested_type: Type of nested data ('commits', 'reviews', 'comments', 'review_threads')
+        nested_cursor: Cursor for pagination
+
+    Returns:
+        Dictionary with extraction result
+    """
+    try:
+        logger.info(f"🚀 Extracting nested {nested_type} for PR {pr_node_id}")
+
+        from app.core.database_router import get_read_session_context, get_write_session_context
+        from app.core.config import AppConfig
+        from app.etl.queue.queue_manager import QueueManager
+
+        # Get repository info
+        with get_read_session_context() as db:
+            from app.models.unified_models import Repository
+            repository = db.query(Repository).filter(
+                Repository.id == repository_id,
+                Repository.tenant_id == tenant_id
+            ).first()
+
+        if not repository:
+            return {'success': False, 'error': 'Repository not found'}
+
+        # Get integration and GitHub token
+        with get_read_session_context() as db:
+            integration = db.query(Integration).filter(
+                Integration.id == repository.integration_id,
+                Integration.tenant_id == tenant_id
+            ).first()
+
+        if not integration or not integration.password:
+            return {'success': False, 'error': 'Integration not found or token missing'}
+
+        # Decrypt the token
+        key = AppConfig.load_key()
+        github_token = AppConfig.decrypt_token(integration.password, key)
+
+        # Initialize clients
+        from app.etl.github_graphql_client import GitHubGraphQLClient
+        github_client = GitHubGraphQLClient(github_token)
+        queue_manager = QueueManager()
+
+        # STEP 1: Fetch nested page based on type
+        logger.info(f"📥 Fetching {nested_type} page for PR {pr_node_id}")
+
+        try:
+            if nested_type == 'commits':
+                response = await github_client.get_more_commits_for_pr(pr_node_id, nested_cursor)
+                nested_data = response['data']['node']['commits'] if response and 'data' in response else None
+            elif nested_type == 'reviews':
+                response = await github_client.get_more_reviews_for_pr(pr_node_id, nested_cursor)
+                nested_data = response['data']['node']['reviews'] if response and 'data' in response else None
+            elif nested_type == 'comments':
+                response = await github_client.get_more_comments_for_pr(pr_node_id, nested_cursor)
+                nested_data = response['data']['node']['comments'] if response and 'data' in response else None
+            elif nested_type == 'review_threads':
+                response = await github_client.get_more_review_threads_for_pr(pr_node_id, nested_cursor)
+                nested_data = response['data']['node']['reviewThreads'] if response and 'data' in response else None
+            else:
+                logger.error(f"Unknown nested_type: {nested_type}")
+                return {'success': False, 'error': f'Unknown nested_type: {nested_type}'}
+        except GitHubRateLimitException as e:
+            logger.warning(f"⏸️ Rate limit hit during {nested_type} extraction: {e}")
+            _save_rate_limit_checkpoint(
+                job_id=job_id,
+                tenant_id=tenant_id,
+                rate_limit_node_type=nested_type,
+                current_pr_id=pr_node_id,
+                current_pr_node_id=pr_node_id,
+                rate_limit_reset_at=github_client.rate_limit_reset
+            )
+            return {
+                'success': False,
+                'error': 'Rate limit exceeded',
+                'is_rate_limit': True,
+                'rate_limit_reset_at': github_client.rate_limit_reset
+            }
+
+        if not nested_data:
+            logger.error(f"Failed to fetch {nested_type} for PR {pr_node_id}")
+            return {'success': False, 'error': f'Failed to fetch {nested_type}'}
+
+        has_more = nested_data['pageInfo']['hasNextPage']
+
+        # STEP 2: Save nested data to raw_data (Type 2)
+        raw_data = {
+            'pr_id': pr_node_id,
+            'repository_id': repository.id,  # 🔑 Include repository_id to avoid DB lookup in transform
+            'nested_data_only': True,
+            'nested_type': nested_type,
+            'data': nested_data['nodes'],
+            'cursor': nested_data['pageInfo']['endCursor'] if has_more else None,
+            'has_more': has_more
+        }
+
+        with get_write_session_context() as db:
+            raw_data_id = _store_raw_extraction_data(
+                db, tenant_id, repository.integration_id,
+                'github_prs_commits_reviews_comments',
+                raw_data, repository.external_id  # 🔑 Use repository external_id, not PR id
+            )
+
+        logger.info(f"💾 Stored nested {nested_type} data (has_more={has_more})")
+
+        # STEP 3: Queue to transform
+        queue_manager.publish_transform_job(
+            tenant_id=tenant_id,
+            integration_id=integration.id,
+            raw_data_id=raw_data_id,
+            data_type='github_prs_commits_reviews_comments',
+            job_id=job_id,
+            provider='github',
+            first_item=False,
+            last_item=False,
+            last_job_item=False
+        )
+
+        logger.info(f"📤 Queued {nested_type} page to transform")
+
+        # STEP 4: If more pages exist, queue next nested page to extraction
+        if has_more:
+            queue_manager.publish_extraction_job(
+                tenant_id=tenant_id,
+                integration_id=integration.id,
+                extraction_type='github_prs_commits_reviews_comments',  # Route to github_extraction_worker
+                extraction_data={
+                    'repository_id': repository_id,
+                    'pr_node_id': pr_node_id,
+                    'nested_type': nested_type,
+                    'nested_cursor': nested_data['pageInfo']['endCursor']
+                },
+                job_id=job_id,
+                provider='github',
+                last_sync_date=last_sync_date,
+                first_item=False,
+                last_item=False,
+                last_job_item=False
+            )
+            logger.info(f"📤 Queued next {nested_type} page to extraction queue")
+
+        logger.info(f"✅ Nested {nested_type} extraction completed (items: {len(nested_data['nodes'])})")
+        return {
+            'success': True,
+            'nested_type': nested_type,
+            'items_processed': len(nested_data['nodes']),
+            'has_more': has_more
+        }
+
+    except Exception as e:
+        logger.error(f"❌ Error in nested pagination for {nested_type}: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return {'success': False, 'error': str(e)}
+
+
+async def extract_nested_recovery(
+    tenant_id: int,
+    job_id: int,
+    repository_id: int,
+    pr_id: str,
+    pr_node_id: str,
+    nested_nodes_status: Dict[str, Any],
+    last_sync_date: Optional[str] = None
+) -> Dict[str, Any]:
+    """
+    Resume nested extraction from rate limit checkpoint.
+
+    Handles partial nested data state:
+    - Skip nodes marked as complete (has_next_page: false)
+    - Continue pagination for nodes with has_next_page: true
+    - Fetch from scratch for nodes with fetched: false
+
+    Args:
+        tenant_id: Tenant ID
+        job_id: ETL job ID
+        repository_id: Repository ID
+        pr_id: PR ID
+        pr_node_id: GraphQL node ID of the PR
+        nested_nodes_status: Status of nested nodes from checkpoint
+        last_sync_date: Last sync date for incremental extraction
+
+    Returns:
+        Dictionary with extraction result
+    """
+    try:
+        logger.info(f"🔄 Resuming nested extraction for PR {pr_id} from checkpoint")
+
+        from app.core.database_router import get_read_session_context
+
+        # Get repository info
+        with get_read_session_context() as db:
+            from app.models.unified_models import Repository
+            repository = db.query(Repository).filter(
+                Repository.id == repository_id,
+                Repository.tenant_id == tenant_id
+            ).first()
+
+        if not repository:
+            return {'success': False, 'error': 'Repository not found'}
+
+        # Get integration and GitHub token
+        with get_read_session_context() as db:
+            integration = db.query(Integration).filter(
+                Integration.id == repository.integration_id,
+                Integration.tenant_id == tenant_id
+            ).first()
+
+        if not integration or not integration.password:
+            return {'success': False, 'error': 'Integration not found or token missing'}
+
+        # Process each nested node type
+        nested_types = ['commits', 'reviews', 'comments', 'review_threads']
+
+        for nested_type in nested_types:
+            node_status = nested_nodes_status.get(nested_type, {})
+
+            if node_status.get('fetched') and not node_status.get('has_next_page'):
+                # Node is complete, skip it
+                logger.info(f"⏭️  Skipping {nested_type} (already complete)")
+                continue
+
+            if node_status.get('fetched') and node_status.get('has_next_page'):
+                # Continue pagination from saved cursor
+                logger.info(f"📥 Continuing {nested_type} pagination from cursor")
+                cursor = node_status.get('cursor')
+
+                result = await extract_nested_pagination(
+                    tenant_id=tenant_id,
+                    job_id=job_id,
+                    repository_id=repository_id,
+                    pr_node_id=pr_node_id,
+                    nested_type=nested_type,
+                    nested_cursor=cursor,
+                    last_sync_date=last_sync_date
+                )
+
+                if not result.get('success'):
+                    if result.get('is_rate_limit'):
+                        # Another rate limit hit, return with is_rate_limit flag
+                        return result
+                    logger.warning(f"Failed to continue {nested_type} pagination: {result.get('error')}")
+
+            elif not node_status.get('fetched'):
+                # Fetch from scratch
+                logger.info(f"📥 Fetching {nested_type} from scratch")
+
+                result = await extract_nested_pagination(
+                    tenant_id=tenant_id,
+                    job_id=job_id,
+                    repository_id=repository_id,
+                    pr_node_id=pr_node_id,
+                    nested_type=nested_type,
+                    nested_cursor=None,  # Start from beginning
+                    last_sync_date=last_sync_date
+                )
+
+                if not result.get('success'):
+                    if result.get('is_rate_limit'):
+                        # Rate limit hit, return with is_rate_limit flag
+                        return result
+                    logger.warning(f"Failed to fetch {nested_type}: {result.get('error')}")
+
+        logger.info(f"✅ Nested extraction recovery completed for PR {pr_id}")
+        return {'success': True, 'pr_id': pr_id}
+
+    except Exception as e:
+        logger.error(f"❌ Error in nested extraction recovery: {e}")
+        import traceback
+        logger.error(f"Traceback: {traceback.format_exc()}")
+        return {'success': False, 'error': str(e)}
+
+
+def _store_raw_extraction_data(
+    db,
+    tenant_id: int,
+    integration_id: int,
+    entity_type: str,
+    raw_data: Dict[str, Any],
+    external_id: str
+) -> int:
+    """
+    Store raw extraction data in the database.
+
+    Args:
+        db: Database session
+        tenant_id: Tenant ID
+        integration_id: Integration ID
+        entity_type: Type of entity being stored
+        raw_data: Raw data dictionary
+        external_id: External ID for the entity
+
+    Returns:
+        ID of the stored raw_extraction_data record
+    """
+    from app.core.utils import DateTimeHelper
+
+    insert_query = text("""
+        INSERT INTO raw_extraction_data (
+            tenant_id, integration_id, type, raw_data, external_id, created_at
+        ) VALUES (
+            :tenant_id, :integration_id, :type, :raw_data, :external_id, :created_at
+        )
+        RETURNING id
+    """)
+
+    result = db.execute(insert_query, {
+        'tenant_id': tenant_id,
+        'integration_id': integration_id,
+        'type': entity_type,
+        'raw_data': json.dumps(raw_data),
+        'external_id': external_id,
+        'created_at': DateTimeHelper.now_default()
+    })
+
+    raw_data_id = result.scalar()
+    logger.debug(f"Stored raw_extraction_data with ID {raw_data_id}")
+    return raw_data_id
+
+
+def _save_checkpoint(
+    job_id: int,
+    tenant_id: int,
+    last_pr_cursor: Optional[str] = None,
+    prs_processed: int = 0
+):
+    """
+    Save checkpoint data for recovery in case of failure.
+
+    Stores PR cursor and other state in etl_jobs.checkpoint_data JSON field
+    for recovery on restart.
+
+    Args:
+        job_id: ETL job ID
+        tenant_id: Tenant ID
+        last_pr_cursor: Cursor for next PR page (None if no more pages)
+        prs_processed: Number of PRs processed in this batch
+    """
+    try:
+        from app.core.database import get_database
+        from app.core.utils import DateTimeHelper
+
+        database = get_database()
+
+        checkpoint_data = {
+            'last_pr_cursor': last_pr_cursor,
+            'prs_processed': prs_processed,
+            'checkpoint_timestamp': DateTimeHelper.now_default().isoformat()
+        }
+
+        with database.get_write_session_context() as db:
+            update_query = text("""
+                UPDATE etl_jobs
+                SET checkpoint_data = :checkpoint_data,
+                    last_updated_at = NOW()
+                WHERE id = :job_id AND tenant_id = :tenant_id
+            """)
+            db.execute(update_query, {
+                'job_id': job_id,
+                'tenant_id': tenant_id,
+                'checkpoint_data': json.dumps(checkpoint_data)
+            })
+            logger.info(f"✅ Saved checkpoint: {checkpoint_data}")
+    except Exception as e:
+        logger.error(f"Error saving checkpoint: {e}")
+
+
+def _save_rate_limit_checkpoint(
+    job_id: int,
+    tenant_id: int,
+    rate_limit_node_type: str,
+    current_pr_id: Optional[str] = None,
+    current_pr_node_id: Optional[str] = None,
+    last_pr_cursor: Optional[str] = None,
+    nested_nodes_status: Optional[Dict[str, Any]] = None,
+    rate_limit_reset_at: Optional[str] = None,
+    last_repo_pushed_date: Optional[str] = None
+):
+    """
+    Save checkpoint when rate limit is hit.
+
+    Stores complete state information for recovery:
+    - WHERE rate limit occurred (node_type)
+    - WHAT was already fetched (nested_nodes_status)
+    - WHEN to retry (rate_limit_reset_at)
+    - For repositories: last_repo_pushed_date for resume query
+
+    Args:
+        job_id: ETL job ID
+        tenant_id: Tenant ID
+        rate_limit_node_type: 'repositories', 'prs', 'commits', 'reviews', 'comments', 'review_threads'
+        current_pr_id: PR ID if rate limit hit during nested extraction
+        current_pr_node_id: PR node ID for GraphQL queries
+        last_pr_cursor: Cursor for PR pagination (if PR-level rate limit)
+        nested_nodes_status: Dict tracking which nested nodes were fetched
+        rate_limit_reset_at: When rate limit resets (ISO format)
+        last_repo_pushed_date: Last repo's pushed date (YYYY-MM-DD) for repository extraction resume
+    """
+    try:
+        from app.core.database import get_database
+        from app.core.utils import DateTimeHelper
+
+        database = get_database()
+
+        checkpoint_data = {
+            'rate_limit_hit': True,
+            'rate_limit_node_type': rate_limit_node_type,
+            'rate_limit_reset_at': rate_limit_reset_at or (DateTimeHelper.now_default() + timedelta(minutes=1)).isoformat(),
+            'current_pr_id': current_pr_id,
+            'current_pr_node_id': current_pr_node_id,
+            'last_pr_cursor': last_pr_cursor,
+            'nested_nodes_status': nested_nodes_status or {},
+            'last_repo_pushed_date': last_repo_pushed_date
+        }
+
+        with database.get_write_session_context() as db:
+            update_query = text("""
+                UPDATE etl_jobs
+                SET checkpoint_data = :checkpoint_data,
+                    last_updated_at = NOW()
+                WHERE id = :job_id AND tenant_id = :tenant_id
+            """)
+            db.execute(update_query, {
+                'job_id': job_id,
+                'tenant_id': tenant_id,
+                'checkpoint_data': json.dumps(checkpoint_data)
+            })
+            logger.info(f"✅ Saved rate limit checkpoint: node_type={rate_limit_node_type}, reset_at={checkpoint_data['rate_limit_reset_at']}")
+    except Exception as e:
+        logger.error(f"Error saving rate limit checkpoint: {e}")
 
 
 def _set_job_start_time(job_id: int, tenant_id: int):

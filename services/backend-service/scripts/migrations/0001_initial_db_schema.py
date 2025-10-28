@@ -510,7 +510,6 @@ def apply(connection):
                 external_id VARCHAR,
                 external_repo_id VARCHAR,
                 repository_id INTEGER NOT NULL,
-                work_item_id INTEGER,
                 number INTEGER,
                 name VARCHAR,
                 user_name VARCHAR,
@@ -521,12 +520,10 @@ def apply(connection):
                 destination VARCHAR,
                 reviewers INTEGER,
                 status VARCHAR,
-                url VARCHAR,
                 pr_created_at TIMESTAMP,
                 pr_updated_at TIMESTAMP,
                 closed_at TIMESTAMP,
                 merged_at TIMESTAMP,
-                merged_by VARCHAR,
                 commit_count INTEGER,
                 additions INTEGER,
                 deletions INTEGER,
@@ -538,7 +535,8 @@ def apply(connection):
                 tenant_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
-                last_updated_at TIMESTAMP DEFAULT NOW()
+                last_updated_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE(external_id, tenant_id)
             );
         """)
 
@@ -556,7 +554,8 @@ def apply(connection):
                 tenant_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
-                last_updated_at TIMESTAMP DEFAULT NOW()
+                last_updated_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE(external_id, tenant_id)
             );
         """)
 
@@ -577,7 +576,8 @@ def apply(connection):
                 tenant_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
-                last_updated_at TIMESTAMP DEFAULT NOW()
+                last_updated_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE(external_id, tenant_id)
             );
         """)
 
@@ -599,7 +599,8 @@ def apply(connection):
                 tenant_id INTEGER NOT NULL,
                 active BOOLEAN NOT NULL DEFAULT TRUE,
                 created_at TIMESTAMP DEFAULT NOW(),
-                last_updated_at TIMESTAMP DEFAULT NOW()
+                last_updated_at TIMESTAMP DEFAULT NOW(),
+                UNIQUE(external_id, tenant_id)
             );
         """)
 
@@ -643,11 +644,11 @@ def apply(connection):
 
                 UNIQUE(job_name, tenant_id),
                 CHECK (status ? 'overall'),
-                CHECK (status->>'overall' IN ('READY', 'RUNNING', 'FINISHED', 'FAILED'))
+                CHECK (status->>'overall' IN ('READY', 'RUNNING', 'FINISHED', 'FAILED', 'RATE_LIMIT_REACHED'))
             );
         """)
         cursor.execute("""
-            COMMENT ON COLUMN etl_jobs.status IS 'Job status: READY (waiting to run), RUNNING (processing through extraction/transform/embedding pipeline), FINISHED (completed successfully), FAILED (completed with errors)';
+            COMMENT ON COLUMN etl_jobs.status IS 'Job status: READY (waiting to run), RUNNING (processing through extraction/transform/embedding pipeline), FINISHED (completed successfully), FAILED (completed with errors), RATE_LIMIT_REACHED (paused due to GitHub rate limit - will resume automatically)';
         """)
         cursor.execute("""
             COMMENT ON COLUMN etl_jobs.last_sync_date IS 'Last successful data sync timestamp - used for incremental extraction. NULL = first run (full sync)';
@@ -1085,7 +1086,7 @@ def apply(connection):
         add_constraint_if_not_exists('fk_repositories_tenant_id', 'repositories', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
         add_constraint_if_not_exists('fk_repositories_integration_id', 'repositories', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
         add_constraint_if_not_exists('fk_prs_repository_id', 'prs', 'FOREIGN KEY (repository_id) REFERENCES repositories(id)')
-        add_constraint_if_not_exists('fk_prs_work_item_id', 'prs', 'FOREIGN KEY (work_item_id) REFERENCES work_items(id)')
+        # 🔑 Removed fk_prs_work_item_id - use work_items_prs_links bridge table instead
         add_constraint_if_not_exists('fk_prs_tenant_id', 'prs', 'FOREIGN KEY (tenant_id) REFERENCES tenants(id)')
         add_constraint_if_not_exists('fk_prs_integration_id', 'prs', 'FOREIGN KEY (integration_id) REFERENCES integrations(id)')
 
@@ -1368,7 +1369,7 @@ def apply(connection):
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_repositories_full_name ON repositories(full_name);")
 
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_prs_repository_id ON prs(repository_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_prs_work_item_id ON prs(work_item_id);")
+        # 🔑 Removed idx_prs_work_item_id - use work_items_prs_links bridge table instead
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_prs_external_id ON prs(external_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_prs_number ON prs(number);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_prs_status ON prs(status);")

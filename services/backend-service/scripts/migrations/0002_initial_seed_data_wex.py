@@ -601,23 +601,9 @@ def apply(connection):
                             "transform": "idle",
                             "embedding": "idle"
                         },
-                        "github_pull_requests": {
+                        "github_prs_commits_reviews_comments": {
                             "order": 2,
-                            "display_name": "Pull Requests",
-                            "extraction": "idle",
-                            "transform": "idle",
-                            "embedding": "idle"
-                        },
-                        "github_commits": {
-                            "order": 3,
-                            "display_name": "Commits",
-                            "extraction": "idle",
-                            "transform": "idle",
-                            "embedding": "idle"
-                        },
-                        "github_reviews": {
-                            "order": 4,
-                            "display_name": "Reviews",
+                            "display_name": "PRs, Commits, Reviews & Comments",
                             "extraction": "idle",
                             "transform": "idle",
                             "embedding": "idle"

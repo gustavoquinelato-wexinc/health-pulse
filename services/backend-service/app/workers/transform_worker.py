@@ -267,27 +267,28 @@ class TransformWorker(BaseWorker):
                 logger.info(f"❌ [DEBUG] WebSocket conditions not met: job_id={job_id}, first_item={first_item}")
 
             # 🎯 HANDLE COMPLETION MESSAGE: raw_data_id=None signals completion (check BEFORE field validation)
-            if raw_data_id is None and message_type == 'jira_dev_status':
-                logger.info(f"🎯 [COMPLETION] Received completion message for jira_dev_status (no data to process)")
+            if raw_data_id is None:
+                if message_type == 'jira_dev_status':
+                    logger.info(f"🎯 [COMPLETION] Received completion message for jira_dev_status (no data to process)")
 
-                # Send WebSocket status: transform worker finished (on last_item)
-                if last_item and job_id:
-                    import asyncio
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    try:
-                        loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "finished", "jira_dev_status"))
-                        logger.info(f"✅ Transform worker marked as finished for jira_dev_status (completion message)")
-                    finally:
-                        loop.close()
+                    # Send WebSocket status: transform worker finished (on last_item)
+                    if last_item and job_id:
+                        import asyncio
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "finished", "jira_dev_status"))
+                            logger.info(f"✅ Transform worker marked as finished for jira_dev_status (completion message)")
+                        finally:
+                            loop.close()
 
-                # Send completion message to embedding queue (preserve all flags)
-                self._queue_entities_for_embedding(
-                    tenant_id=tenant_id,
-                    table_name='work_items_prs_links',
-                    entities=[],  # Empty list - signals completion
-                    job_id=job_id,
-                    message_type='jira_dev_status',
+                    # Send completion message to embedding queue (preserve all flags)
+                    self._queue_entities_for_embedding(
+                        tenant_id=tenant_id,
+                        table_name='work_items_prs_links',
+                        entities=[],  # Empty list - signals completion
+                        job_id=job_id,
+                        message_type='jira_dev_status',
                     integration_id=integration_id,
                     provider=message.get('provider', 'jira'),
                     last_sync_date=message.get('last_sync_date'),
@@ -330,6 +331,39 @@ class TransformWorker(BaseWorker):
                 )
 
                 logger.info(f"🎯 [COMPLETION] jira_issues_with_changelogs completion message processed and forwarded to embedding")
+                return True
+
+            # 🎯 HANDLE COMPLETION MESSAGE: github_prs_commits_reviews_comments with raw_data_id=None
+            if raw_data_id is None and message_type == 'github_prs_commits_reviews_comments':
+                logger.info(f"🎯 [COMPLETION] Received completion message for github_prs_commits_reviews_comments (no data to process)")
+
+                # Send WebSocket status: transform worker finished (on last_item)
+                if last_item and job_id:
+                    import asyncio
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "finished", "github_prs_commits_reviews_comments"))
+                        logger.info(f"✅ Transform worker marked as finished for github_prs_commits_reviews_comments (completion message)")
+                    finally:
+                        loop.close()
+
+                # Send completion message to embedding queue (preserve all flags)
+                self.queue_manager.publish_embedding_job(
+                    tenant_id=tenant_id,
+                    table_name='prs',
+                    external_id=None,  # 🔑 Completion message marker
+                    job_id=job_id,
+                    message_type='github_prs_commits_reviews_comments',
+                    integration_id=integration_id,
+                    provider=message.get('provider', 'github'),
+                    last_sync_date=message.get('last_sync_date'),
+                    first_item=message.get('first_item', False),  # ✅ Preserved
+                    last_item=message.get('last_item', False),    # ✅ Preserved
+                    last_job_item=message.get('last_job_item', False)  # ✅ Preserved
+                )
+
+                logger.info(f"🎯 [COMPLETION] github_prs_commits_reviews_comments completion message processed and forwarded to embedding")
                 return True
 
             # Check required fields - for bulk processing, raw_data_id is optional
@@ -438,6 +472,10 @@ class TransformWorker(BaseWorker):
                 )
             elif message_type == 'github_repositories':
                 return self._process_github_repositories(
+                    raw_data_id, tenant_id, integration_id, job_id, message
+                )
+            elif message_type == 'github_prs_commits_reviews_comments':
+                return self._process_github_prs_commits_reviews_comments(
                     raw_data_id, tenant_id, integration_id, job_id, message
                 )
             else:
@@ -3761,6 +3799,98 @@ class TransformWorker(BaseWorker):
             logger.warning(f"Error parsing datetime '{date_str}': {e}")
             return None
 
+    def _calculate_pr_metrics(self, pr_data: Dict[str, Any], commits: List[Dict[str, Any]], reviews: List[Dict[str, Any]], comments: List[Dict[str, Any]], review_threads: List[Dict[str, Any]]) -> Dict[str, Any]:
+        """
+        Calculate PR metrics from GraphQL data (based on old etl-service logic).
+
+        Args:
+            pr_data: PR data from GraphQL
+            commits: List of commits
+            reviews: List of reviews
+            comments: List of comments
+            review_threads: List of review threads
+
+        Returns:
+            Dictionary with calculated metrics
+        """
+        metrics = {
+            'commit_count': 0,
+            'additions': 0,
+            'deletions': 0,
+            'changed_files': 0,
+            'source': None,
+            'destination': None,
+            'reviewers': 0,
+            'first_review_at': None,
+            'rework_commit_count': 0,
+            'review_cycles': 0,
+            'discussion_comment_count': 0,
+            'review_comment_count': 0
+        }
+
+        try:
+            # 1. Count commits and sum additions/deletions/changed_files
+            metrics['commit_count'] = len(commits) if commits else 0
+            for commit in (commits or []):
+                commit_data = commit.get('commit', {})
+                metrics['additions'] += commit_data.get('additions', 0) or 0
+                metrics['deletions'] += commit_data.get('deletions', 0) or 0
+                metrics['changed_files'] += commit_data.get('changedFiles', 0) or 0
+
+            # 2. Extract source and destination branches
+            if pr_data.get('headRef'):
+                metrics['source'] = pr_data['headRef'].get('name')
+            if pr_data.get('baseRef'):
+                metrics['destination'] = pr_data['baseRef'].get('name')
+
+            # 3. Calculate review metrics
+            if reviews:
+                # Get unique reviewers
+                reviewers = set()
+                review_times = []
+
+                for review in reviews:
+                    if review.get('author', {}).get('login'):
+                        reviewers.add(review['author']['login'])
+
+                    if review.get('submittedAt'):
+                        review_time = self._parse_datetime(review['submittedAt'])
+                        if review_time:
+                            review_times.append(review_time)
+
+                metrics['reviewers'] = len(reviewers)
+
+                # Get first review time
+                if review_times:
+                    metrics['first_review_at'] = min(review_times)
+
+                # Count review cycles (CHANGES_REQUESTED or APPROVED)
+                metrics['review_cycles'] = len([r for r in reviews if r.get('state') in ['CHANGES_REQUESTED', 'APPROVED']])
+
+            # 4. Calculate rework commits (commits after first review)
+            if metrics['first_review_at'] and commits:
+                for commit in commits:
+                    commit_data = commit.get('commit', {})
+                    if commit_data.get('author', {}).get('date'):
+                        commit_date = self._parse_datetime(commit_data['author']['date'])
+                        if commit_date and commit_date > metrics['first_review_at']:
+                            metrics['rework_commit_count'] += 1
+
+            # 5. Count comments
+            metrics['discussion_comment_count'] = len(comments) if comments else 0
+
+            # 6. Count review thread comments
+            for thread in (review_threads or []):
+                thread_comments = thread.get('comments', {}).get('nodes', [])
+                metrics['review_comment_count'] += len(thread_comments)
+
+        except Exception as e:
+            logger.error(f"Error calculating PR metrics: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+
+        return metrics
+
     def _update_job_status(self, job_id: int, step_name: str, step_status: str, message: str = None):
         """Update ETL job step status in database JSON structure."""
         try:
@@ -4039,6 +4169,74 @@ class TransformWorker(BaseWorker):
                 finally:
                     loop.close()
 
+            # 🔑 CRITICAL: Queue next extraction step (github_prs_commits_reviews_comments) after all repos are processed
+            # This triggers Step 2 of the 2-step GitHub job
+            # Extract repos from the ORIGINAL PAYLOAD (not from database) - these are already filtered by date range
+            if job_id and last_item:
+                logger.info(f"🔀 [GITHUB] Step 1 complete - Queuing Step 2: github_prs_commits_reviews_comments extraction")
+
+                # 🔑 Get last_sync_date from message to pass to PR extraction
+                pr_last_sync_date = message.get('last_sync_date') if message else None
+                logger.info(f"📅 Passing last_sync_date to PR extraction: {pr_last_sync_date}")
+
+                # Extract repositories from the original batch payload
+                repos_from_payload = raw_batch_data.get('repositories', [])
+
+                if repos_from_payload:
+                    logger.info(f"📦 Queuing PR extraction for {len(repos_from_payload)} repositories from payload")
+
+                    # Queue PR extraction for each repository from the original payload
+                    for i, repo_data in enumerate(repos_from_payload):
+                        # Get repo info from the payload
+                        repo_id = repo_data.get('id')  # GitHub API ID
+                        repo_name = repo_data.get('name')
+                        repo_owner = repo_data.get('owner', {}).get('login') if isinstance(repo_data.get('owner'), dict) else repo_data.get('owner')
+                        full_name = repo_data.get('full_name')
+
+                        # Query database to get internal repository ID for this external_id
+                        with database.get_read_session_context() as db:
+                            repo_query = text("""
+                                SELECT id FROM repositories
+                                WHERE tenant_id = :tenant_id AND integration_id = :integration_id
+                                  AND external_id = :external_id AND active = true
+                                LIMIT 1
+                            """)
+                            repo_result = db.execute(repo_query, {
+                                'tenant_id': tenant_id,
+                                'integration_id': integration_id,
+                                'external_id': str(repo_id)
+                            }).fetchone()
+
+                        if repo_result:
+                            internal_repo_id = repo_result[0]
+                            is_first_repo = (i == 0)
+                            is_last_repo = (i == len(repos_from_payload) - 1)
+
+                            self.queue_manager.publish_extraction_job(
+                                tenant_id=tenant_id,
+                                integration_id=integration_id,
+                                extraction_type='github_prs_commits_reviews_comments',
+                                extraction_data={
+                                    'repository_id': internal_repo_id,
+                                    'owner': repo_owner,
+                                    'repo_name': repo_name,
+                                    'full_name': full_name,
+                                    'pr_cursor': None  # Start from first page
+                                },
+                                job_id=job_id,
+                                provider='github',
+                                last_sync_date=pr_last_sync_date,  # 🔑 Pass from repository extraction
+                                first_item=is_first_repo,
+                                last_item=is_last_repo,
+                                last_job_item=False  # 🔑 Never set to True here - completion message sent from PR extraction
+                            )
+
+                            logger.debug(f"Queued PR extraction for repo {full_name} (first={is_first_repo}, last={is_last_repo})")
+                        else:
+                            logger.warning(f"Repository with external_id {repo_id} not found in database")
+                else:
+                    logger.warning(f"No repositories found in payload for tenant {tenant_id}, integration {integration_id}")
+
             logger.info(f"✅ [GITHUB] Processed {len(repositories)} repositories and queued for embedding")
             return True
 
@@ -4047,6 +4245,438 @@ class TransformWorker(BaseWorker):
             import traceback
             logger.error(f"Full traceback: {traceback.format_exc()}")
             return False
+
+    def _process_github_prs_commits_reviews_comments(
+        self, raw_data_id: int, tenant_id: int, integration_id: int,
+        job_id: int = None, message: Dict[str, Any] = None
+    ) -> bool:
+        """
+        Process GitHub PR data with nested commits, reviews, comments.
+
+        Handles 2 raw_data types:
+        1. PR+nested: Complete or partial nested data
+        2. Nested-only: Continuation of nested pagination
+
+        Flow:
+        - Type 1: Insert PR + all nested data, queue to embedding only if all nested data complete
+        - Type 2: Insert only nested data, queue to embedding only if has_more=false
+
+        Args:
+            raw_data_id: ID of raw extraction data
+            tenant_id: Tenant ID
+            integration_id: Integration ID
+            job_id: ETL job ID
+            message: Original message with flags and metadata
+
+        Returns:
+            True if processing succeeded, False otherwise
+        """
+        try:
+            # ✅ Send transform worker "running" status when first_item=True
+            if message and message.get('first_item') and job_id:
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "running", "github_prs_commits_reviews_comments"))
+                    logger.info(f"✅ Transform worker marked as running for github_prs_commits_reviews_comments")
+                finally:
+                    loop.close()
+
+            from app.core.database import get_database
+            database = get_database()
+
+            with database.get_write_session_context() as db:
+                # Load raw data with external_id (repository external_id)
+                raw_data_query = text("""
+                    SELECT raw_data, external_id FROM raw_extraction_data WHERE id = :raw_data_id
+                """)
+                result = db.execute(raw_data_query, {'raw_data_id': raw_data_id}).fetchone()
+
+                if not result:
+                    logger.error(f"Raw data {raw_data_id} not found")
+                    return False
+
+                import json
+                raw_json = json.loads(result[0]) if isinstance(result[0], str) else result[0]
+                raw_data_external_id = result[1]  # 🔑 Repository external_id from raw_extraction_data
+                pr_id = raw_json.get('pr_id')
+
+                if raw_json.get('nested_data_only'):
+                    # TYPE 2: Nested Data Only - Insert only nested data
+                    logger.info(f"📝 [TYPE 2] Processing nested-only data for PR {pr_id}")
+                    nested_type = raw_json.get('nested_type')
+
+                    # Lookup PR by external_id
+                    pr_lookup_query = text("""
+                        SELECT id FROM prs WHERE external_id = :external_id AND tenant_id = :tenant_id
+                    """)
+                    pr_result = db.execute(pr_lookup_query, {
+                        'external_id': pr_id,
+                        'tenant_id': tenant_id
+                    }).fetchone()
+
+                    if not pr_result:
+                        logger.warning(f"PR {pr_id} not found in database")
+                        return False
+
+                    pr_db_id = pr_result[0]
+
+                    # Insert nested data based on type
+                    if nested_type == 'commits':
+                        self._insert_commits(db, raw_json['data'], pr_db_id, tenant_id, integration_id)
+                    elif nested_type == 'reviews':
+                        self._insert_reviews(db, raw_json['data'], pr_db_id, tenant_id, integration_id)
+                    elif nested_type == 'comments':
+                        self._insert_comments(db, raw_json['data'], pr_db_id, tenant_id, integration_id)
+                    elif nested_type == 'review_threads':
+                        self._insert_review_threads(db, raw_json['data'], pr_db_id, tenant_id, integration_id)
+
+                    logger.info(f"✅ Inserted {len(raw_json['data'])} {nested_type} for PR {pr_id}")
+
+                    # Queue to embedding only if this is the last page of nested data
+                    if not raw_json.get('has_more'):
+                        logger.info(f"📤 Queuing PR {pr_id} to embedding (nested data complete)")
+                        self.queue_manager.publish_embedding_job(
+                            tenant_id=tenant_id,
+                            table_name='prs',
+                            external_id=pr_id,
+                            job_id=job_id,
+                            step_type='github_prs_commits_reviews_comments',
+                            integration_id=integration_id,
+                            provider=message.get('provider', 'github') if message else 'github',
+                            first_item=False,
+                            last_item=False,
+                            last_job_item=message.get('last_job_item', False) if message else False
+                        )
+
+                else:
+                    # TYPE 1: PR + Nested Data - Insert PR and all nested data
+                    logger.info(f"📝 [TYPE 1] Processing PR+nested data for PR {pr_id}")
+                    pr_data = raw_json.get('pr_data', {})
+
+                    # Calculate PR metrics from GraphQL data
+                    metrics = self._calculate_pr_metrics(
+                        pr_data,
+                        raw_json.get('commits', []),
+                        raw_json.get('reviews', []),
+                        raw_json.get('comments', []),
+                        raw_json.get('review_threads', [])
+                    )
+                    logger.info(f"📊 Calculated PR metrics: commit_count={metrics['commit_count']}, reviewers={metrics['reviewers']}, rework_commits={metrics['rework_commit_count']}")
+
+                    # Transform and upsert PR
+                    from app.core.utils import DateTimeHelper
+                    transformed_pr = {
+                        'external_id': pr_data['id'],
+                        'external_repo_id': raw_data_external_id,  # 🔑 Repository external_id from raw_extraction_data
+                        'number': pr_data['number'],
+                        'name': pr_data['title'],  # Map title to name column
+                        'body': pr_data.get('body'),
+                        'status': pr_data['state'],  # Map state to status column
+                        'pr_created_at': self._parse_datetime(pr_data['createdAt']),  # Map to pr_created_at
+                        'pr_updated_at': self._parse_datetime(pr_data['updatedAt']),  # Map to pr_updated_at
+                        'closed_at': self._parse_datetime(pr_data.get('closedAt')),
+                        'merged_at': self._parse_datetime(pr_data.get('mergedAt')),
+                        'user_name': pr_data['author']['login'] if pr_data.get('author') else None,  # Map author_login to user_name
+                        'repository_id': raw_json.get('repository_id'),  # 🔑 From raw_extraction_data JSON
+                        'source': metrics['source'],
+                        'destination': metrics['destination'],
+                        'commit_count': metrics['commit_count'],
+                        'additions': metrics['additions'],
+                        'deletions': metrics['deletions'],
+                        'changed_files': metrics['changed_files'],
+                        'reviewers': metrics['reviewers'],
+                        'first_review_at': metrics['first_review_at'],
+                        'rework_commit_count': metrics['rework_commit_count'],
+                        'review_cycles': metrics['review_cycles'],
+                        'discussion_comment_count': metrics['discussion_comment_count'],
+                        'review_comment_count': metrics['review_comment_count'],
+                        'integration_id': integration_id,
+                        'tenant_id': tenant_id,
+                        'active': True,
+                        'last_updated_at': DateTimeHelper.now_default()
+                    }
+
+                    # Upsert PR
+                    upsert_query = text("""
+                        INSERT INTO prs (
+                            external_id, external_repo_id, number, name, body, status, pr_created_at, pr_updated_at,
+                            closed_at, merged_at, user_name, repository_id, source, destination, commit_count, additions,
+                            deletions, changed_files, reviewers, first_review_at, rework_commit_count, review_cycles,
+                            discussion_comment_count, review_comment_count, integration_id, tenant_id, active, last_updated_at
+                        ) VALUES (
+                            :external_id, :external_repo_id, :number, :name, :body, :status, :pr_created_at, :pr_updated_at,
+                            :closed_at, :merged_at, :user_name, :repository_id, :source, :destination, :commit_count, :additions,
+                            :deletions, :changed_files, :reviewers, :first_review_at, :rework_commit_count, :review_cycles,
+                            :discussion_comment_count, :review_comment_count, :integration_id, :tenant_id, :active, :last_updated_at
+                        )
+                        ON CONFLICT (external_id, tenant_id)
+                        DO UPDATE SET
+                            external_repo_id = EXCLUDED.external_repo_id,
+                            name = EXCLUDED.name,
+                            body = EXCLUDED.body,
+                            status = EXCLUDED.status,
+                            pr_updated_at = EXCLUDED.pr_updated_at,
+                            closed_at = EXCLUDED.closed_at,
+                            merged_at = EXCLUDED.merged_at,
+                            source = EXCLUDED.source,
+                            destination = EXCLUDED.destination,
+                            commit_count = EXCLUDED.commit_count,
+                            additions = EXCLUDED.additions,
+                            deletions = EXCLUDED.deletions,
+                            changed_files = EXCLUDED.changed_files,
+                            reviewers = EXCLUDED.reviewers,
+                            first_review_at = EXCLUDED.first_review_at,
+                            rework_commit_count = EXCLUDED.rework_commit_count,
+                            review_cycles = EXCLUDED.review_cycles,
+                            discussion_comment_count = EXCLUDED.discussion_comment_count,
+                            review_comment_count = EXCLUDED.review_comment_count,
+                            last_updated_at = EXCLUDED.last_updated_at
+                        RETURNING id
+                    """)
+
+                    pr_result = db.execute(upsert_query, transformed_pr)
+                    pr_db_id = pr_result.scalar()
+                    logger.info(f"✅ Upserted PR {pr_id} (db_id={pr_db_id})")
+
+                    # Insert nested data
+                    self._insert_commits(db, raw_json.get('commits', []), pr_db_id, tenant_id, integration_id)
+                    self._insert_reviews(db, raw_json.get('reviews', []), pr_db_id, tenant_id, integration_id)
+                    self._insert_comments(db, raw_json.get('comments', []), pr_db_id, tenant_id, integration_id)
+                    self._insert_review_threads(db, raw_json.get('review_threads', []), pr_db_id, tenant_id, integration_id)
+
+                    logger.info(f"✅ Inserted all nested data for PR {pr_id}")
+
+                    # Queue to embedding only if all nested data is complete (no cursors)
+                    has_pending_nested = any([
+                        raw_json.get('commits_cursor'),
+                        raw_json.get('reviews_cursor'),
+                        raw_json.get('comments_cursor')
+                    ])
+
+                    if not has_pending_nested:
+                        logger.info(f"📤 Queuing PR {pr_id} to embedding (all nested data complete)")
+                        self.queue_manager.publish_embedding_job(
+                            tenant_id=tenant_id,
+                            table_name='prs',
+                            external_id=pr_data['id'],
+                            job_id=job_id,
+                            step_type='github_prs_commits_reviews_comments',
+                            integration_id=integration_id,
+                            provider=message.get('provider', 'github') if message else 'github',
+                            first_item=message.get('first_item', False) if message else False,
+                            last_item=message.get('last_item', False) if message else False,
+                            last_job_item=message.get('last_job_item', False) if message else False
+                        )
+                    else:
+                        logger.info(f"⏳ PR {pr_id} has pending nested data, will queue to embedding later")
+
+                # ✅ Mark raw data as completed
+                update_query = text("""
+                    UPDATE raw_extraction_data
+                    SET status = 'completed',
+                        last_updated_at = NOW(),
+                        error_details = NULL
+                    WHERE id = :raw_data_id
+                """)
+                db.execute(update_query, {'raw_data_id': raw_data_id})
+
+                # ✅ Send transform worker "finished" status when last_item=True
+                if message and message.get('last_item') and job_id:
+                    import asyncio
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "finished", "github_prs_commits_reviews_comments"))
+                        logger.info(f"✅ Transform worker marked as finished for github_prs_commits_reviews_comments")
+                    finally:
+                        loop.close()
+
+                db.commit()
+                logger.info(f"✅ [GITHUB] Processed PR data and marked raw_data_id={raw_data_id} as completed")
+                return True
+
+        except Exception as e:
+            logger.error(f"❌ [GITHUB] Error processing github_prs_commits_reviews_comments: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            return False
+
+    def _insert_commits(self, db, commits: list, pr_db_id: int, tenant_id: int, integration_id: int = None) -> None:
+        """Insert commits for a PR"""
+        if not commits:
+            return
+
+        from app.core.utils import DateTimeHelper
+        from sqlalchemy import text
+
+        for commit_data in commits:
+            try:
+                insert_query = text("""
+                    INSERT INTO prs_commits (
+                        pr_id, external_id, author_name, author_email, authored_date,
+                        committer_name, committer_email, committed_date, message,
+                        integration_id, tenant_id, active, created_at, last_updated_at
+                    ) VALUES (
+                        :pr_id, :external_id, :author_name, :author_email, :authored_date,
+                        :committer_name, :committer_email, :committed_date, :message,
+                        :integration_id, :tenant_id, :active, :created_at, :last_updated_at
+                    )
+                    ON CONFLICT (external_id, tenant_id)
+                    DO UPDATE SET
+                        message = EXCLUDED.message,
+                        authored_date = EXCLUDED.authored_date,
+                        committed_date = EXCLUDED.committed_date,
+                        last_updated_at = EXCLUDED.last_updated_at
+                """)
+
+                db.execute(insert_query, {
+                    'pr_id': pr_db_id,
+                    'external_id': commit_data['commit']['oid'],
+                    'author_name': commit_data['commit']['author']['name'] if commit_data['commit'].get('author') else None,
+                    'author_email': commit_data['commit']['author']['email'] if commit_data['commit'].get('author') else None,
+                    'authored_date': self._parse_datetime(commit_data['commit']['author']['date']) if commit_data['commit'].get('author') else None,
+                    'committer_name': commit_data['commit']['committer']['name'] if commit_data['commit'].get('committer') else None,
+                    'committer_email': commit_data['commit']['committer']['email'] if commit_data['commit'].get('committer') else None,
+                    'committed_date': self._parse_datetime(commit_data['commit']['committer']['date']) if commit_data['commit'].get('committer') else None,
+                    'message': commit_data['commit']['message'],
+                    'integration_id': integration_id,
+                    'tenant_id': tenant_id,
+                    'active': True,
+                    'created_at': DateTimeHelper.now_default(),
+                    'last_updated_at': DateTimeHelper.now_default()
+                })
+            except Exception as e:
+                logger.warning(f"Error inserting commit {commit_data['commit']['oid']}: {e}")
+
+    def _insert_reviews(self, db, reviews: list, pr_db_id: int, tenant_id: int, integration_id: int = None) -> None:
+        """Insert reviews for a PR"""
+        if not reviews:
+            return
+
+        from app.core.utils import DateTimeHelper
+        from sqlalchemy import text
+
+        for review_data in reviews:
+            try:
+                insert_query = text("""
+                    INSERT INTO prs_reviews (
+                        pr_id, external_id, author_login, state, body, submitted_at,
+                        integration_id, tenant_id, active, created_at, last_updated_at
+                    ) VALUES (
+                        :pr_id, :external_id, :author_login, :state, :body, :submitted_at,
+                        :integration_id, :tenant_id, :active, :created_at, :last_updated_at
+                    )
+                    ON CONFLICT (external_id, tenant_id)
+                    DO UPDATE SET
+                        state = EXCLUDED.state,
+                        body = EXCLUDED.body,
+                        submitted_at = EXCLUDED.submitted_at,
+                        last_updated_at = EXCLUDED.last_updated_at
+                """)
+
+                db.execute(insert_query, {
+                    'pr_id': pr_db_id,
+                    'external_id': review_data['id'],
+                    'author_login': review_data['author']['login'] if review_data.get('author') else None,
+                    'state': review_data['state'],
+                    'body': review_data.get('body'),
+                    'submitted_at': self._parse_datetime(review_data['submittedAt']) if review_data.get('submittedAt') else None,
+                    'integration_id': integration_id,
+                    'tenant_id': tenant_id,
+                    'active': True,
+                    'created_at': DateTimeHelper.now_default(),
+                    'last_updated_at': DateTimeHelper.now_default()
+                })
+            except Exception as e:
+                logger.warning(f"Error inserting review {review_data['id']}: {e}")
+
+    def _insert_comments(self, db, comments: list, pr_db_id: int, tenant_id: int, integration_id: int = None) -> None:
+        """Insert comments for a PR"""
+        if not comments:
+            return
+
+        from app.core.utils import DateTimeHelper
+        from sqlalchemy import text
+
+        for comment_data in comments:
+            try:
+                insert_query = text("""
+                    INSERT INTO prs_comments (
+                        pr_id, external_id, author_login, body, created_at_github, updated_at_github,
+                        integration_id, tenant_id, active, created_at, last_updated_at
+                    ) VALUES (
+                        :pr_id, :external_id, :author_login, :body, :created_at_github, :updated_at_github,
+                        :integration_id, :tenant_id, :active, :created_at, :last_updated_at
+                    )
+                    ON CONFLICT (external_id, tenant_id)
+                    DO UPDATE SET
+                        body = EXCLUDED.body,
+                        updated_at_github = EXCLUDED.updated_at_github,
+                        last_updated_at = EXCLUDED.last_updated_at
+                """)
+
+                db.execute(insert_query, {
+                    'pr_id': pr_db_id,
+                    'external_id': comment_data['id'],
+                    'author_login': comment_data['author']['login'] if comment_data.get('author') else None,
+                    'body': comment_data['body'],
+                    'created_at_github': self._parse_datetime(comment_data['createdAt']),
+                    'updated_at_github': self._parse_datetime(comment_data['updatedAt']) if comment_data.get('updatedAt') else None,
+                    'integration_id': integration_id,
+                    'tenant_id': tenant_id,
+                    'active': True,
+                    'created_at': DateTimeHelper.now_default(),
+                    'last_updated_at': DateTimeHelper.now_default()
+                })
+            except Exception as e:
+                logger.warning(f"Error inserting comment {comment_data['id']}: {e}")
+
+    def _insert_review_threads(self, db, threads: list, pr_db_id: int, tenant_id: int, integration_id: int = None) -> None:
+        """Insert review threads and their comments for a PR"""
+        if not threads:
+            return
+
+        from app.core.utils import DateTimeHelper
+        from sqlalchemy import text
+
+        for thread_data in threads:
+            try:
+                # Insert comments from the thread
+                for comment_data in thread_data.get('comments', {}).get('nodes', []):
+                    insert_query = text("""
+                        INSERT INTO prs_comments (
+                            pr_id, external_id, author_login, body, created_at_github, updated_at_github,
+                            path, position, integration_id, tenant_id, active, created_at, last_updated_at
+                        ) VALUES (
+                            :pr_id, :external_id, :author_login, :body, :created_at_github, :updated_at_github,
+                            :path, :position, :integration_id, :tenant_id, :active, :created_at, :last_updated_at
+                        )
+                        ON CONFLICT (external_id, tenant_id)
+                        DO UPDATE SET
+                            body = EXCLUDED.body,
+                            updated_at_github = EXCLUDED.updated_at_github,
+                            last_updated_at = EXCLUDED.last_updated_at
+                    """)
+
+                    db.execute(insert_query, {
+                        'pr_id': pr_db_id,
+                        'external_id': comment_data['id'],
+                        'author_login': comment_data['author']['login'] if comment_data.get('author') else None,
+                        'body': comment_data['body'],
+                        'created_at_github': self._parse_datetime(comment_data['createdAt']),
+                        'updated_at_github': self._parse_datetime(comment_data['updatedAt']) if comment_data.get('updatedAt') else None,
+                        'path': comment_data.get('path'),
+                        'position': comment_data.get('position'),
+                        'integration_id': integration_id,
+                        'tenant_id': tenant_id,
+                        'active': True,
+                        'created_at': DateTimeHelper.now_default(),
+                        'last_updated_at': DateTimeHelper.now_default()
+                    })
+            except Exception as e:
+                logger.warning(f"Error inserting review thread comment: {e}")
 
 
 

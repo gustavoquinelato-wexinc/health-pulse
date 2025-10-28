@@ -822,6 +822,14 @@ async def _queue_github_extraction_job(tenant_id: int, integration_id: int, job_
     """
     Queue GitHub extraction job for background processing.
 
+    GitHub job is a 2-step process:
+    1. github_repositories: Extract all repositories
+    2. github_prs_commits_reviews_comments: Extract PRs with nested data (commits, reviews, comments)
+
+    The transform worker for github_repositories will trigger the next step when it completes.
+
+    RECOVERY: If job has rate limit checkpoint, resume from checkpoint instead of starting fresh.
+
     Args:
         tenant_id: Tenant ID
         integration_id: Integration ID for the GitHub extraction
@@ -834,11 +842,61 @@ async def _queue_github_extraction_job(tenant_id: int, integration_id: int, job_
         from app.etl.queue.queue_manager import QueueManager
         from sqlalchemy import text
         from app.core.database import get_database
+        from app.models.unified_models import EtlJob
+        import json
 
         # Note: Job status is already set to 'RUNNING' by run_job_now function
         # No need to update it again here to avoid database locks
 
         logger.info(f"✅ Job {job_id} status updated to QUEUED")
+
+        # Check for recovery checkpoint
+        database = get_database()
+        with database.get_read_session_context() as db:
+            job = db.query(EtlJob).filter(
+                EtlJob.id == job_id,
+                EtlJob.tenant_id == tenant_id
+            ).first()
+
+            if job and job.has_recovery_checkpoints():
+                checkpoint = json.loads(job.checkpoint_data)
+
+                if checkpoint.get('rate_limit_hit'):
+                    logger.info(f"🔄 Resuming job {job_id} from rate limit checkpoint")
+                    node_type = checkpoint['rate_limit_node_type']
+
+                    if node_type == 'repositories':
+                        # Resume repository extraction from last repo's pushed date
+                        logger.info(f"📥 Resuming repository extraction from pushed date: {checkpoint.get('last_repo_pushed_date')}")
+                        return await _queue_github_repositories_extraction(
+                            tenant_id=tenant_id,
+                            integration_id=integration_id,
+                            job_id=job_id,
+                            resume_from_pushed_date=checkpoint.get('last_repo_pushed_date')
+                        )
+                    elif node_type == 'prs':
+                        # Resume PR extraction from saved cursor
+                        logger.info(f"📥 Resuming PR extraction with cursor: {checkpoint.get('last_pr_cursor')}")
+                        return await _queue_github_prs_extraction(
+                            tenant_id=tenant_id,
+                            integration_id=integration_id,
+                            job_id=job_id,
+                            pr_cursor=checkpoint.get('last_pr_cursor')
+                        )
+                    else:
+                        # Resume nested extraction from saved state
+                        logger.info(f"📥 Resuming nested extraction for PR {checkpoint.get('current_pr_id')}")
+                        return await _queue_github_nested_extraction(
+                            tenant_id=tenant_id,
+                            integration_id=integration_id,
+                            job_id=job_id,
+                            pr_id=checkpoint.get('current_pr_id'),
+                            pr_node_id=checkpoint.get('current_pr_node_id'),
+                            nested_nodes_status=checkpoint.get('nested_nodes_status')
+                        )
+
+        # Normal start (no recovery checkpoint)
+        logger.info(f"🚀 Starting fresh GitHub extraction for job {job_id}")
 
         # Queue the first extraction step: github_repositories
         queue_manager = QueueManager()
@@ -847,10 +905,10 @@ async def _queue_github_extraction_job(tenant_id: int, integration_id: int, job_
             'tenant_id': tenant_id,
             'integration_id': integration_id,
             'job_id': job_id,
-            'type': 'github_repositories',  # 🔑 Step name for UI
+            'type': 'github_repositories',  # 🔑 Step 1: Repository discovery
             'provider': 'github',
-            'first_item': True,  # Single-step job, so first item is also last
-            'last_item': True
+            'first_item': True,  # First step of 2-step job
+            'last_item': False   # Not the last step - PR extraction comes next
             # 🔑 last_sync_date is fetched from database by extraction worker
         }
 
@@ -862,6 +920,7 @@ async def _queue_github_extraction_job(tenant_id: int, integration_id: int, job_
 
         if success:
             logger.info(f"✅ GitHub extraction job queued successfully to {tier_queue}")
+            logger.info(f"📋 GitHub job flow: Step 1 (github_repositories) → Step 2 (github_prs_commits_reviews_comments)")
             return True
         else:
             logger.error(f"❌ Failed to publish extraction message to {tier_queue}")
@@ -869,6 +928,181 @@ async def _queue_github_extraction_job(tenant_id: int, integration_id: int, job_
 
     except Exception as e:
         logger.error(f"Error queuing GitHub extraction: {e}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+        return False
+
+
+async def _queue_github_prs_extraction(
+    tenant_id: int,
+    integration_id: int,
+    job_id: int,
+    pr_cursor: Optional[str] = None
+) -> bool:
+    """
+    Queue GitHub PRs extraction message with optional cursor for recovery.
+
+    Args:
+        tenant_id: Tenant ID
+        integration_id: Integration ID
+        job_id: Job ID
+        pr_cursor: Optional cursor for pagination (used for recovery)
+
+    Returns:
+        bool: True if queued successfully
+    """
+    try:
+        from app.etl.queue.queue_manager import QueueManager
+
+        queue_manager = QueueManager()
+
+        message = {
+            'type': 'github_prs_commits_reviews_comments',
+            'tenant_id': tenant_id,
+            'integration_id': integration_id,
+            'job_id': job_id,
+            'pr_cursor': pr_cursor,
+            'first_item': True,
+            'last_item': False,
+            'provider': 'github'
+        }
+
+        # Get tenant tier and route to tier-based extraction queue
+        tier = queue_manager._get_tenant_tier(tenant_id)
+        tier_queue = queue_manager.get_tier_queue_name(tier, 'extraction')
+
+        success = queue_manager._publish_message(tier_queue, message)
+
+        if success:
+            logger.info(f"✅ Queued PR extraction (cursor: {pr_cursor or 'None'}) to {tier_queue}")
+            return True
+        else:
+            logger.error(f"❌ Failed to queue PR extraction")
+            return False
+
+    except Exception as e:
+        logger.error(f"Error queuing PR extraction: {e}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+        return False
+
+
+async def _queue_github_nested_extraction(
+    tenant_id: int,
+    integration_id: int,
+    job_id: int,
+    pr_id: str,
+    pr_node_id: str,
+    nested_nodes_status: Optional[dict] = None
+) -> bool:
+    """
+    Queue nested extraction message with partial state for recovery.
+
+    Args:
+        tenant_id: Tenant ID
+        integration_id: Integration ID
+        job_id: Job ID
+        pr_id: PR ID
+        pr_node_id: PR node ID
+        nested_nodes_status: Status of nested nodes (commits, reviews, comments, review_threads)
+
+    Returns:
+        bool: True if queued successfully
+    """
+    try:
+        from app.etl.queue.queue_manager import QueueManager
+
+        queue_manager = QueueManager()
+
+        message = {
+            'type': 'github_nested_extraction_recovery',
+            'tenant_id': tenant_id,
+            'integration_id': integration_id,
+            'job_id': job_id,
+            'pr_id': pr_id,
+            'pr_node_id': pr_node_id,
+            'nested_nodes_status': nested_nodes_status or {},
+            'first_item': True,
+            'last_item': False,
+            'provider': 'github'
+        }
+
+        # Get tenant tier and route to tier-based extraction queue
+        tier = queue_manager._get_tenant_tier(tenant_id)
+        tier_queue = queue_manager.get_tier_queue_name(tier, 'extraction')
+
+        success = queue_manager._publish_message(tier_queue, message)
+
+        if success:
+            logger.info(f"✅ Queued nested extraction for PR {pr_id} to {tier_queue}")
+            return True
+        else:
+            logger.error(f"❌ Failed to queue nested extraction")
+            return False
+
+    except Exception as e:
+        logger.error(f"Error queuing nested extraction: {e}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
+        return False
+
+
+async def _queue_github_repositories_extraction(
+    tenant_id: int,
+    integration_id: int,
+    job_id: int,
+    resume_from_pushed_date: Optional[str] = None
+) -> bool:
+    """
+    Queue GitHub repositories extraction message with optional resume date.
+
+    For rate limit recovery, uses the last extracted repo's pushed date as the new
+    start_date for the search query. This allows overlapping some repos but ensures
+    no repos are missed.
+
+    Args:
+        tenant_id: Tenant ID
+        integration_id: Integration ID
+        job_id: Job ID
+        resume_from_pushed_date: Optional pushed date to resume from (YYYY-MM-DD format)
+
+    Returns:
+        bool: True if queued successfully
+    """
+    try:
+        from app.etl.queue.queue_manager import QueueManager
+
+        queue_manager = QueueManager()
+
+        message = {
+            'type': 'github_repositories',
+            'tenant_id': tenant_id,
+            'integration_id': integration_id,
+            'job_id': job_id,
+            'provider': 'github',
+            'first_item': True,
+            'last_item': False,
+            'resume_from_pushed_date': resume_from_pushed_date  # 🔑 For recovery
+        }
+
+        # Get tenant tier and route to tier-based extraction queue
+        tier = queue_manager._get_tenant_tier(tenant_id)
+        tier_queue = queue_manager.get_tier_queue_name(tier, 'extraction')
+
+        success = queue_manager._publish_message(tier_queue, message)
+
+        if success:
+            if resume_from_pushed_date:
+                logger.info(f"✅ Queued repository extraction (resume from {resume_from_pushed_date}) to {tier_queue}")
+            else:
+                logger.info(f"✅ Queued repository extraction to {tier_queue}")
+            return True
+        else:
+            logger.error(f"❌ Failed to queue repository extraction")
+            return False
+
+    except Exception as e:
+        logger.error(f"Error queuing repository extraction: {e}")
         import traceback
         logger.error(f"Full traceback: {traceback.format_exc()}")
         return False

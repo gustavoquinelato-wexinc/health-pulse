@@ -139,6 +139,13 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
           bgColor: 'bg-red-100',
           label: 'Failed'
         }
+      case 'RATE_LIMIT_REACHED':
+        return {
+          icon: <AlertCircle className="w-5 h-5" />,
+          color: 'text-yellow-600',
+          bgColor: 'bg-yellow-100',
+          label: 'Rate Limited'
+        }
       case 'READY':
         return {
           icon: <Clock className="w-5 h-5" />,
@@ -686,8 +693,16 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
                   <span className="text-sm font-medium">{statusInfo.label}</span>
                 </div>
 
+                {/* Rate Limit Countdown - Show when rate limited */}
+                {realTimeStatus === 'RATE_LIMIT_REACHED' && (
+                  <div className="flex items-center space-x-1 text-yellow-600">
+                    <Clock className="w-4 h-4" />
+                    <span className="text-sm font-medium">Resumes in {countdown}</span>
+                  </div>
+                )}
+
                 {/* Reset Countdown Timer - Show when resetting */}
-                {resetCountdown !== null && (
+                {resetCountdown !== null && realTimeStatus !== 'RATE_LIMIT_REACHED' && (
                   <div className="flex items-center space-x-1 text-blue-500">
                     <Clock className="w-4 h-4" />
                     <span className="text-sm font-medium">Resetting in {resetCountdown}s</span>
@@ -730,8 +745,8 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
             <button
               onClick={() => onRunNow(job.id)}
               className="btn-crud-create px-4 py-2 rounded-lg flex items-center space-x-2"
-              title="Manually trigger job"
-              disabled={isJobRunning || realTimeStatus === 'RUNNING'}
+              title={realTimeStatus === 'RATE_LIMIT_REACHED' ? 'Job will resume automatically when rate limit resets' : 'Manually trigger job'}
+              disabled={isJobRunning || realTimeStatus === 'RUNNING' || realTimeStatus === 'RATE_LIMIT_REACHED'}
             >
               <Play className="w-4 h-4" />
               <span>Run Now</span>

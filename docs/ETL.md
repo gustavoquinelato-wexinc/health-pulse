@@ -945,6 +945,18 @@ class QueueMonitor:
 - **Performance Maintained**: Existing functionality preserved with improved architecture
 - **Batched Processing**: 50 PRs per batch for memory optimization
 
+### ✅ Phase 4: GitHub PRs, Commits, Reviews & Comments with GraphQL (IMPLEMENTED)
+- **2-Step Job Architecture**: `github_repositories` (Step 1) → `github_prs_commits_reviews_comments` (Step 2)
+- **GraphQL Extraction**: Efficient single GraphQL query fetches all 4 entity types together
+- **Multi-Worker Pipeline**: Parallel extraction workers process PR pages and nested pagination independently
+- **Rate Limit Recovery**: Checkpoint-based recovery with cursor tracking for PR pages and nested pagination
+- **Incremental Sync**: Process only new/updated data since last sync (80%+ API quota savings on subsequent runs)
+- **Repository Recovery**: Resume from last repo's pushed_date on rate limit, accepting overlap but preventing missed repos
+- **PR Filtering**: Filter PRs by updatedAt against last_sync_date with early pagination termination
+- **WebSocket Updates**: Real-time status updates for extraction, transform, and embedding stages
+- **Proper Flag Forwarding**: first_item, last_item, last_job_item forwarded through all workers
+- **Completion Chain**: Proper completion message flow with last_job_item=True only on final nested page
+
 ### 🔄 Future Enhancements (Planned)
 - **Additional Integrations**: Azure DevOps, Aha!, custom APIs
 - **Advanced Analytics**: Data quality metrics, trend analysis

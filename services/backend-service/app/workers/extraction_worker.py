@@ -19,6 +19,7 @@ Tier-Based Queue Architecture:
 import json
 import time
 from typing import Dict, Any, List, Optional
+from datetime import datetime
 
 from app.workers.base_worker import BaseWorker
 from app.core.logging_config import get_logger
@@ -139,6 +140,29 @@ class ExtractionWorker(BaseWorker):
                     result = loop.run_until_complete(self._extract_github_repositories(message))
                 finally:
                     loop.close()
+            elif extraction_type == 'github_prs_commits_reviews_comments':
+                logger.info(f"📋 [DEBUG] Routing to github_extraction_worker (Phase 4)")
+                # Use asyncio.create_task to run async method from sync context
+                import asyncio
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    from app.etl.github_extraction import github_extraction_worker
+                    extraction_result = loop.run_until_complete(github_extraction_worker(message))
+                    result = extraction_result.get('success', False)
+
+                    # Check for rate limit error (NEW)
+                    if extraction_result.get('is_rate_limit'):
+                        logger.warning(f"⏸️ Rate limit reached during GitHub extraction")
+                        if job_id:
+                            self._update_job_status_rate_limit_reached(
+                                job_id,
+                                tenant_id,
+                                extraction_result.get('rate_limit_reset_at')
+                            )
+                        return True  # Don't retry, don't send to DLQ
+                finally:
+                    loop.close()
             elif extraction_type == 'jira_statuses_and_relationships':
                 logger.info(f"📋 [DEBUG] Routing to _extract_jira_statuses_and_relationships")
                 result = self._extract_jira_statuses_and_relationships(message)
@@ -205,6 +229,56 @@ class ExtractionWorker(BaseWorker):
 
         except Exception as e:
             logger.error(f"❌ Failed to update job status to FAILED: {e}")
+
+    def _update_job_status_rate_limit_reached(self, job_id: int, tenant_id: int, rate_limit_reset_at: Optional[str] = None):
+        """
+        Update ETL job status to RATE_LIMIT_REACHED with next_run set to rate limit reset time.
+
+        Args:
+            job_id: ETL job ID
+            tenant_id: Tenant ID
+            rate_limit_reset_at: ISO format timestamp when rate limit resets (from checkpoint)
+        """
+        try:
+            from app.core.database import get_database
+            from app.core.utils import DateTimeHelper
+            from sqlalchemy import text
+            from datetime import timedelta
+
+            database = get_database()
+
+            # Calculate next_run based on rate_limit_reset_at
+            if rate_limit_reset_at:
+                try:
+                    next_run = datetime.fromisoformat(rate_limit_reset_at)
+                except (ValueError, TypeError):
+                    # Fallback to 1 minute if parsing fails
+                    next_run = DateTimeHelper.now_default() + timedelta(minutes=1)
+            else:
+                # Default to 1 minute retry
+                next_run = DateTimeHelper.now_default() + timedelta(minutes=1)
+
+            with database.get_write_session_context() as session:
+                update_query = text("""
+                    UPDATE etl_jobs
+                    SET status = jsonb_set(status, ARRAY['overall'], '"RATE_LIMIT_REACHED"'::jsonb),
+                        error_message = 'GitHub API rate limit reached - will resume automatically',
+                        next_run = :next_run,
+                        last_updated_at = NOW()
+                    WHERE id = :job_id AND tenant_id = :tenant_id
+                """)
+
+                session.execute(update_query, {
+                    'job_id': job_id,
+                    'tenant_id': tenant_id,
+                    'next_run': next_run
+                })
+                session.commit()
+
+                logger.info(f"⏸️ Updated job {job_id} status to RATE_LIMIT_REACHED, next_run: {next_run}")
+
+        except Exception as e:
+            logger.error(f"❌ Failed to update job status to RATE_LIMIT_REACHED: {e}")
 
     def _fetch_jira_dev_status(self, message: Dict[str, Any]) -> bool:
         """
@@ -1086,22 +1160,30 @@ class ExtractionWorker(BaseWorker):
             # Send WebSocket status: extraction worker starting
             await self._send_worker_status("extraction", tenant_id, job_id, "running", step_name)
 
-            # 🔑 Fetch last_sync_date from database (etl_jobs table)
-            # If null, use 2 years ago as default (captures all useful data)
-            database = get_database()
-            last_sync_date = None
-            with database.get_read_session_context() as session:
-                from app.models.unified_models import EtlJob
-                job = session.query(EtlJob).filter(EtlJob.id == job_id).first()
-                if job and job.last_sync_date:
-                    last_sync_date = job.last_sync_date.strftime('%Y-%m-%d')
-                    logger.info(f"📅 Using last_sync_date from database: {last_sync_date}")
-                else:
-                    # Default: 2 years ago (captures all useful data)
-                    from datetime import datetime, timedelta
-                    two_years_ago = datetime.now() - timedelta(days=730)
-                    last_sync_date = two_years_ago.strftime('%Y-%m-%d')
-                    logger.info(f"📅 No last_sync_date in database, using 2-year default: {last_sync_date}")
+            # 🔑 Check for rate limit recovery resume date
+            resume_from_pushed_date = message.get('resume_from_pushed_date')
+
+            if resume_from_pushed_date:
+                # RECOVERY MODE: Use last repo's pushed date as start_date
+                logger.info(f"🔄 [RECOVERY] Resuming repository extraction from pushed date: {resume_from_pushed_date}")
+                last_sync_date = resume_from_pushed_date
+            else:
+                # NORMAL MODE: Fetch last_sync_date from database (etl_jobs table)
+                # If null, use 2 years ago as default (captures all useful data)
+                database = get_database()
+                last_sync_date = None
+                with database.get_read_session_context() as session:
+                    from app.models.unified_models import EtlJob
+                    job = session.query(EtlJob).filter(EtlJob.id == job_id).first()
+                    if job and job.last_sync_date:
+                        last_sync_date = job.last_sync_date.strftime('%Y-%m-%d')
+                        logger.info(f"📅 Using last_sync_date from database: {last_sync_date}")
+                    else:
+                        # Default: 2 years ago (captures all useful data)
+                        from datetime import datetime, timedelta
+                        two_years_ago = datetime.now() - timedelta(days=730)
+                        last_sync_date = two_years_ago.strftime('%Y-%m-%d')
+                        logger.info(f"📅 No last_sync_date in database, using 2-year default: {last_sync_date}")
 
             # Extract repositories using existing logic
             from app.etl.github_extraction import extract_github_repositories
@@ -1110,6 +1192,17 @@ class ExtractionWorker(BaseWorker):
             result = await extract_github_repositories(
                 integration_id, tenant_id, job_id, last_sync_date=last_sync_date
             )
+
+            # Check for rate limit error
+            if result.get('is_rate_limit'):
+                logger.warning(f"⏸️ Rate limit reached during repository extraction")
+                if job_id:
+                    self._update_job_status_rate_limit_reached(
+                        job_id,
+                        tenant_id,
+                        result.get('rate_limit_reset_at')
+                    )
+                return True  # Don't retry, don't send to DLQ
 
             if result.get('success'):
                 logger.info(f"✅ [GITHUB] Repositories extraction completed for tenant {tenant_id}")
