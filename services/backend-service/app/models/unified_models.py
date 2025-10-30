@@ -712,7 +712,7 @@ class PrReview(Base, IntegrationBaseEntity):
 
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
     external_id = Column(String, quote=False, name="external_id")  # GitHub review ID
-    pr_id = Column(Integer, ForeignKey('prs.id'), nullable=False, quote=False, name="pull_request_id")
+    pr_id = Column(Integer, ForeignKey('prs.id'), nullable=False, quote=False, name="pr_id")
     author_login = Column(String, quote=False, name="author_login")  # Reviewer's GitHub username
     state = Column(String, quote=False, name="state")  # APPROVED, CHANGES_REQUESTED, COMMENTED
     body = Column(Text, quote=False, name="body")  # Review comment text
@@ -730,7 +730,7 @@ class PrCommit(Base, IntegrationBaseEntity):
 
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
     external_id = Column(String, quote=False, name="external_id")  # SHA, the commit hash
-    pr_id = Column(Integer, ForeignKey('prs.id'), nullable=False, quote=False, name="pull_request_id")
+    pr_id = Column(Integer, ForeignKey('prs.id'), nullable=False, quote=False, name="pr_id")
     author_name = Column(String, quote=False, name="author_name")  # Commit author name
     author_email = Column(String, quote=False, name="author_email")  # Commit author email
     committer_name = Column(String, quote=False, name="committer_name")  # Committer name
@@ -751,7 +751,7 @@ class PrComment(Base, IntegrationBaseEntity):
 
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
     external_id = Column(String, quote=False, name="external_id")  # GitHub comment ID
-    pr_id = Column(Integer, ForeignKey('prs.id'), nullable=False, quote=False, name="pull_request_id")
+    pr_id = Column(Integer, ForeignKey('prs.id'), nullable=False, quote=False, name="pr_id")
     author_login = Column(String, quote=False, name="author_login")  # Comment author's GitHub username
     body = Column(Text, quote=False, name="body")  # Comment text
     comment_type = Column(String, quote=False, name="comment_type")  # 'issue' (main thread) or 'review' (line-specific)

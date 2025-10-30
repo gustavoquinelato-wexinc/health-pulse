@@ -97,7 +97,8 @@ class EmbeddingWorker(BaseWorker):
             import json
 
             database = get_database()
-            with database.get_read_session_context() as session:
+            # 🔑 Use WRITE session for etl_jobs (written by transform worker)
+            with database.get_write_session_context() as session:
                 result = session.execute(
                     text('SELECT status FROM etl_jobs WHERE id = :job_id'),
                     {'job_id': job_id}
@@ -305,7 +306,7 @@ class EmbeddingWorker(BaseWorker):
             from app.core.database import get_database
 
             # Create a persistent database session for the hybrid provider
-            # Use read session since initialization mainly reads provider configs
+            # Use read session since initialization mainly reads provider configs (system-level, no ETL write-read dependency)
             db = get_database()
             db_session = db.get_read_session()
 
@@ -374,7 +375,8 @@ class EmbeddingWorker(BaseWorker):
                     'jira_projects_and_issue_types': ['projects', 'wits'],
                     'jira_statuses_and_relationships': ['statuses'],
                     'jira_issues_with_changelogs': ['work_items', 'changelogs'],
-                    'jira_dev_status': ['work_items_prs_links']
+                    'jira_dev_status': ['work_items_prs_links'],
+                    'github_prs_commits_reviews_comments': ['prs', 'prs_commits', 'prs_reviews', 'prs_comments']
                 }
 
                 # If this is an ETL step type, process all related entity types
@@ -491,7 +493,8 @@ class EmbeddingWorker(BaseWorker):
 
             # Get all entities of this type for the tenant
             database = get_database()
-            with database.get_read_session_context() as session:
+            # 🔑 Use WRITE session to ensure we read from primary (same connection that just wrote)
+            with database.get_write_session_context() as session:
                 entities = []
 
                 if entity_type == 'work_items':
@@ -506,6 +509,19 @@ class EmbeddingWorker(BaseWorker):
                     entities = session.query(Changelog).filter(Changelog.tenant_id == tenant_id).all()
                 elif entity_type == 'work_items_prs_links':
                     entities = session.query(WorkItemPrLink).filter(WorkItemPrLink.tenant_id == tenant_id).all()
+                # GitHub entity types
+                elif entity_type == 'prs':
+                    from app.models.unified_models import Pr
+                    entities = session.query(Pr).filter(Pr.tenant_id == tenant_id).all()
+                elif entity_type == 'prs_commits':
+                    from app.models.unified_models import PrCommit
+                    entities = session.query(PrCommit).filter(PrCommit.tenant_id == tenant_id).all()
+                elif entity_type == 'prs_reviews':
+                    from app.models.unified_models import PrReview
+                    entities = session.query(PrReview).filter(PrReview.tenant_id == tenant_id).all()
+                elif entity_type == 'prs_comments':
+                    from app.models.unified_models import PrComment
+                    entities = session.query(PrComment).filter(PrComment.tenant_id == tenant_id).all()
                 else:
                     logger.warning(f"⚠️ EMBEDDING WORKER: Unknown entity type for bulk processing: {entity_type}")
                     return True  # Return success for unknown types to avoid blocking the pipeline
@@ -630,7 +646,8 @@ class EmbeddingWorker(BaseWorker):
 
             model_class = table_models[db_table_name]
 
-            with database.get_read_session_context() as session:
+            # 🔑 Use WRITE session for mapping tables (written by transform worker)
+            with database.get_write_session_context() as session:
                 # Get all records from the table for this tenant
                 records = session.query(model_class).filter(
                     model_class.tenant_id == tenant_id
@@ -764,7 +781,9 @@ class EmbeddingWorker(BaseWorker):
             logger.debug(f"🔍 _fetch_entity_data called: entity_type={entity_type}, entity_id={entity_id!r} (type: {type(entity_id).__name__}), tenant_id={tenant_id}")
             database = get_database()
 
-            with database.get_read_session_context() as session:
+            # 🔑 Use WRITE session for reads to ensure we read from primary (same connection that just wrote)
+            # This guarantees we see data immediately after transform worker commits
+            with database.get_write_session_context() as session:
                 # Map entity type to model class and fetch data
                 # All entities are queried by external_id from queue messages
                 if entity_type == 'work_items':
@@ -785,10 +804,25 @@ class EmbeddingWorker(BaseWorker):
                         }
                 
                 elif entity_type == 'prs':
-                    entity = session.query(Pr).filter(
-                        Pr.external_id == str(entity_id),
-                        Pr.tenant_id == tenant_id
-                    ).first()
+                    import time
+
+                    # 🔑 RETRY LOOP: Wait for data to be committed by transform worker
+                    max_retries = 5
+                    retry_delay = 0.1  # 100ms between retries
+                    entity = None
+
+                    for attempt in range(max_retries):
+                        entity = session.query(Pr).filter(
+                            Pr.external_id == str(entity_id),
+                            Pr.tenant_id == tenant_id
+                        ).first()
+
+                        if entity:
+                            logger.info(f"✅ Found PR entity (attempt {attempt + 1}/{max_retries}): id={entity.id}, external_id={entity.external_id}")
+                            break
+                        elif attempt < max_retries - 1:
+                            logger.warning(f"⏳ PR not found yet (attempt {attempt + 1}/{max_retries}), retrying in {retry_delay}s...")
+                            time.sleep(retry_delay)
 
                     if entity:
                         return {
@@ -799,6 +833,160 @@ class EmbeddingWorker(BaseWorker):
                             'entity_type': entity_type,
                             'tenant_id': tenant_id
                         }
+
+                elif entity_type == 'prs_commits':
+                    logger.info(f"🔍 EMBEDDING WORKER: Querying prs_commits table for external_id='{entity_id}' (type: {type(entity_id).__name__}) tenant_id={tenant_id}")
+                    from app.models.unified_models import PrCommit
+                    from sqlalchemy import text
+                    import time
+
+                    # 🔑 RETRY LOOP: Wait for data to be committed by transform worker
+                    # The transform worker commits to primary DB, but there might be a small delay
+                    # before the data is visible to our query
+                    search_id = str(entity_id)
+                    max_retries = 5
+                    retry_delay = 0.1  # 100ms between retries
+
+                    for attempt in range(max_retries):
+                        raw_result = session.execute(
+                            text(f"SELECT id, external_id, tenant_id FROM prs_commits WHERE external_id = :ext_id AND tenant_id = :tid"),
+                            {'ext_id': search_id, 'tid': tenant_id}
+                        ).fetchone()
+
+                        if raw_result:
+                            logger.info(f"🔍 DEBUG: Raw SQL found commit! id={raw_result[0]}, external_id={raw_result[1]}, tenant_id={raw_result[2]} (attempt {attempt + 1}/{max_retries})")
+                            break
+                        elif attempt < max_retries - 1:
+                            logger.warning(f"⏳ Commit not found yet (attempt {attempt + 1}/{max_retries}), retrying in {retry_delay}s...")
+                            time.sleep(retry_delay)
+                        else:
+                            logger.warning(f"🔍 DEBUG: Raw SQL did NOT find commit with external_id='{search_id}' tenant_id={tenant_id} after {max_retries} attempts")
+
+                            # Check if ANY commits exist for this tenant
+                            count_result = session.execute(
+                                text(f"SELECT COUNT(*) FROM prs_commits WHERE tenant_id = :tid"),
+                                {'tid': tenant_id}
+                            ).scalar()
+                            logger.warning(f"🔍 DEBUG: Total commits in DB for tenant {tenant_id}: {count_result}")
+
+                            # Check if this external_id exists with ANY tenant_id
+                            any_tenant_result = session.execute(
+                                text(f"SELECT id, external_id, tenant_id FROM prs_commits WHERE external_id = :ext_id LIMIT 5"),
+                                {'ext_id': search_id}
+                            ).fetchall()
+                            if any_tenant_result:
+                                logger.warning(f"🔍 DEBUG: Found commit with this external_id but DIFFERENT tenant_id: {any_tenant_result}")
+                            else:
+                                logger.warning(f"🔍 DEBUG: No commit found with this external_id in ANY tenant")
+
+                    # Now try ORM query
+                    entity = session.query(PrCommit).filter(
+                        PrCommit.external_id == str(entity_id),
+                        PrCommit.tenant_id == tenant_id
+                    ).first()
+
+                    if entity:
+                        logger.info(f"✅ EMBEDDING WORKER: Found commit entity: id={entity.id}, external_id={entity.external_id}")
+                        return {
+                            'id': entity.id,  # Internal ID for qdrant_vectors table
+                            'external_id': entity.external_id,
+                            'message': entity.message,
+                            'author_name': entity.author_name,
+                            'author_email': entity.author_email,
+                            'committer_name': entity.committer_name,
+                            'committer_email': entity.committer_email,
+                            'entity_type': entity_type,
+                            'tenant_id': tenant_id
+                        }
+                    else:
+                        logger.warning(f"⚠️ EMBEDDING WORKER: No commit found with external_id='{entity_id}' (searching for str: '{str(entity_id)}') tenant_id={tenant_id}")
+                        return None
+
+                elif entity_type == 'prs_reviews':
+                    logger.info(f"🔍 EMBEDDING WORKER: Querying prs_reviews table for external_id='{entity_id}' (type: {type(entity_id).__name__}) tenant_id={tenant_id}")
+                    from app.models.unified_models import PrReview
+                    import time
+
+                    # 🔑 RETRY LOOP: Wait for data to be committed by transform worker
+                    max_retries = 5
+                    retry_delay = 0.1  # 100ms between retries
+                    entity = None
+
+                    for attempt in range(max_retries):
+                        entity = session.query(PrReview).filter(
+                            PrReview.external_id == str(entity_id),
+                            PrReview.tenant_id == tenant_id
+                        ).first()
+
+                        if entity:
+                            logger.info(f"✅ Found review entity (attempt {attempt + 1}/{max_retries}): id={entity.id}, external_id={entity.external_id}")
+                            break
+                        elif attempt < max_retries - 1:
+                            logger.warning(f"⏳ Review not found yet (attempt {attempt + 1}/{max_retries}), retrying in {retry_delay}s...")
+                            time.sleep(retry_delay)
+
+                    if entity:
+                        logger.info(f"✅ EMBEDDING WORKER: Found review entity: id={entity.id}, external_id={entity.external_id}")
+                        return {
+                            'id': entity.id,  # Internal ID for qdrant_vectors table
+                            'external_id': entity.external_id,
+                            'body': entity.body,
+                            'state': entity.state,
+                            'author_login': entity.author_login,
+                            'submitted_at': entity.submitted_at,
+                            'entity_type': entity_type,
+                            'tenant_id': tenant_id
+                        }
+                    else:
+                        # Debug: Check if review exists with different tenant_id
+                        review_any_tenant = session.query(PrReview).filter(
+                            PrReview.external_id == str(entity_id)
+                        ).first()
+                        if review_any_tenant:
+                            logger.warning(f"⚠️ EMBEDDING WORKER: Review found but with DIFFERENT tenant_id! external_id='{entity_id}' found in tenant_id={review_any_tenant.tenant_id}, but looking for tenant_id={tenant_id}")
+                        else:
+                            logger.warning(f"⚠️ EMBEDDING WORKER: No review found with external_id='{entity_id}' tenant_id={tenant_id}")
+                        return None
+
+                elif entity_type == 'prs_comments':
+                    logger.info(f"🔍 EMBEDDING WORKER: Querying prs_comments table for external_id='{entity_id}' tenant_id={tenant_id}")
+                    from app.models.unified_models import PrComment
+                    import time
+
+                    # 🔑 RETRY LOOP: Wait for data to be committed by transform worker
+                    max_retries = 5
+                    retry_delay = 0.1  # 100ms between retries
+                    entity = None
+
+                    for attempt in range(max_retries):
+                        entity = session.query(PrComment).filter(
+                            PrComment.external_id == str(entity_id),
+                            PrComment.tenant_id == tenant_id
+                        ).first()
+
+                        if entity:
+                            logger.info(f"✅ Found comment entity (attempt {attempt + 1}/{max_retries}): id={entity.id}, external_id={entity.external_id}")
+                            break
+                        elif attempt < max_retries - 1:
+                            logger.warning(f"⏳ Comment not found yet (attempt {attempt + 1}/{max_retries}), retrying in {retry_delay}s...")
+                            time.sleep(retry_delay)
+
+                    if entity:
+                        logger.info(f"✅ EMBEDDING WORKER: Found comment entity: id={entity.id}, external_id={entity.external_id}")
+                        return {
+                            'id': entity.id,  # Internal ID for qdrant_vectors table
+                            'external_id': entity.external_id,
+                            'body': entity.body,
+                            'author_login': entity.author_login,
+                            'comment_type': entity.comment_type,
+                            'path': entity.path,
+                            'line': entity.line,
+                            'entity_type': entity_type,
+                            'tenant_id': tenant_id
+                        }
+                    else:
+                        logger.warning(f"⚠️ EMBEDDING WORKER: No comment found with external_id='{entity_id}' tenant_id={tenant_id}")
+                        return None
 
                 elif entity_type == 'projects':
                     logger.info(f"🔍 EMBEDDING WORKER: Querying projects table for external_id='{entity_id}' tenant_id={tenant_id}")
@@ -1096,6 +1284,30 @@ class EmbeddingWorker(BaseWorker):
             if entity_data.get('description'):
                 text_parts.append(f"Description: {entity_data['description']}")
 
+        elif entity_type == 'prs_commits':
+            if entity_data.get('message'):
+                text_parts.append(f"Message: {entity_data['message']}")
+            if entity_data.get('author_name'):
+                text_parts.append(f"Author: {entity_data['author_name']}")
+            if entity_data.get('author_email'):
+                text_parts.append(f"Email: {entity_data['author_email']}")
+            if entity_data.get('committer_name'):
+                text_parts.append(f"Committer: {entity_data['committer_name']}")
+
+        elif entity_type == 'prs_reviews':
+            if entity_data.get('body'):
+                text_parts.append(f"Review: {entity_data['body']}")
+            if entity_data.get('state'):
+                text_parts.append(f"State: {entity_data['state']}")
+            if entity_data.get('author_login'):
+                text_parts.append(f"Reviewer: {entity_data['author_login']}")
+
+        elif entity_type == 'prs_comments':
+            if entity_data.get('body'):
+                text_parts.append(f"Comment: {entity_data['body']}")
+            if entity_data.get('author_login'):
+                text_parts.append(f"Author: {entity_data['author_login']}")
+
         elif entity_type == 'repositories':
             if entity_data.get('full_name'):
                 text_parts.append(f"Repository: {entity_data['full_name']}")
@@ -1318,11 +1530,14 @@ class EmbeddingWorker(BaseWorker):
 
             with database.get_write_session_context() as session:
                 # Check if record already exists
+                # 🔑 Must include vector_type in the query to match the unique constraint:
+                #    UNIQUE(tenant_id, table_name, record_id, vector_type)
                 existing = session.query(QdrantVector).filter(
                     QdrantVector.source_type == source_type,
                     QdrantVector.table_name == entity_type,
                     QdrantVector.record_id == entity_id,
-                    QdrantVector.tenant_id == tenant_id
+                    QdrantVector.tenant_id == tenant_id,
+                    QdrantVector.vector_type == 'content'  # 🔑 Added to match unique constraint
                 ).first()
 
                 if existing:
@@ -1440,14 +1655,13 @@ class EmbeddingWorker(BaseWorker):
         """
         Complete the ETL job by updating its status to FINISHED and setting completion fields.
 
-        This follows the same pattern as Jira extraction:
+        This is called by the embedding worker when last_job_item=True:
         1. Set status to FINISHED
         2. Update last_run_finished_at
         3. Update last_sync_date if provided
         4. Calculate and set next_run
         5. Clear error_message and reset retry_count
-        6. Wait 2 seconds for frontend to process
-        7. Set status to READY to trigger reset countdown
+        6. UI will automatically reset to READY after a few seconds
 
         Args:
             job_id: ETL job ID
@@ -1459,7 +1673,6 @@ class EmbeddingWorker(BaseWorker):
             from sqlalchemy import text
             from datetime import timedelta
             from app.core.utils import DateTimeHelper
-            import time
 
             with get_write_session() as session:
                 # First, fetch job details to calculate next_run
@@ -1487,7 +1700,8 @@ class EmbeddingWorker(BaseWorker):
                     # Default to 1 hour if not set
                     next_run = now + timedelta(hours=1)
 
-                # Step 1: Update job status to FINISHED with all completion fields
+                # 🔑 Set status to FINISHED with all completion fields
+                # UI will automatically reset to READY after a few seconds
                 update_query = text("""
                     UPDATE etl_jobs
                     SET status = jsonb_set(status, ARRAY['overall'], '"FINISHED"'::jsonb),
@@ -1517,26 +1731,7 @@ class EmbeddingWorker(BaseWorker):
                 logger.info(f"   next_run: {next_run}")
                 if last_sync_date:
                     logger.info(f"   last_sync_date: {last_sync_date}")
-
-            # Step 2: Wait 2 seconds for frontend to process completion
-            time.sleep(2)
-
-            # Step 3: Set status to READY to trigger reset countdown (same as Jira)
-            with get_write_session() as session:
-                update_ready_query = text("""
-                    UPDATE etl_jobs
-                    SET status = jsonb_set(status, ARRAY['overall'], '"READY"'::jsonb),
-                        last_updated_at = :now
-                    WHERE id = :job_id AND tenant_id = :tenant_id
-                """)
-                session.execute(update_ready_query, {
-                    'job_id': job_id,
-                    'tenant_id': tenant_id,
-                    'now': now
-                })
-                session.commit()
-
-                logger.info(f"✅ ETL job {job_id} set to READY - reset countdown will trigger on frontend")
+                logger.info(f"   UI will automatically reset to READY after a few seconds")
 
         except Exception as e:
             logger.error(f"❌ Error completing ETL job {job_id}: {e}")

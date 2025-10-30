@@ -333,9 +333,9 @@ class TransformWorker(BaseWorker):
                 logger.info(f"🎯 [COMPLETION] jira_issues_with_changelogs completion message processed and forwarded to embedding")
                 return True
 
-            # 🎯 HANDLE COMPLETION MESSAGE: github_prs_commits_reviews_comments with raw_data_id=None
-            if raw_data_id is None and message_type == 'github_prs_commits_reviews_comments':
-                logger.info(f"🎯 [COMPLETION] Received completion message for github_prs_commits_reviews_comments (no data to process)")
+            # 🎯 HANDLE COMPLETION MESSAGE: github_prs, github_prs_nested, or github_prs_commits_reviews_comments with raw_data_id=None
+            if raw_data_id is None and message_type in ('github_prs', 'github_prs_nested', 'github_prs_commits_reviews_comments'):
+                logger.info(f"🎯 [COMPLETION] Received completion message for {message_type} (no data to process)")
 
                 # Send WebSocket status: transform worker finished (on last_item)
                 if last_item and job_id:
@@ -354,7 +354,7 @@ class TransformWorker(BaseWorker):
                     table_name='prs',
                     external_id=None,  # 🔑 Completion message marker
                     job_id=job_id,
-                    message_type='github_prs_commits_reviews_comments',
+                    step_type='github_prs_commits_reviews_comments',
                     integration_id=integration_id,
                     provider=message.get('provider', 'github'),
                     last_sync_date=message.get('last_sync_date'),
@@ -474,8 +474,17 @@ class TransformWorker(BaseWorker):
                 return self._process_github_repositories(
                     raw_data_id, tenant_id, integration_id, job_id, message
                 )
+            elif message_type == 'github_prs':
+                return self._process_github_prs(
+                    raw_data_id, tenant_id, integration_id, job_id, message
+                )
+            elif message_type == 'github_prs_nested':
+                return self._process_github_prs_nested(
+                    raw_data_id, tenant_id, integration_id, job_id, message
+                )
             elif message_type == 'github_prs_commits_reviews_comments':
-                return self._process_github_prs_commits_reviews_comments(
+                # Legacy message type - route to new handler
+                return self._process_github_prs(
                     raw_data_id, tenant_id, integration_id, job_id, message
                 )
             else:
@@ -4246,20 +4255,18 @@ class TransformWorker(BaseWorker):
             logger.error(f"Full traceback: {traceback.format_exc()}")
             return False
 
-    def _process_github_prs_commits_reviews_comments(
+    def _process_github_prs(
         self, raw_data_id: int, tenant_id: int, integration_id: int,
         job_id: int = None, message: Dict[str, Any] = None
     ) -> bool:
         """
         Process GitHub PR data with nested commits, reviews, comments.
 
-        Handles 2 raw_data types:
-        1. PR+nested: Complete or partial nested data
-        2. Nested-only: Continuation of nested pagination
+        Handles PR+nested data (complete or partial nested data).
 
         Flow:
-        - Type 1: Insert PR + all nested data, queue to embedding only if all nested data complete
-        - Type 2: Insert only nested data, queue to embedding only if has_more=false
+        - Insert PR + all nested data from pr_data object
+        - Queue to embedding only if all nested data complete (no pending nested pagination)
 
         Args:
             raw_data_id: ID of raw extraction data
@@ -4278,8 +4285,8 @@ class TransformWorker(BaseWorker):
                 loop = asyncio.new_event_loop()
                 asyncio.set_event_loop(loop)
                 try:
-                    loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "running", "github_prs_commits_reviews_comments"))
-                    logger.info(f"✅ Transform worker marked as running for github_prs_commits_reviews_comments")
+                    loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "running", "github_prs"))
+                    logger.info(f"✅ Transform worker marked as running for github_prs")
                 finally:
                     loop.close()
 
@@ -4302,175 +4309,100 @@ class TransformWorker(BaseWorker):
                 raw_data_external_id = result[1]  # 🔑 Repository external_id from raw_extraction_data
                 pr_id = raw_json.get('pr_id')
 
-                if raw_json.get('nested_data_only'):
-                    # TYPE 2: Nested Data Only - Insert only nested data
-                    logger.info(f"📝 [TYPE 2] Processing nested-only data for PR {pr_id}")
-                    nested_type = raw_json.get('nested_type')
+                # 🔑 Check if this is a nested pagination message (Type 2)
+                # Type 2 messages have 'nested_type' and 'data' instead of 'pr_data'
+                if raw_json.get('nested_type'):
+                    logger.info(f"🔄 Routing to _process_github_prs_nested for {raw_json.get('nested_type')}")
+                    return self._process_github_prs_nested(raw_data_id, tenant_id, integration_id, job_id, message)
 
-                    # Lookup PR by external_id
-                    pr_lookup_query = text("""
-                        SELECT id FROM prs WHERE external_id = :external_id AND tenant_id = :tenant_id
-                    """)
-                    pr_result = db.execute(pr_lookup_query, {
-                        'external_id': pr_id,
-                        'tenant_id': tenant_id
-                    }).fetchone()
+                # 🔑 Initialize entities_to_queue_after_commit (will be set if conditions met)
+                entities_to_queue_after_commit = None
 
-                    if not pr_result:
-                        logger.warning(f"PR {pr_id} not found in database")
-                        return False
+                # 🔑 Extract PR data from pr_data object (Type 1 message)
+                pr_data = raw_json.get('pr_data')
+                if not pr_data:
+                    logger.error(f"No pr_data found in raw_json for raw_data_id={raw_data_id}")
+                    return False
 
-                    pr_db_id = pr_result[0]
+                logger.info(f"📝 [TYPE 1] Processing PR data for PR {pr_id}")
 
-                    # Insert nested data based on type
-                    if nested_type == 'commits':
-                        self._insert_commits(db, raw_json['data'], pr_db_id, tenant_id, integration_id)
-                    elif nested_type == 'reviews':
-                        self._insert_reviews(db, raw_json['data'], pr_db_id, tenant_id, integration_id)
-                    elif nested_type == 'comments':
-                        self._insert_comments(db, raw_json['data'], pr_db_id, tenant_id, integration_id)
-                    elif nested_type == 'review_threads':
-                        self._insert_review_threads(db, raw_json['data'], pr_db_id, tenant_id, integration_id)
+                # Extract nested data from pr_data object
+                pr_commits = pr_data.get('commits', {}).get('nodes', [])
+                pr_reviews = pr_data.get('reviews', {}).get('nodes', [])
+                pr_comments = pr_data.get('comments', {}).get('nodes', [])
+                pr_review_threads = pr_data.get('reviewThreads', {}).get('nodes', [])
 
-                    logger.info(f"✅ Inserted {len(raw_json['data'])} {nested_type} for PR {pr_id}")
+                # Check if there are more pages for any nested data
+                has_pending_nested = (
+                    pr_data.get('commits', {}).get('pageInfo', {}).get('hasNextPage', False) or
+                    pr_data.get('reviews', {}).get('pageInfo', {}).get('hasNextPage', False) or
+                    pr_data.get('comments', {}).get('pageInfo', {}).get('hasNextPage', False) or
+                    pr_data.get('reviewThreads', {}).get('pageInfo', {}).get('hasNextPage', False)
+                )
 
-                    # Queue to embedding only if this is the last page of nested data
-                    if not raw_json.get('has_more'):
-                        logger.info(f"📤 Queuing PR {pr_id} to embedding (nested data complete)")
-                        self.queue_manager.publish_embedding_job(
-                            tenant_id=tenant_id,
-                            table_name='prs',
-                            external_id=pr_id,
-                            job_id=job_id,
-                            step_type='github_prs_commits_reviews_comments',
-                            integration_id=integration_id,
-                            provider=message.get('provider', 'github') if message else 'github',
-                            first_item=False,
-                            last_item=False,
-                            last_job_item=message.get('last_job_item', False) if message else False
-                        )
+                logger.info(f"  PR has {len(pr_commits)} commits, {len(pr_reviews)} reviews, {len(pr_comments)} comments, {len(pr_review_threads)} review threads")
+                logger.info(f"  Has pending nested data: {has_pending_nested}")
 
-                else:
-                    # TYPE 1: PR + Nested Data - Insert PR and all nested data
-                    logger.info(f"📝 [TYPE 1] Processing PR+nested data for PR {pr_id}")
-                    pr_data = raw_json.get('pr_data', {})
+                # 🔑 Extract repository_id from raw_json (stored during extraction)
+                repository_id = raw_json.get('repository_id')
+                if not repository_id:
+                    logger.error(f"Repository ID not found in raw_data for PR {pr_id}")
+                    return False
 
-                    # Calculate PR metrics from GraphQL data
-                    metrics = self._calculate_pr_metrics(
-                        pr_data,
-                        raw_json.get('commits', []),
-                        raw_json.get('reviews', []),
-                        raw_json.get('comments', []),
-                        raw_json.get('review_threads', [])
-                    )
-                    logger.info(f"📊 Calculated PR metrics: commit_count={metrics['commit_count']}, reviewers={metrics['reviewers']}, rework_commits={metrics['rework_commit_count']}")
+                # Insert PR data
+                pr_db_id = self._insert_pr(db, pr_data, tenant_id, integration_id, repository_id, raw_data_external_id)
+                if not pr_db_id:
+                    logger.error(f"Failed to insert PR {pr_id}")
+                    return False
 
-                    # Transform and upsert PR
-                    from app.core.utils import DateTimeHelper
-                    transformed_pr = {
-                        'external_id': pr_data['id'],
-                        'external_repo_id': raw_data_external_id,  # 🔑 Repository external_id from raw_extraction_data
-                        'number': pr_data['number'],
-                        'name': pr_data['title'],  # Map title to name column
-                        'body': pr_data.get('body'),
-                        'status': pr_data['state'],  # Map state to status column
-                        'pr_created_at': self._parse_datetime(pr_data['createdAt']),  # Map to pr_created_at
-                        'pr_updated_at': self._parse_datetime(pr_data['updatedAt']),  # Map to pr_updated_at
-                        'closed_at': self._parse_datetime(pr_data.get('closedAt')),
-                        'merged_at': self._parse_datetime(pr_data.get('mergedAt')),
-                        'user_name': pr_data['author']['login'] if pr_data.get('author') else None,  # Map author_login to user_name
-                        'repository_id': raw_json.get('repository_id'),  # 🔑 From raw_extraction_data JSON
-                        'source': metrics['source'],
-                        'destination': metrics['destination'],
-                        'commit_count': metrics['commit_count'],
-                        'additions': metrics['additions'],
-                        'deletions': metrics['deletions'],
-                        'changed_files': metrics['changed_files'],
-                        'reviewers': metrics['reviewers'],
-                        'first_review_at': metrics['first_review_at'],
-                        'rework_commit_count': metrics['rework_commit_count'],
-                        'review_cycles': metrics['review_cycles'],
-                        'discussion_comment_count': metrics['discussion_comment_count'],
-                        'review_comment_count': metrics['review_comment_count'],
-                        'integration_id': integration_id,
-                        'tenant_id': tenant_id,
-                        'active': True,
-                        'last_updated_at': DateTimeHelper.now_default()
-                    }
+                # Insert nested data
+                if pr_commits:
+                    self._insert_commits(db, pr_commits, pr_db_id, tenant_id, integration_id)
+                if pr_reviews:
+                    self._insert_reviews(db, pr_reviews, pr_db_id, tenant_id, integration_id)
+                if pr_comments:
+                    self._insert_comments(db, pr_comments, pr_db_id, tenant_id, integration_id)
+                if pr_review_threads:
+                    self._insert_review_threads(db, pr_review_threads, pr_db_id, tenant_id, integration_id)
 
-                    # Upsert PR
-                    upsert_query = text("""
-                        INSERT INTO prs (
-                            external_id, external_repo_id, number, name, body, status, pr_created_at, pr_updated_at,
-                            closed_at, merged_at, user_name, repository_id, source, destination, commit_count, additions,
-                            deletions, changed_files, reviewers, first_review_at, rework_commit_count, review_cycles,
-                            discussion_comment_count, review_comment_count, integration_id, tenant_id, active, last_updated_at
-                        ) VALUES (
-                            :external_id, :external_repo_id, :number, :name, :body, :status, :pr_created_at, :pr_updated_at,
-                            :closed_at, :merged_at, :user_name, :repository_id, :source, :destination, :commit_count, :additions,
-                            :deletions, :changed_files, :reviewers, :first_review_at, :rework_commit_count, :review_cycles,
-                            :discussion_comment_count, :review_comment_count, :integration_id, :tenant_id, :active, :last_updated_at
-                        )
-                        ON CONFLICT (external_id, tenant_id)
-                        DO UPDATE SET
-                            external_repo_id = EXCLUDED.external_repo_id,
-                            name = EXCLUDED.name,
-                            body = EXCLUDED.body,
-                            status = EXCLUDED.status,
-                            pr_updated_at = EXCLUDED.pr_updated_at,
-                            closed_at = EXCLUDED.closed_at,
-                            merged_at = EXCLUDED.merged_at,
-                            source = EXCLUDED.source,
-                            destination = EXCLUDED.destination,
-                            commit_count = EXCLUDED.commit_count,
-                            additions = EXCLUDED.additions,
-                            deletions = EXCLUDED.deletions,
-                            changed_files = EXCLUDED.changed_files,
-                            reviewers = EXCLUDED.reviewers,
-                            first_review_at = EXCLUDED.first_review_at,
-                            rework_commit_count = EXCLUDED.rework_commit_count,
-                            review_cycles = EXCLUDED.review_cycles,
-                            discussion_comment_count = EXCLUDED.discussion_comment_count,
-                            review_comment_count = EXCLUDED.review_comment_count,
-                            last_updated_at = EXCLUDED.last_updated_at
-                        RETURNING id
-                    """)
+                logger.info(f"✅ Inserted PR {pr_id} with nested data")
 
-                    pr_result = db.execute(upsert_query, transformed_pr)
-                    pr_db_id = pr_result.scalar()
-                    logger.info(f"✅ Upserted PR {pr_id} (db_id={pr_db_id})")
+                # 🔑 ALWAYS queue entities to embedding, regardless of first_item/last_item flags
+                # Those flags are ONLY for WebSocket status updates and job completion tracking
+                # Queue all entities: PR + all nested entities from this message
+                entities_to_queue_after_commit = [
+                    {'table_name': 'prs', 'external_id': pr_data['id']}
+                ]
 
-                    # Insert nested data
-                    self._insert_commits(db, raw_json.get('commits', []), pr_db_id, tenant_id, integration_id)
-                    self._insert_reviews(db, raw_json.get('reviews', []), pr_db_id, tenant_id, integration_id)
-                    self._insert_comments(db, raw_json.get('comments', []), pr_db_id, tenant_id, integration_id)
-                    self._insert_review_threads(db, raw_json.get('review_threads', []), pr_db_id, tenant_id, integration_id)
-
-                    logger.info(f"✅ Inserted all nested data for PR {pr_id}")
-
-                    # Queue to embedding only if all nested data is complete (no cursors)
-                    has_pending_nested = any([
-                        raw_json.get('commits_cursor'),
-                        raw_json.get('reviews_cursor'),
-                        raw_json.get('comments_cursor')
-                    ])
-
-                    if not has_pending_nested:
-                        logger.info(f"📤 Queuing PR {pr_id} to embedding (all nested data complete)")
-                        self.queue_manager.publish_embedding_job(
-                            tenant_id=tenant_id,
-                            table_name='prs',
-                            external_id=pr_data['id'],
-                            job_id=job_id,
-                            step_type='github_prs_commits_reviews_comments',
-                            integration_id=integration_id,
-                            provider=message.get('provider', 'github') if message else 'github',
-                            first_item=message.get('first_item', False) if message else False,
-                            last_item=message.get('last_item', False) if message else False,
-                            last_job_item=message.get('last_job_item', False) if message else False
-                        )
+                # Add commits (use commit.oid as external_id, same as _insert_commits)
+                for commit_data in pr_commits:
+                    commit_external_id = commit_data.get('commit', {}).get('oid')
+                    if commit_external_id:
+                        logger.debug(f"  Queuing commit {commit_external_id} to embedding")
+                        entities_to_queue_after_commit.append({'table_name': 'prs_commits', 'external_id': commit_external_id})
                     else:
-                        logger.info(f"⏳ PR {pr_id} has pending nested data, will queue to embedding later")
+                        logger.warning(f"  ⚠️ Commit has no oid: {commit_data}")
+
+                # Add reviews (already a list from extraction)
+                for review_data in pr_reviews:
+                    if review_data.get('id'):
+                        review_id = review_data['id']
+                        logger.debug(f"  Queuing review {review_id} to embedding")
+                        entities_to_queue_after_commit.append({'table_name': 'prs_reviews', 'external_id': review_id})
+
+                # Add comments (already a list from extraction)
+                for comment_data in pr_comments:
+                    if comment_data.get('id'):
+                        entities_to_queue_after_commit.append({'table_name': 'prs_comments', 'external_id': comment_data['id']})
+
+                # Add review threads (stored as comments in prs_comments table)
+                for thread_data in pr_review_threads:
+                    # Review thread comments are nested in the thread object
+                    for comment_data in thread_data.get('comments', {}).get('nodes', []):
+                        if comment_data.get('id'):
+                            entities_to_queue_after_commit.append({'table_name': 'prs_comments', 'external_id': comment_data['id']})
+
+                logger.info(f"📤 Queuing {len(entities_to_queue_after_commit)} entities for PR {pr_id} to embedding")
 
                 # ✅ Mark raw data as completed
                 update_query = text("""
@@ -4488,31 +4420,337 @@ class TransformWorker(BaseWorker):
                     loop = asyncio.new_event_loop()
                     asyncio.set_event_loop(loop)
                     try:
-                        loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "finished", "github_prs_commits_reviews_comments"))
-                        logger.info(f"✅ Transform worker marked as finished for github_prs_commits_reviews_comments")
+                        loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "finished", "github_prs"))
+                        logger.info(f"✅ Transform worker marked as finished for github_prs")
                     finally:
                         loop.close()
 
                 db.commit()
                 logger.info(f"✅ [GITHUB] Processed PR data and marked raw_data_id={raw_data_id} as completed")
+
+                # 🔑 Queue to embedding AFTER commit so entities are visible in database
+                if entities_to_queue_after_commit:
+                    last_item_flag = message.get('last_item', False) if message else False
+
+                    self._queue_github_nested_entities_for_embedding(
+                        tenant_id=tenant_id,
+                        pr_external_id=pr_data['id'],
+                        job_id=job_id,
+                        integration_id=integration_id,
+                        provider=message.get('provider', 'github') if message else 'github',
+                        first_item=message.get('first_item', False) if message else False,
+                        last_item=last_item_flag,  # 🔑 Use actual flag from message
+                        last_job_item=last_item_flag,  # 🔑 When last_item=True, also set last_job_item=True for job completion
+                        message=message,
+                        entities_to_queue=entities_to_queue_after_commit  # 🔑 Pass list of entities with external IDs
+                    )
+
+                    # ✅ Send transform worker "finished" status when last_item=True
+                    if last_item_flag and job_id:
+                        import asyncio
+                        loop = asyncio.new_event_loop()
+                        asyncio.set_event_loop(loop)
+                        try:
+                            loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "finished", "github_prs_commits_reviews_comments"))
+                            logger.info(f"✅ Transform worker marked as finished for github_prs_commits_reviews_comments")
+                        finally:
+                            loop.close()
+
                 return True
 
         except Exception as e:
-            logger.error(f"❌ [GITHUB] Error processing github_prs_commits_reviews_comments: {e}")
+            logger.error(f"❌ [GITHUB] Error processing github_prs: {e}")
             import traceback
             logger.error(f"Full traceback: {traceback.format_exc()}")
             return False
 
+    def _process_github_prs_nested(
+        self, raw_data_id: int, tenant_id: int, integration_id: int,
+        job_id: int = None, message: Dict[str, Any] = None
+    ) -> bool:
+        """
+        Process GitHub nested data (commits, reviews, comments, review threads) for a PR.
+
+        Handles nested data continuation when a PR has more pages of nested data.
+
+        Flow:
+        - Insert only nested data for the specified nested_type
+        - Queue to embedding only if this is the last page of nested data (has_more=false)
+
+        Args:
+            raw_data_id: ID of raw extraction data
+            tenant_id: Tenant ID
+            integration_id: Integration ID
+            job_id: ETL job ID
+            message: Original message with flags and metadata
+
+        Returns:
+            True if processing succeeded, False otherwise
+        """
+        try:
+            from app.core.database import get_database
+            database = get_database()
+
+            with database.get_write_session_context() as db:
+                # Load raw data
+                raw_data_query = text("""
+                    SELECT raw_data FROM raw_extraction_data WHERE id = :raw_data_id
+                """)
+                result = db.execute(raw_data_query, {'raw_data_id': raw_data_id}).fetchone()
+
+                if not result:
+                    logger.error(f"Raw data {raw_data_id} not found")
+                    return False
+
+                import json
+                raw_json = json.loads(result[0]) if isinstance(result[0], str) else result[0]
+                pr_id = raw_json.get('pr_id')
+                nested_type = raw_json.get('nested_type')
+
+                logger.info(f"📝 [NESTED] Processing {nested_type} for PR {pr_id}")
+
+                # Lookup PR by external_id
+                pr_lookup_query = text("""
+                    SELECT id FROM prs WHERE external_id = :external_id AND tenant_id = :tenant_id
+                """)
+                pr_result = db.execute(pr_lookup_query, {
+                    'external_id': pr_id,
+                    'tenant_id': tenant_id
+                }).fetchone()
+
+                if not pr_result:
+                    logger.warning(f"PR {pr_id} not found in database")
+                    return False
+
+                pr_db_id = pr_result[0]
+
+                # Insert nested data based on type
+                nested_data = raw_json.get('data', [])
+                if nested_type == 'commits':
+                    self._insert_commits(db, nested_data, pr_db_id, tenant_id, integration_id)
+                elif nested_type == 'reviews':
+                    self._insert_reviews(db, nested_data, pr_db_id, tenant_id, integration_id)
+                elif nested_type == 'comments':
+                    self._insert_comments(db, nested_data, pr_db_id, tenant_id, integration_id)
+                elif nested_type == 'review_threads':
+                    self._insert_review_threads(db, nested_data, pr_db_id, tenant_id, integration_id)
+
+                logger.info(f"✅ Inserted {len(nested_data)} {nested_type} for PR {pr_id}")
+
+                # Mark raw data as completed
+                update_query = text("""
+                    UPDATE raw_extraction_data
+                    SET status = 'completed',
+                        last_updated_at = NOW(),
+                        error_details = NULL
+                    WHERE id = :raw_data_id
+                """)
+                db.execute(update_query, {'raw_data_id': raw_data_id})
+
+                # 🔑 ALWAYS queue nested entities to embedding, regardless of pagination
+                # first_item/last_item flags are ONLY for WebSocket status updates
+                # Queue every page of nested data as it arrives
+
+                logger.info(f"📤 Queuing nested entities for PR {pr_id} to embedding ({nested_type})")
+
+                # 🔑 Build list of nested entities to queue
+                entities_to_queue = []
+
+                # Map nested type to table name
+                table_name_map = {
+                    'commits': 'prs_commits',
+                    'reviews': 'prs_reviews',
+                    'comments': 'prs_comments',
+                    'review_threads': 'prs_comments'  # Review threads are stored as comments
+                }
+
+                table_name = table_name_map.get(nested_type)
+                if table_name:
+                    if nested_type == 'review_threads':
+                        # For review threads, extract comment IDs from inside each thread
+                        for thread_data in nested_data:
+                            for comment_data in thread_data.get('comments', {}).get('nodes', []):
+                                comment_external_id = comment_data.get('id')
+                                if comment_external_id:
+                                    entities_to_queue.append({'table_name': table_name, 'external_id': comment_external_id})
+                    else:
+                        # For commits, reviews, comments - extract directly from data array
+                        for entity_data in nested_data:
+                            if nested_type == 'commits':
+                                external_id = entity_data.get('commit', {}).get('oid')
+                            else:
+                                external_id = entity_data.get('id')
+
+                            if external_id:
+                                entities_to_queue.append({'table_name': table_name, 'external_id': external_id})
+
+                db.commit()
+                logger.info(f"✅ [GITHUB] Processed nested {nested_type} data and marked raw_data_id={raw_data_id} as completed")
+
+                # 🔑 Queue to embedding AFTER commit so entities are visible in database
+                if entities_to_queue:
+                    self._queue_github_nested_entities_for_embedding(
+                        tenant_id=tenant_id,
+                        pr_external_id=pr_id,
+                        job_id=job_id,
+                        integration_id=integration_id,
+                        provider=message.get('provider', 'github') if message else 'github',
+                        first_item=message.get('first_item', False) if message else False,
+                        last_item=message.get('last_item', False) if message else False,  # 🔑 Use actual flag from message
+                        last_job_item=message.get('last_job_item', False) if message else False,
+                        message=message,
+                        entities_to_queue=entities_to_queue
+                    )
+
+                return True
+
+        except Exception as e:
+            logger.error(f"❌ [GITHUB] Error processing github_prs_nested: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            return False
+
+    def _insert_pr(self, db, pr_data: dict, tenant_id: int, integration_id: int, repository_id: int = None, repo_external_id: str = None) -> int:
+        """
+        Insert or update a PR in the prs table.
+
+        Args:
+            db: Database session
+            pr_data: PR data from GraphQL response (includes nested commits, reviews, comments, reviewThreads)
+            tenant_id: Tenant ID
+            integration_id: Integration ID
+            repository_id: Database ID of the repository (from raw_data)
+            repo_external_id: External ID of the repository (from raw_extraction_data.external_id)
+
+        Returns:
+            PR database ID if successful, None otherwise
+        """
+        try:
+            from app.core.utils import DateTimeHelper
+            from sqlalchemy import text
+
+            pr_id = pr_data.get('id')
+            if not pr_id:
+                logger.error(f"PR data missing 'id' field")
+                return None
+
+            logger.info(f"🔍 Inserting PR {pr_id}")
+
+            # Extract nested data from pr_data object
+            pr_commits = pr_data.get('commits', {}).get('nodes', [])
+            pr_reviews = pr_data.get('reviews', {}).get('nodes', [])
+            pr_comments = pr_data.get('comments', {}).get('nodes', [])
+            pr_review_threads = pr_data.get('reviewThreads', {}).get('nodes', [])
+
+            # Calculate PR metrics from GraphQL data
+            metrics = self._calculate_pr_metrics(pr_data, pr_commits, pr_reviews, pr_comments, pr_review_threads)
+            logger.info(f"📊 Calculated PR metrics: commit_count={metrics['commit_count']}, reviewers={metrics['reviewers']}, rework_commits={metrics['rework_commit_count']}")
+
+            # 🔑 Use repository_id from raw_data (passed as parameter)
+            if not repository_id:
+                logger.error(f"Repository ID not provided for PR {pr_id}")
+                return None
+
+            logger.info(f"  Using repository_id={repository_id} from raw_data")
+
+            # Build PR data for insertion
+            transformed_pr = {
+                'external_id': pr_data['id'],
+                'external_repo_id': repo_external_id,
+                'number': pr_data.get('number'),
+                'name': pr_data.get('title'),
+                'body': pr_data.get('body'),
+                'status': pr_data.get('state'),
+                'pr_created_at': self._parse_datetime(pr_data.get('createdAt')),
+                'pr_updated_at': self._parse_datetime(pr_data.get('updatedAt')),
+                'closed_at': self._parse_datetime(pr_data.get('closedAt')),
+                'merged_at': self._parse_datetime(pr_data.get('mergedAt')),
+                'user_name': pr_data.get('author', {}).get('login'),
+                'repository_id': repository_id,  # 🔑 Looked up from database
+                'source': metrics['source'],
+                'destination': metrics['destination'],
+                'commit_count': metrics['commit_count'],
+                'additions': metrics['additions'],
+                'deletions': metrics['deletions'],
+                'changed_files': metrics['changed_files'],
+                'reviewers': metrics['reviewers'],
+                'first_review_at': metrics['first_review_at'],
+                'rework_commit_count': metrics['rework_commit_count'],
+                'review_cycles': metrics['review_cycles'],
+                'discussion_comment_count': metrics['discussion_comment_count'],
+                'review_comment_count': metrics['review_comment_count'],
+                'integration_id': integration_id,
+                'tenant_id': tenant_id,
+                'active': True,
+                'last_updated_at': DateTimeHelper.now_default()
+            }
+
+            # Upsert PR
+            upsert_query = text("""
+                INSERT INTO prs (
+                    external_id, external_repo_id, number, name, body, status, pr_created_at, pr_updated_at,
+                    closed_at, merged_at, user_name, repository_id, source, destination, commit_count, additions,
+                    deletions, changed_files, reviewers, first_review_at, rework_commit_count, review_cycles,
+                    discussion_comment_count, review_comment_count, integration_id, tenant_id, active, last_updated_at
+                ) VALUES (
+                    :external_id, :external_repo_id, :number, :name, :body, :status, :pr_created_at, :pr_updated_at,
+                    :closed_at, :merged_at, :user_name, :repository_id, :source, :destination, :commit_count, :additions,
+                    :deletions, :changed_files, :reviewers, :first_review_at, :rework_commit_count, :review_cycles,
+                    :discussion_comment_count, :review_comment_count, :integration_id, :tenant_id, :active, :last_updated_at
+                )
+                ON CONFLICT (external_id, tenant_id)
+                DO UPDATE SET
+                    external_repo_id = EXCLUDED.external_repo_id,
+                    name = EXCLUDED.name,
+                    body = EXCLUDED.body,
+                    status = EXCLUDED.status,
+                    pr_updated_at = EXCLUDED.pr_updated_at,
+                    closed_at = EXCLUDED.closed_at,
+                    merged_at = EXCLUDED.merged_at,
+                    source = EXCLUDED.source,
+                    destination = EXCLUDED.destination,
+                    commit_count = EXCLUDED.commit_count,
+                    additions = EXCLUDED.additions,
+                    deletions = EXCLUDED.deletions,
+                    changed_files = EXCLUDED.changed_files,
+                    reviewers = EXCLUDED.reviewers,
+                    first_review_at = EXCLUDED.first_review_at,
+                    rework_commit_count = EXCLUDED.rework_commit_count,
+                    review_cycles = EXCLUDED.review_cycles,
+                    discussion_comment_count = EXCLUDED.discussion_comment_count,
+                    review_comment_count = EXCLUDED.review_comment_count,
+                    last_updated_at = EXCLUDED.last_updated_at
+                RETURNING id
+            """)
+
+            pr_result = db.execute(upsert_query, transformed_pr)
+            pr_db_id = pr_result.scalar()
+            logger.info(f"✅ Upserted PR {pr_id} (db_id={pr_db_id})")
+
+            return pr_db_id
+
+        except Exception as e:
+            logger.error(f"❌ Error inserting PR: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            return None
+
     def _insert_commits(self, db, commits: list, pr_db_id: int, tenant_id: int, integration_id: int = None) -> None:
         """Insert commits for a PR"""
         if not commits:
+            logger.info(f"No commits to insert for PR {pr_db_id}")
             return
 
         from app.core.utils import DateTimeHelper
         from sqlalchemy import text
 
+        logger.info(f"🔍 Inserting {len(commits)} commits for PR {pr_db_id}, tenant_id={tenant_id}, integration_id={integration_id}")
+
         for commit_data in commits:
             try:
+                commit_oid = commit_data['commit']['oid']
+                logger.info(f"  ✅ Inserting commit {commit_oid} (type: {type(commit_oid).__name__})")
+
                 insert_query = text("""
                     INSERT INTO prs_commits (
                         pr_id, external_id, author_name, author_email, authored_date,
@@ -4533,7 +4771,7 @@ class TransformWorker(BaseWorker):
 
                 db.execute(insert_query, {
                     'pr_id': pr_db_id,
-                    'external_id': commit_data['commit']['oid'],
+                    'external_id': commit_oid,
                     'author_name': commit_data['commit']['author']['name'] if commit_data['commit'].get('author') else None,
                     'author_email': commit_data['commit']['author']['email'] if commit_data['commit'].get('author') else None,
                     'authored_date': self._parse_datetime(commit_data['commit']['author']['date']) if commit_data['commit'].get('author') else None,
@@ -4547,19 +4785,28 @@ class TransformWorker(BaseWorker):
                     'created_at': DateTimeHelper.now_default(),
                     'last_updated_at': DateTimeHelper.now_default()
                 })
+                logger.info(f"  ✅ Inserted commit {commit_oid} into prs_commits")
             except Exception as e:
-                logger.warning(f"Error inserting commit {commit_data['commit']['oid']}: {e}")
+                logger.error(f"❌ Error inserting commit {commit_data.get('commit', {}).get('oid', 'unknown')}: {e}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
 
     def _insert_reviews(self, db, reviews: list, pr_db_id: int, tenant_id: int, integration_id: int = None) -> None:
         """Insert reviews for a PR"""
         if not reviews:
+            logger.debug(f"No reviews to insert for PR {pr_db_id}")
             return
 
         from app.core.utils import DateTimeHelper
         from sqlalchemy import text
 
+        logger.debug(f"Inserting {len(reviews)} reviews for PR {pr_db_id}, tenant_id={tenant_id}, integration_id={integration_id}")
+
         for review_data in reviews:
             try:
+                review_id = review_data['id']
+                logger.debug(f"  Inserting review {review_id}")
+
                 insert_query = text("""
                     INSERT INTO prs_reviews (
                         pr_id, external_id, author_login, state, body, submitted_at,
@@ -4578,7 +4825,7 @@ class TransformWorker(BaseWorker):
 
                 db.execute(insert_query, {
                     'pr_id': pr_db_id,
-                    'external_id': review_data['id'],
+                    'external_id': review_id,
                     'author_login': review_data['author']['login'] if review_data.get('author') else None,
                     'state': review_data['state'],
                     'body': review_data.get('body'),
@@ -4589,8 +4836,11 @@ class TransformWorker(BaseWorker):
                     'created_at': DateTimeHelper.now_default(),
                     'last_updated_at': DateTimeHelper.now_default()
                 })
+                logger.debug(f"  ✅ Inserted review {review_id}")
             except Exception as e:
-                logger.warning(f"Error inserting review {review_data['id']}: {e}")
+                logger.error(f"❌ Error inserting review {review_data.get('id', 'unknown')}: {e}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
 
     def _insert_comments(self, db, comments: list, pr_db_id: int, tenant_id: int, integration_id: int = None) -> None:
         """Insert comments for a PR"""
@@ -4678,6 +4928,75 @@ class TransformWorker(BaseWorker):
             except Exception as e:
                 logger.warning(f"Error inserting review thread comment: {e}")
 
+    def _queue_github_nested_entities_for_embedding(
+        self,
+        tenant_id: int,
+        pr_external_id: str,
+        job_id: int,
+        integration_id: int,
+        provider: str,
+        first_item: bool = False,
+        last_item: bool = False,
+        last_job_item: bool = False,
+        message: Dict[str, Any] = None,
+        entities_to_queue: List[Dict[str, Any]] = None
+    ) -> None:
+        """
+        Queue GitHub entities for embedding using individual entity messages.
 
+        This queues individual PR, commits, reviews, and comments with their external IDs.
+        Simple message structure: just pass external_id, embedding worker queries database.
 
+        Args:
+            tenant_id: Tenant ID
+            pr_external_id: PR external ID
+            job_id: ETL job ID
+            integration_id: Integration ID
+            provider: Provider name (github)
+            first_item: Whether this is the first item in the step
+            last_item: Whether this is the last item in the step
+            last_job_item: Whether this is the last item in the entire job
+            message: Original message (for provider/last_sync_date)
+            entities_to_queue: List of dicts with 'table_name' and 'external_id'
+        """
+        try:
+            if not entities_to_queue:
+                logger.warning(f"⚠️ No entities provided for queuing GitHub entities")
+                return
 
+            logger.info(f"📤 Queuing {len(entities_to_queue)} GitHub entities for embedding (first_item={first_item}, last_item={last_item}, last_job_item={last_job_item})")
+
+            for i, entity in enumerate(entities_to_queue):
+                table_name = entity.get('table_name')
+                external_id = entity.get('external_id')
+
+                if not table_name or not external_id:
+                    logger.warning(f"⚠️ Skipping entity with missing table_name or external_id: {entity}")
+                    continue
+
+                is_last = (i == len(entities_to_queue) - 1)
+                entity_first_item = first_item and (i == 0)
+                entity_last_item = is_last and last_item
+                entity_last_job_item = is_last and last_job_item
+
+                logger.debug(f"  Entity {i}/{len(entities_to_queue)}: {table_name} {external_id} (first={entity_first_item}, last={entity_last_item}, last_job={entity_last_job_item})")
+
+                self.queue_manager.publish_embedding_job(
+                    tenant_id=tenant_id,
+                    table_name=table_name,
+                    external_id=str(external_id),
+                    job_id=job_id,
+                    integration_id=integration_id,
+                    provider=provider,
+                    first_item=entity_first_item,  # Only first entity has first_item=true
+                    last_item=entity_last_item,  # Only last entity has last_item=true
+                    last_job_item=entity_last_job_item,  # Only last entity signals job completion
+                    step_type='github_prs_commits_reviews_comments'  # 🔑 ETL step name for status tracking
+                )
+
+            logger.info(f"📤 Queued {len(entities_to_queue)} GitHub entities for embedding")
+
+        except Exception as e:
+            logger.error(f"❌ Error queuing GitHub nested entities for embedding: {e}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")

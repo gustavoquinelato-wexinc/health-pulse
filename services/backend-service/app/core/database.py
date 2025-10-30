@@ -110,6 +110,13 @@ class PostgreSQLDatabase:
             yield session
 
     @contextmanager
+    def get_primary_read_session_context(self) -> Generator[Session, None, None]:
+        """Context manager for read operations on PRIMARY database (no replica lag)."""
+        router = get_database_router()
+        with router.get_primary_read_session_context() as session:
+            yield session
+
+    @contextmanager
     def get_analytics_session_context(self) -> Generator[Session, None, None]:
         """Context manager for analytics queries (read-only, optimized)."""
         router = get_database_router()

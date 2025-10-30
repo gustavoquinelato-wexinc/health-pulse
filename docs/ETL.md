@@ -2,7 +2,11 @@
 
 **Comprehensive ETL Architecture with RabbitMQ Queue Management**
 
-This document covers the complete ETL system architecture, job orchestration, queue management, and integration capabilities for Jira, GitHub, and custom data sources.
+This document provides an overview of the ETL system architecture, job orchestration, queue management, and integration capabilities. For detailed job lifecycle information, see:
+
+- **[ETL_JIRA_JOB_LIFECYCLE.md](ETL_JIRA_JOB_LIFECYCLE.md)** - Detailed Jira job lifecycle with 4-step extraction process
+- **[ETL_GITHUB_JOB_LIFECYCLE.md](ETL_GITHUB_JOB_LIFECYCLE.md)** - Detailed GitHub job lifecycle with 2-step extraction and nested pagination
+- **[ETL_UI_RESET_FLOW.md](ETL_UI_RESET_FLOW.md)** - UI reset flow after job completion
 
 ## 🏗️ ETL Architecture Overview
 
@@ -498,70 +502,165 @@ class VectorizationWorker:
             await self.update_vectorization_status(entity_id, "failed", error=str(e))
 ```
 
-## 🔌 Integration Management
+## � Generic Job Lifecycle Rules
+
+### Job Status Structure
+
+Each ETL job maintains a comprehensive JSON status structure:
+
+```json
+{
+  "overall": "READY|RUNNING|FINISHED|FAILED",
+  "steps": {
+    "step_name": {
+      "order": 1,
+      "display_name": "Step Display Name",
+      "extraction": "idle|running|finished|failed",
+      "transform": "idle|running|finished|failed",
+      "embedding": "idle|running|finished|failed"
+    }
+  }
+}
+```
+
+### Data Flow Rules: Extraction → Transform → Embedding
+
+#### Rule 1: One raw_data_id Per Logical Unit
+
+Extraction creates one raw_data_id per logical unit. For specific examples, see:
+- [ETL_JIRA_JOB_LIFECYCLE.md](ETL_JIRA_JOB_LIFECYCLE.md) - Jira raw_data_id structure
+- [ETL_GITHUB_JOB_LIFECYCLE.md](ETL_GITHUB_JOB_LIFECYCLE.md) - GitHub raw_data_id structure
+
+#### Rule 2: Transform Processes One raw_data_id Per Message
+
+**Transform worker receives one message per raw_data_id:**
+1. Fetches raw_extraction_data using raw_data_id
+2. Parses and transforms the data
+3. Inserts/updates entities in final tables
+4. **CRITICAL**: Does NOT immediately queue to embedding
+5. Waits for `last_item=True` to know when to queue
+
+#### Rule 3: Transform Queues to Embedding on last_item=True
+
+**When transform receives last_item=True:**
+1. It has processed all raw_data_ids for this step
+2. It queries the database for ALL distinct entities of this type
+3. It queues EACH distinct entity to embedding with proper flags:
+   - First entity: `first_item=True, last_item=False`
+   - Middle entities: `first_item=False, last_item=False`
+   - Last entity: `first_item=False, last_item=True`
+
+#### Rule 4: Embedding Processes One external_id Per Message
+
+**Embedding worker receives one message per external_id:**
+1. Fetches entity from final table using external_id
+2. Extracts text for vectorization
+3. Stores vectors in Qdrant
+4. Sends WebSocket status on first_item=True and last_item=True
+
+#### Rule 5: Flag Propagation
+
+**Flags flow through the pipeline:**
+- Extraction → Transform: `first_item`, `last_item`, `last_job_item`
+- Transform → Embedding: `first_item`, `last_item`, `last_job_item`
+- **EXCEPTION**: Transform may recalculate `first_item` and `last_item` when queuing multiple entities to embedding
+
+### Transform Worker Rules
+
+#### Message Processing
+
+**For Regular Messages (raw_data_id != None)**
+1. Fetch raw_extraction_data from database using raw_data_id
+2. Parse and transform the data
+3. Insert/update entities in final tables
+4. Queue to embedding with SAME flags: `first_item`, `last_item`, `last_job_item`
+5. Send WebSocket status updates:
+   - If `first_item=True`: send "running" status
+   - If `last_item=True`: send "finished" status
+
+**For Completion Messages (raw_data_id == None)**
+1. Recognize as completion marker
+2. Send "finished" status (because `last_item=True`)
+3. Forward to embedding with SAME flags: `first_item`, `last_item`, `last_job_item`
+4. Do NOT process any data (no database operations)
+
+#### Flag Forwarding Rules
+
+Transform ALWAYS forwards flags as-is to embedding:
+- `first_item` → `first_item`
+- `last_item` → `last_item`
+- `last_job_item` → `last_job_item`
+
+This ensures embedding worker knows when to send status updates and when to complete the job.
+
+### Embedding Worker Rules
+
+#### Message Processing
+
+**For Regular Messages (external_id != None)**
+1. Fetch entities from final tables using external_id
+2. Extract text for vectorization
+3. Store vectors in Qdrant
+4. Update qdrant_vectors bridge table
+5. Send WebSocket status updates:
+   - If `first_item=True`: send "running" status
+   - If `last_item=True`: send "finished" status
+
+**For Completion Messages (external_id == None)**
+1. Recognize as completion marker
+2. Send "finished" status (because `last_item=True`)
+3. If `last_job_item=True`: call `_complete_etl_job()`
+   - Sets overall job status to FINISHED
+   - Updates last_run_finished_at timestamp
+4. Do NOT process any data (no database operations)
+
+#### Job Completion Logic
+
+Only triggered when `last_job_item=True`:
+- Sets overall status to FINISHED
+- Updates last_run_finished_at timestamp
+- Updates last_sync_date with provided value
+
+### WebSocket Status Updates
+
+#### When Status Updates Are Sent
+
+Status updates are sent ONLY when:
+- `first_item=True` → Send "running" status
+- `last_item=True` → Send "finished" status
+
+#### Why Not on Every Message?
+
+- Regular messages have `first_item=False, last_item=False`
+- These don't trigger WebSocket updates
+- Only the first and last messages of a step trigger updates
+- This prevents UI flickering and reduces WebSocket traffic
+
+## �🔌 Integration Management
 
 ### Supported Integrations
 
 #### 1. Jira Integration
 
-**🔧 Jira Endpoint Usage:**
-- **Automatic ETL Jobs**: Use `/rest/api/3/project/search` endpoint
-  - Returns `{values: [...]}` with `issueTypes` (camelCase)
-  - Used by job scheduler for regular data extraction
-  - Processed by `_process_jira_project_search()` transform function
-- **Manual Custom Fields Sync**: Use `/rest/api/3/issue/createmeta` endpoint
-  - Returns `{projects: [...]}` with `issuetypes` (lowercase)
-  - Triggered when user clicks "Queue for Extraction & Transform" button in UI
-  - Processed by `_process_jira_custom_fields()` transform function
+Jira integration supports:
+- **4-step sequential extraction**: Projects → Statuses → Issues → Dev Status
+- **Custom fields discovery**: Automatic detection of project-specific custom fields
+- **Incremental sync**: Filters by last_sync_date to process only new/updated data
+- **Batch processing**: Configurable batch sizes for API efficiency
+- **Rate limiting**: Automatic rate limit handling with checkpoint recovery
 
-```python
-class JiraIntegration:
-    def __init__(self, config: dict):
-        self.base_url = config["base_url"]
-        self.username = config["username"]
-        self.api_token = config["api_token"]
-        self.projects = config.get("projects", [])
-    
-    async def sync_data(self, job_config: dict):
-        # Step 1: Extract projects and issue types
-        await self.extract_projects_and_issue_types()
-
-        # Step 2: Extract statuses and relationships
-        await self.extract_statuses_and_relationships()
-
-        # Step 3: Extract issues with changelogs
-        await self.extract_issues_with_changelogs(batch_size=job_config.get("batch_size", 50))
-
-        # Step 4: Extract development status (if enabled)
-        if job_config.get("include_dev_status", True):
-            await self.extract_dev_status()
-
-        # Note: Transform and embedding stages are handled by separate workers
-        # Status updates are sent via WebSocket as each stage completes
-```
+For detailed job lifecycle, see [ETL_JIRA_JOB_LIFECYCLE.md](ETL_JIRA_JOB_LIFECYCLE.md)
 
 #### 2. GitHub Integration
-```python
-class GitHubIntegration:
-    def __init__(self, config: dict):
-        self.token = config["token"]
-        self.repositories = config.get("repositories", [])
-        self.github_client = Github(self.token)
-    
-    async def sync_data(self, job_config: dict):
-        # Batched processing for memory efficiency
-        batch_size = job_config.get("batch_size", 50)
-        
-        for repo_name in self.repositories:
-            repo = self.github_client.get_repo(repo_name)
-            
-            # Process PRs in batches
-            prs = repo.get_pulls(state="all")
-            await self.process_prs_in_batches(prs, batch_size)
-            
-            # Queue for vectorization
-            await self.queue_vectorization(repo_name)
-```
+
+GitHub integration supports:
+- **2-step extraction**: Repositories → PRs with nested data (commits, reviews, comments)
+- **GraphQL-based extraction**: Efficient single query for all entity types
+- **Nested pagination**: Handles PRs with >10 commits, reviews, or comments
+- **Incremental sync**: Filters PRs by updatedAt to reduce API quota usage
+- **Rate limit recovery**: Checkpoint-based recovery with cursor tracking
+
+For detailed job lifecycle, see [ETL_GITHUB_JOB_LIFECYCLE.md](ETL_GITHUB_JOB_LIFECYCLE.md)
 
 ### Custom Fields Mapping System
 
@@ -625,151 +724,26 @@ CREATE TABLE custom_fields_mapping (
     UNIQUE(tenant_id, integration_id)
 );
 #### ETL Processing Flow
-```python
-class CustomFieldsTransformWorker:
-    def process_jira_custom_fields(self, raw_data_id: int, tenant_id: int, integration_id: int):
-        """Process Jira createmeta response to extract global custom fields"""
 
-        # 1. Get raw createmeta data
-        raw_data = self._get_raw_data(session, raw_data_id)
-        projects_data = raw_data.get('projects', [])
+The transform worker processes custom fields in two stages:
 
-        # 2. Collect all unique custom fields globally (not per project)
-        global_custom_fields = {}  # field_key -> field_info
+1. **Global Custom Fields Discovery**: Extract all unique custom fields from Jira API responses
+2. **Tenant-Specific Mapping**: Apply custom_fields_mapping configuration to map fields to work_items columns
 
-        for project_data in projects_data:
-            issue_types = project_data.get('issuetypes', [])
-            for issue_type in issue_types:
-                fields = issue_type.get('fields', {})
-                for field_key, field_info in fields.items():
-                    if field_key.startswith('customfield_'):
-                        # Keep first occurrence globally
-                        if field_key not in global_custom_fields:
-                            global_custom_fields[field_key] = field_info
-
-        # 3. Process each unique custom field once
-        for field_key, field_info in global_custom_fields.items():
-            self._process_custom_field_data(
-                field_key, field_info, tenant_id, integration_id
-            )
-
-    def _process_custom_field_data(self, field_key: str, field_info: dict,
-                                   tenant_id: int, integration_id: int):
-        """Create/update global custom field record"""
-        field_name = field_info.get('name', '')
-        field_type = field_info.get('schema', {}).get('type', 'string')
-        operations = field_info.get('operations', [])
-
-        # Insert or update in custom_fields table
-        custom_field = {
-            'external_id': field_key,
-            'name': field_name,
-            'field_type': field_type,
-            'operations': json.dumps(operations),
-            'tenant_id': tenant_id,
-            'integration_id': integration_id
-        }
-
-        # Bulk insert with conflict handling
-        BulkOperations.bulk_insert(session, 'custom_fields', [custom_field])
-```
-#### Work Items Processing with Custom Fields Mapping
-```python
-class WorkItemsTransformWorker:
-    def process_work_items(self, raw_issues: list, tenant_id: int, integration_id: int):
-        """Transform work items using custom fields mapping"""
-
-        # 1. Get the custom fields mapping for this tenant/integration
-        mapping = session.query(CustomFieldMapping).filter_by(
-            tenant_id=tenant_id,
-            integration_id=integration_id
-        ).first()
-
-        if not mapping:
-            logger.warning(f"No custom fields mapping found for tenant {tenant_id}, integration {integration_id}")
-            return
-
-        # 2. Process each work item
-        for raw_issue in raw_issues:
-            work_item_data = self._extract_base_fields(raw_issue)
-
-            # 3. Map custom fields using the direct FK mapping
-            for i in range(1, 21):  # 20 custom field columns
-                custom_field = getattr(mapping, f'custom_field_{i:02d}')
-                if custom_field:
-                    # Get the value from raw issue
-                    field_value = raw_issue.get('fields', {}).get(custom_field.external_id)
-                    if field_value is not None:
-                        # Store in the corresponding work_item column
-                        work_item_data[f'custom_field_{i:02d}'] = self._transform_field_value(
-                            field_value, custom_field.field_type
-                        )
-
-            # 4. Bulk insert work item
-            BulkOperations.bulk_insert(session, 'work_items', [work_item_data])
-```
+This separation allows:
+- Global field discovery without code changes
+- Per-tenant field configuration via UI
+- Efficient bulk operations for data loading
 
 #### Enhanced Workflow Metrics Calculation
 
 The transform worker calculates comprehensive workflow metrics from changelog data **in-memory** without querying the database:
 
-```python
-class TransformWorker:
-    def _process_changelogs_data(self, db, issues_data, integration_id, tenant_id, statuses_map):
-        """Process changelogs and calculate workflow metrics efficiently"""
-
-        # 1. Build changelogs list (in-memory)
-        changelogs_to_insert = []
-        for issue in issues_data:
-            for history in issue.get('changelog', {}).get('histories', []):
-                # Process status transitions
-                changelogs_to_insert.append({
-                    'work_item_id': work_item_id,
-                    'from_status_id': from_status_id,
-                    'to_status_id': to_status_id,
-                    'transition_start_date': start_date,
-                    'transition_change_date': change_date,
-                    'time_in_status_seconds': time_diff.total_seconds()
-                })
-
-        # 2. Bulk insert changelogs
-        BulkOperations.bulk_insert(db, 'changelogs', changelogs_to_insert)
-
-        # 3. Calculate workflow metrics from in-memory data (no DB query!)
-        self._calculate_and_update_workflow_metrics(
-            db, changelogs_to_insert, work_items_map, statuses_map, integration_id, tenant_id
-        )
-
-    def _calculate_enhanced_workflow_metrics(self, changelogs, status_categories):
-        """Calculate 15 workflow metrics from changelog data"""
-
-        metrics = {
-            'work_first_committed_at': None,      # First transition to 'To Do'
-            'work_first_started_at': None,        # First transition to 'In Progress'
-            'work_last_started_at': None,         # Last transition to 'In Progress'
-            'work_first_completed_at': None,      # First transition to 'Done'
-            'work_last_completed_at': None,       # Last transition to 'Done'
-            'total_work_starts': 0,               # Count of transitions to 'In Progress'
-            'total_completions': 0,               # Count of transitions to 'Done'
-            'total_backlog_returns': 0,           # Count of transitions to 'To Do'
-            'total_work_time_seconds': 0.0,       # Time spent in 'In Progress'
-            'total_review_time_seconds': 0.0,     # Time spent in 'To Do'
-            'total_cycle_time_seconds': 0.0,      # First start → Last completion
-            'total_lead_time_seconds': 0.0,       # First commit → Last completion
-            'workflow_complexity_score': 0,       # (backlog_returns × 2) + (completions - 1)
-            'rework_indicator': False,            # work_starts > 1
-            'direct_completion': False            # Went straight to done
-        }
-
-        # Process changelogs and calculate metrics...
-        return metrics
-```
-
 **Performance Benefits**:
 - ✅ **No extra database queries** - all data already in memory
 - ✅ **Single pass processing** - calculate metrics while processing changelogs
 - ✅ **Bulk update** - update all work items in one operation
-- ✅ **~50% faster** than old ETL service (which queried changelogs back from DB)
+- ✅ **~50% faster** than legacy ETL service
 
 **Workflow Metrics Calculated**:
 | Metric | Description |
@@ -817,147 +791,91 @@ CREATE TABLE IF NOT EXISTS projects_custom_fields (
 ### Data Extraction Strategy
 
 #### Extract-Transform-Load Pattern
-```python
-class ETLDataProcessor:
-    def __init__(self):
-        self.extract_phase = DataExtractor()
-        self.transform_phase = DataTransformer()
-        self.load_phase = DataLoader()
-    
-    async def process_data(self, integration_config: dict):
-        # EXTRACT: Store raw API responses
-        raw_data = await self.extract_phase.extract_all_data(integration_config)
-        await self.store_raw_data(raw_data)
-        
-        # TRANSFORM: Process and clean data
-        transformed_data = await self.transform_phase.transform_data(raw_data)
-        
-        # LOAD: Bulk insert to final tables
-        await self.load_phase.bulk_insert(transformed_data)
-        
-        # VECTORIZE: Queue for embedding generation
-        await self.queue_vectorization(transformed_data)
-```
+
+The ETL system follows a strict separation of concerns:
+
+1. **Extract**: Store raw API responses in `raw_extraction_data` table without manipulation
+2. **Transform**: Process and clean data, apply custom field mappings, calculate metrics
+3. **Load**: Bulk insert to final business tables
+4. **Vectorize**: Queue for embedding generation and vector database storage
 
 #### Raw Data Preservation
-```python
-# Store exact API responses without manipulation
-async def store_raw_extraction_data(self, project_id: str, payload: dict):
-    """Store original full payload per project for complete data preservation"""
-    raw_record = {
-        "project_id": project_id,
-        "extraction_type": "jira_issues",
-        "raw_payload": payload,  # Exact API response
-        "extracted_at": datetime.utcnow(),
-        "payload_size": len(json.dumps(payload))
-    }
-    
-    await self.db.insert("raw_extraction_data", raw_record)
-    
-    # Queue reference ID for processing (not full payload)
-    await self.queue_processing_reference(raw_record["id"])
-```
+
+All API responses are stored exactly as received for:
+- Complete data preservation and auditability
+- Ability to reprocess data without re-fetching from APIs
+- Debugging and troubleshooting
+- Compliance and data governance
 
 ## 📊 ETL Monitoring & Analytics
 
 ### Job Performance Tracking
 
-#### Execution Metrics
-```python
-class ETLMetrics:
-    def __init__(self):
-        self.metrics_collector = MetricsCollector()
-    
-    async def track_job_execution(self, job_id: int, metrics: dict):
-        await self.metrics_collector.record({
-            "job_id": job_id,
-            "execution_time": metrics["duration"],
-            "records_processed": metrics["record_count"],
-            "errors_encountered": metrics["error_count"],
-            "memory_usage": metrics["peak_memory"],
-            "api_calls_made": metrics["api_calls"],
-            "vectorization_queued": metrics["vectors_queued"]
-        })
-```
+The system tracks:
+- **Execution metrics**: Duration, records processed, errors, memory usage
+- **API metrics**: API calls made, rate limit hits, recovery attempts
+- **Vectorization metrics**: Vectors queued, embedding generation time
 
-#### Queue Health Monitoring
-```python
-class QueueMonitor:
-    def __init__(self):
-        self.rabbitmq_client = RabbitMQClient()
-    
-    async def get_queue_health(self):
-        return {
-            "job_queue": await self.get_queue_stats("etl.jobs"),
-            "vectorization_queue": await self.get_queue_stats("etl.vectorization"),
-            "dead_letter_queue": await self.get_queue_stats("etl.failed"),
-            "worker_status": await self.get_worker_status()
-        }
-```
+### Queue Health Monitoring
 
-## 🚀 Evolution Plan Implementation Status
+RabbitMQ monitoring provides:
+- **Queue statistics**: Message count, consumer count, throughput
+- **Worker status**: Active workers, processing rate, error rate
+- **Dead letter queue**: Failed messages for manual review and recovery
 
-### ✅ Phase 0: Foundation (COMPLETED)
-- **Frontend ETL**: Modern React + TypeScript interface (Port 3333)
-- **Backend ETL Module**: FastAPI endpoints at `/app/etl/*`
-- **Basic Job Management**: Job cards, status tracking, manual controls
+## 🚀 Capabilities & Features
 
-### ✅ Phase 1: Queue Infrastructure (COMPLETED)
-- **RabbitMQ Integration**: Complete queue system with multiple queues
-- **Raw Data Storage**: `raw_extraction_data` table for pure extraction
-- **Queue Workers**: Background processing with retry logic
-- **Extract → Transform → Load**: True ETL separation
+### ✅ Core ETL Capabilities
 
-### ✅ Phase 2: Jira Enhancement with Simplified Custom Fields (IMPLEMENTED)
-- **Global Custom Fields**: Extract all custom fields globally from Jira `/createmeta` API (manual sync only)
-- **Automatic ETL Jobs**: Use Jira `/project/search` API for regular job execution
-- **Direct FK Mapping**: 20 FK columns in custom_fields_mapping table point directly to custom_fields
-- **Tenant-Level Configuration**: One mapping configuration per tenant/integration
-- **Simplified Processing**: Transform workers use direct FK relationships for mapping
+**Extract Stage**
+- Pure data extraction from external APIs (Jira, GitHub)
+- Raw data preservation without manipulation
+- API rate limiting and checkpoint recovery
+- Cursor-based pagination for large datasets
 
-#### Recent Bug Fixes & Improvements ✅
-- **🔧 Data Truncation Fix**: Removed "Story" filter from Jira createmeta API calls to retrieve ALL issue types
-- **🔧 WIT Deduplication**: Fixed transform worker to create 11 unique issue types instead of 86 duplicates
-- **🔧 Project-WIT Relationships**: Fixed creation of 86 project-issuetype relationships
-- **🔧 Import Error Fix**: Added missing `json` import in custom_fields.py
-- **🔧 Migration Rollback**: Fixed foreign key constraint violations in migration rollbacks
-- **📊 Debug Logging**: Added comprehensive logging for payload sizes and processing steps
+**Transform Stage**
+- Data cleaning and normalization
+- Custom field mapping and processing
+- Workflow metrics calculation from changelog data
+- Bulk operations for performance
 
-#### Phase 2.1: Database Foundation ✅
-- **Simplified Schema**: custom_fields table (global) + custom_fields_mapping table (20 FK columns)
-- **Model Updates**: Updated unified models with direct FK relationships
-- **Constraint Management**: Unique constraints on (tenant_id, integration_id, external_id)
+**Load Stage**
+- Optimized bulk loading to final tables
+- Relationship mapping and foreign key management
+- Transaction handling and error recovery
 
-#### Phase 2.2: Global Custom Fields Extraction ✅
-- **Manual Sync Only**: Extract all custom fields from Jira `/createmeta` API (user-triggered)
-- **Automatic Jobs**: Use Jira `/project/search` API for regular ETL job execution
-- **Deduplication Logic**: Process each custom field only once across all projects
-- **Raw Data Storage**: Store complete API responses for debugging/reprocessing
+**Vectorization Stage**
+- Embedding generation for semantic search
+- Vector database storage (Qdrant)
+- Bridge table tracking for PostgreSQL ↔ Qdrant mapping
+- Multi-agent architecture with source filtering
 
-#### Phase 2.3: Transform & Load Processing ✅
-- **Transform Workers**: Global custom fields processing with deduplication
-- **Direct FK Mapping**: Use custom_fields_mapping table for tenant-specific field mapping
-- **Bulk Operations**: Optimized bulk insert/update operations with conflict handling
+### ✅ Integration Capabilities
 
-### ✅ Phase 3: GitHub Enhancement (IMPLEMENTED)
-- **Queue Migration**: All GitHub ETL logic migrated to queue architecture
-- **Unified Management**: GitHub jobs managed through etl_jobs table
-- **Performance Maintained**: Existing functionality preserved with improved architecture
-- **Batched Processing**: 50 PRs per batch for memory optimization
+**Jira Integration**
+- 4-step sequential extraction (Projects → Statuses → Issues → Dev Status)
+- Custom fields discovery and mapping
+- Incremental sync with last_sync_date filtering
+- Batch processing with configurable sizes
+- Rate limit handling with checkpoint recovery
 
-### ✅ Phase 4: GitHub PRs, Commits, Reviews & Comments with GraphQL (IMPLEMENTED)
-- **2-Step Job Architecture**: `github_repositories` (Step 1) → `github_prs_commits_reviews_comments` (Step 2)
-- **GraphQL Extraction**: Efficient single GraphQL query fetches all 4 entity types together
-- **Multi-Worker Pipeline**: Parallel extraction workers process PR pages and nested pagination independently
-- **Rate Limit Recovery**: Checkpoint-based recovery with cursor tracking for PR pages and nested pagination
-- **Incremental Sync**: Process only new/updated data since last sync (80%+ API quota savings on subsequent runs)
-- **Repository Recovery**: Resume from last repo's pushed_date on rate limit, accepting overlap but preventing missed repos
-- **PR Filtering**: Filter PRs by updatedAt against last_sync_date with early pagination termination
-- **WebSocket Updates**: Real-time status updates for extraction, transform, and embedding stages
-- **Proper Flag Forwarding**: first_item, last_item, last_job_item forwarded through all workers
-- **Completion Chain**: Proper completion message flow with last_job_item=True only on final nested page
+**GitHub Integration**
+- 2-step extraction (Repositories → PRs with nested data)
+- GraphQL-based extraction for efficiency
+- Nested pagination for complex PR data
+- Incremental sync with updatedAt filtering
+- Rate limit recovery with cursor tracking
+
+### ✅ Custom Fields System
+
+- **Global Discovery**: Automatic detection of all custom fields
+- **Tenant Configuration**: Per-tenant/integration field mapping via UI
+- **20 Optimized Columns**: Direct FK mapping to custom_fields table
+- **JSON Overflow**: Unlimited additional fields in JSON column
+- **Zero-Code Management**: UI-driven configuration without deployments
 
 ### 🔄 Future Enhancements (Planned)
+
 - **Additional Integrations**: Azure DevOps, Aha!, custom APIs
 - **Advanced Analytics**: Data quality metrics, trend analysis
 - **Webhook Support**: Real-time event processing

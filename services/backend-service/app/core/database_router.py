@@ -108,6 +108,20 @@ class DatabaseRouter:
         SessionLocal = sessionmaker(bind=self.primary_engine)
         return SessionLocal()
 
+    def get_primary_read_session(self) -> Session:
+        """
+        Always routes to PRIMARY database for reads.
+
+        Use this for ETL workers that need to read data immediately after writes,
+        where replica lag would cause data visibility issues.
+
+        Examples:
+        - Embedding worker reading entities just inserted by transform worker
+        - Any worker that needs consistent read-after-write semantics
+        """
+        SessionLocal = sessionmaker(bind=self.primary_engine)
+        return SessionLocal()
+
 
     
     @contextmanager
@@ -131,6 +145,23 @@ class DatabaseRouter:
             yield session
         except Exception as e:
             logger.error(f"Read session error: {e}")
+            raise
+        finally:
+            session.close()
+
+    @contextmanager
+    def get_primary_read_session_context(self):
+        """
+        Context manager for read operations on PRIMARY database.
+
+        Use this for ETL workers that need to read data immediately after writes,
+        where replica lag would cause data visibility issues.
+        """
+        session = self.get_primary_read_session()
+        try:
+            yield session
+        except Exception as e:
+            logger.error(f"Primary read session error: {e}")
             raise
         finally:
             session.close()

@@ -200,6 +200,7 @@ async def extract_github_repositories(
             )
 
             # Process each batch of repositories
+            is_first_batch_overall = True  # Track if this is the first batch across all pages
             for batch_repos, is_last_batch in repositories_generator:
                 logger.info(f"📊 Processing batch of {len(batch_repos)} repositories (is_last_batch={is_last_batch})")
 
@@ -224,7 +225,7 @@ async def extract_github_repositories(
                         'organization': integration_data['org'],
                         'extracted_at': datetime.now().isoformat(),
                         'batch_info': {
-                            'is_first_batch': is_first_batch,
+                            'is_first_batch': is_first_batch_overall,
                             'is_last_batch': is_last_batch
                         }
                     }
@@ -235,7 +236,9 @@ async def extract_github_repositories(
                     return {'success': False, 'error': 'Failed to store raw repository batch data'}
 
                 # Queue for transform with proper first_item/last_item flags
-                logger.info(f"Queuing batch of {len(batch_repos)} repositories for transform (raw_data_id={raw_data_id})")
+                # 🔑 first_item=true ONLY on first batch of first page
+                # 🔑 last_item=true ONLY on last batch of last page
+                logger.info(f"Queuing batch of {len(batch_repos)} repositories for transform (raw_data_id={raw_data_id}, first={is_first_batch_overall}, last={is_last_batch})")
                 success = queue_manager.publish_transform_job(
                     tenant_id=tenant_id,
                     integration_id=integration_id,
@@ -243,19 +246,37 @@ async def extract_github_repositories(
                     data_type='github_repositories',
                     job_id=job_id,
                     provider='github',
-                    last_sync_date=last_sync_date,  # 🔑 Pass actual last_sync_date to transform worker
-                    first_item=is_first_batch,      # 🔑 True only on first batch
-                    last_item=is_last_batch,        # 🔑 True only on last batch
-                    last_job_item=is_last_batch     # 🔑 Job completion on last batch
+                    last_sync_date=last_sync_date,
+                    first_item=is_first_batch_overall,  # 🔑 True only on first batch overall
+                    last_item=is_last_batch,            # 🔑 True only on last batch
+                    last_job_item=False                 # 🔑 Never set to True here - job continues to PR extraction
                 )
 
                 if not success:
                     logger.error(f"Failed to queue repository batch for transform")
 
                 total_repositories += len(batch_repos)
-                is_first_batch = False
+                is_first_batch_overall = False  # After first batch, never true again
 
             logger.info(f"✅ [GITHUB] Repository extraction completed: {total_repositories} repositories found and queued for transform")
+
+            # 🎯 Handle case when NO repositories were found
+            if total_repositories == 0:
+                logger.info(f"📤 No repositories found - sending completion message to transform queue")
+                success = queue_manager.publish_transform_job(
+                    tenant_id=tenant_id,
+                    integration_id=integration_id,
+                    raw_data_id=None,  # 🔑 Completion message marker
+                    data_type='github_repositories',
+                    job_id=job_id,
+                    provider='github',
+                    last_sync_date=last_sync_date,
+                    first_item=True,
+                    last_item=True,
+                    last_job_item=True  # 🔑 Complete the job since no data to process
+                )
+                if not success:
+                    logger.error(f"Failed to queue completion message for no repositories case")
 
             return {
                 'success': True,
@@ -267,6 +288,25 @@ async def extract_github_repositories(
         except StopIteration:
             # Generator exhausted normally
             logger.info(f"✅ [GITHUB] Repository extraction completed: {total_repositories} repositories found and queued for transform")
+
+            # 🎯 Handle case when NO repositories were found
+            if total_repositories == 0:
+                logger.info(f"📤 No repositories found - sending completion message to transform queue")
+                success = queue_manager.publish_transform_job(
+                    tenant_id=tenant_id,
+                    integration_id=integration_id,
+                    raw_data_id=None,  # 🔑 Completion message marker
+                    data_type='github_repositories',
+                    job_id=job_id,
+                    provider='github',
+                    last_sync_date=last_sync_date,
+                    first_item=True,
+                    last_item=True,
+                    last_job_item=True  # 🔑 Complete the job since no data to process
+                )
+                if not success:
+                    logger.error(f"Failed to queue completion message for no repositories case")
+
             return {
                 'success': True,
                 'repositories_count': total_repositories,
@@ -664,7 +704,12 @@ async def github_extraction_worker(message: Dict[str, Any]) -> Dict[str, Any]:
                 pr_node_id=message['pr_node_id'],
                 nested_type=message['nested_type'],
                 nested_cursor=message['nested_cursor'],
-                last_sync_date=message.get('last_sync_date')  # Forward from message
+                last_sync_date=message.get('last_sync_date'),  # Forward from message
+                nested_index=message.get('nested_index', 0),  # 🔑 Forward nested type info
+                total_nested_types=message.get('total_nested_types', 1),  # 🔑 Forward nested type info
+                is_last_nested_type=message.get('is_last_nested_type', False),  # 🔑 Forward nested type info
+                last_item=message.get('last_item', False),  # 🔑 Forward flag from message
+                last_job_item=message.get('last_job_item', False)  # 🔑 Forward flag from message
             )
         else:
             # FRESH OR NEXT PR PAGE
@@ -677,6 +722,7 @@ async def github_extraction_worker(message: Dict[str, Any]) -> Dict[str, Any]:
                 pr_cursor=message.get('pr_cursor'),  # None for fresh, value for next
                 owner=message.get('owner'),  # From message (avoids DB lookup)
                 repo_name=message.get('repo_name'),  # From message (avoids DB lookup)
+                first_item=message.get('first_item', False),  # 🔑 Forward from message
                 last_item=message.get('last_item', False),  # Forward from message
                 last_sync_date=message.get('last_sync_date')  # Forward from message
             )
@@ -697,6 +743,7 @@ async def extract_github_prs_commits_reviews_comments(
     pr_cursor: Optional[str] = None,
     owner: Optional[str] = None,
     repo_name: Optional[str] = None,
+    first_item: bool = False,  # 🔑 NEW: Received from message
     last_item: bool = False,
     last_sync_date: Optional[str] = None
 ) -> Dict[str, Any]:
@@ -727,6 +774,7 @@ async def extract_github_prs_commits_reviews_comments(
         pr_cursor: Cursor for pagination (None for fresh, value for next page)
         owner: Repository owner (optional, from message - avoids DB lookup)
         repo_name: Repository name (optional, from message - avoids DB lookup)
+        first_item: True if this is the first PR of the first repository (from message)
         last_item: True if this is the last repo (from message)
 
     Returns:
@@ -801,6 +849,22 @@ async def extract_github_prs_commits_reviews_comments(
                 last_pr_cursor=pr_cursor,
                 rate_limit_reset_at=github_client.rate_limit_reset
             )
+
+            # 🔑 Send completion message to transform queue to signal job completion
+            # This allows the job to finish gracefully even though we hit rate limit
+            logger.info(f"📤 Sending completion message to transform queue due to rate limit")
+            queue_manager.publish_transform_job(
+                tenant_id=tenant_id,
+                integration_id=integration.id,
+                raw_data_id=None,  # 🔑 Completion message marker
+                data_type='github_prs_commits_reviews_comments',
+                job_id=job_id,
+                provider='github',
+                first_item=False,
+                last_item=True,
+                last_job_item=True  # 🔑 Signal job completion
+            )
+
             return {
                 'success': False,
                 'error': 'Rate limit exceeded',
@@ -873,24 +937,18 @@ async def extract_github_prs_commits_reviews_comments(
         logger.info(f"✅ Filtered {len(filtered_prs)} PRs (from {len(prs)} total)")
 
         # STEP 2: Split PRs into individual raw_data entries
+        # 🔑 Clean structure: pr_data contains all nested data, no duplication
         raw_data_ids = []
         with get_write_session_context() as db:
             for pr in filtered_prs:
                 raw_data = {
                     'pr_id': pr['id'],
                     'repository_id': repository.id,  # 🔑 Include repository_id to avoid DB lookup in transform
-                    'pr_data': pr,
-                    'commits': pr['commits']['nodes'],
-                    'commits_cursor': pr['commits']['pageInfo']['endCursor'] if pr['commits']['pageInfo']['hasNextPage'] else None,
-                    'reviews': pr['reviews']['nodes'],
-                    'reviews_cursor': pr['reviews']['pageInfo']['endCursor'] if pr['reviews']['pageInfo']['hasNextPage'] else None,
-                    'comments': pr['comments']['nodes'],
-                    'comments_cursor': pr['comments']['pageInfo']['endCursor'] if pr['comments']['pageInfo']['hasNextPage'] else None,
-                    'review_threads': pr['reviewThreads']['nodes']
+                    'pr_data': pr  # 🔑 pr_data already contains commits, reviews, comments, reviewThreads
                 }
                 raw_data_id = _store_raw_extraction_data(
                     db, tenant_id, repository.integration_id,
-                    'github_prs_commits_reviews_comments',
+                    'github_prs',  # 🔑 Renamed from github_prs_commits_reviews_comments
                     raw_data, repository.external_id  # 🔑 Use repository external_id, not PR id
                 )
                 raw_data_ids.append(raw_data_id)
@@ -901,10 +959,32 @@ async def extract_github_prs_commits_reviews_comments(
         page_info = pr_page['data']['repository']['pullRequests']['pageInfo']
         has_next_page = page_info['hasNextPage']
 
-        # STEP 3: Queue all PRs to transform
+        # STEP 3: Check if there are ANY nested pagination jobs needed
+        # 🔑 This determines if last_item should be true on the last PR
+        has_nested_pagination = False
+        for pr in filtered_prs:
+            if (pr['commits']['pageInfo']['hasNextPage'] or
+                pr['reviews']['pageInfo']['hasNextPage'] or
+                pr['comments']['pageInfo']['hasNextPage'] or
+                pr['reviewThreads']['pageInfo']['hasNextPage']):
+                has_nested_pagination = True
+                break
+
+        logger.info(f"🔍 Has nested pagination: {has_nested_pagination}")
+
+        # STEP 4: Queue all PRs to transform
+        # 🔑 first_item=true ONLY on first PR when received from message
+        # 🔑 last_item=true ONLY on last PR when no more PR pages to fetch
+        # 🔑 last_job_item=true ONLY on last PR when:
+        #    - No more PR pages (not has_next_page)
+        #    - AND no nested pagination needed (all nested data fits in first page)
         for i, raw_data_id in enumerate(raw_data_ids):
-            is_first = (i == 0 and is_fresh)  # First only on fresh request
-            is_last = (i == len(raw_data_ids) - 1 and is_fresh)  # Last only on fresh request
+            is_first = (i == 0 and first_item)  # 🔑 Use received first_item flag, not is_fresh
+            is_last = (i == len(raw_data_ids) - 1 and not has_next_page)  # Last only if no more PR pages
+
+            # 🔑 Only set last_job_item=true if this is the last PR AND no nested pagination needed
+            # If nested pagination exists, nested workers will handle job completion
+            is_last_job_item = (is_last and not has_nested_pagination)
 
             queue_manager.publish_transform_job(
                 tenant_id=tenant_id,
@@ -915,73 +995,34 @@ async def extract_github_prs_commits_reviews_comments(
                 provider='github',
                 first_item=is_first,
                 last_item=is_last,
-                last_job_item=False  # 🔑 Never set to True here - only in completion message
+                last_job_item=is_last_job_item  # 🔑 True only when no nested pagination
             )
 
         logger.info(f"📤 Queued {len(raw_data_ids)} PRs to transform")
 
-        # STEP 4: Loop through each PR and queue nested pagination if needed
+        # STEP 5: Loop through each PR and queue nested pagination if needed
+        # 🔑 Build list of nested types that need pagination for this PR
         for pr in filtered_prs:
             pr_node_id = pr['id']
 
+            # Determine which nested types need pagination
+            nested_types_needing_pagination = []
             if pr['commits']['pageInfo']['hasNextPage']:
-                queue_manager.publish_extraction_job(
-                    tenant_id=tenant_id,
-                    integration_id=repository.integration_id,
-                    extraction_type='github_prs_commits_reviews_comments',  # Route to github_extraction_worker
-                    extraction_data={
-                        'repository_id': repository_id,
-                        'pr_node_id': pr_node_id,
-                        'nested_type': 'commits',
-                        'nested_cursor': pr['commits']['pageInfo']['endCursor']
-                    },
-                    job_id=job_id,
-                    provider='github',
-                    last_sync_date=last_sync_date,
-                    first_item=False,
-                    last_item=False,
-                    last_job_item=False
-                )
-
+                nested_types_needing_pagination.append(('commits', pr['commits']['pageInfo']['endCursor']))
             if pr['reviews']['pageInfo']['hasNextPage']:
-                queue_manager.publish_extraction_job(
-                    tenant_id=tenant_id,
-                    integration_id=repository.integration_id,
-                    extraction_type='github_prs_commits_reviews_comments',  # Route to github_extraction_worker
-                    extraction_data={
-                        'repository_id': repository_id,
-                        'pr_node_id': pr_node_id,
-                        'nested_type': 'reviews',
-                        'nested_cursor': pr['reviews']['pageInfo']['endCursor']
-                    },
-                    job_id=job_id,
-                    provider='github',
-                    last_sync_date=last_sync_date,
-                    first_item=False,
-                    last_item=False,
-                    last_job_item=False
-                )
-
+                nested_types_needing_pagination.append(('reviews', pr['reviews']['pageInfo']['endCursor']))
             if pr['comments']['pageInfo']['hasNextPage']:
-                queue_manager.publish_extraction_job(
-                    tenant_id=tenant_id,
-                    integration_id=repository.integration_id,
-                    extraction_type='github_prs_commits_reviews_comments',  # Route to github_extraction_worker
-                    extraction_data={
-                        'repository_id': repository_id,
-                        'pr_node_id': pr_node_id,
-                        'nested_type': 'comments',
-                        'nested_cursor': pr['comments']['pageInfo']['endCursor']
-                    },
-                    job_id=job_id,
-                    provider='github',
-                    last_sync_date=last_sync_date,
-                    first_item=False,
-                    last_item=False,
-                    last_job_item=False
-                )
-
+                nested_types_needing_pagination.append(('comments', pr['comments']['pageInfo']['endCursor']))
             if pr['reviewThreads']['pageInfo']['hasNextPage']:
+                nested_types_needing_pagination.append(('review_threads', pr['reviewThreads']['pageInfo']['endCursor']))
+
+            # Queue each nested type with index info
+            # 🔑 RELAY FLAGS: Pass last_item=true, last_job_item=true to LAST nested type
+            # This signals "you will be the last nested type to process" through the nested chain
+            total_nested_types = len(nested_types_needing_pagination)
+            for nested_index, (nested_type, nested_cursor) in enumerate(nested_types_needing_pagination):
+                is_last_nested_type = (nested_index == total_nested_types - 1)
+
                 queue_manager.publish_extraction_job(
                     tenant_id=tenant_id,
                     integration_id=repository.integration_id,
@@ -989,20 +1030,26 @@ async def extract_github_prs_commits_reviews_comments(
                     extraction_data={
                         'repository_id': repository_id,
                         'pr_node_id': pr_node_id,
-                        'nested_type': 'review_threads',
-                        'nested_cursor': pr['reviewThreads']['pageInfo']['endCursor']
+                        'nested_type': nested_type,
+                        'nested_cursor': nested_cursor,
+                        'nested_index': nested_index,                    # 🔑 Index of this nested type
+                        'total_nested_types': total_nested_types,        # 🔑 Total nested types for this PR
+                        'is_last_nested_type': is_last_nested_type       # 🔑 Is this the last nested type?
                     },
                     job_id=job_id,
                     provider='github',
                     last_sync_date=last_sync_date,
                     first_item=False,
-                    last_item=False,
-                    last_job_item=False
+                    last_item=is_last_nested_type,      # 🔑 RELAY: True only on last nested type
+                    last_job_item=is_last_nested_type   # 🔑 RELAY: True only on last nested type
                 )
+                logger.info(f"📤 Queued {nested_type} pagination (index {nested_index}/{total_nested_types}, is_last={is_last_nested_type}, last_item={is_last_nested_type}, last_job_item={is_last_nested_type})")
 
         logger.info(f"📤 Queued nested pagination messages for PRs with incomplete data")
 
         # STEP 5: Queue next PR page if exists (and we didn't hit early termination)
+        # 🔑 RELAY FLAGS: Pass last_item=true, last_job_item=true to next page
+        # This signals "you will be the last page to fetch" through the PR page chain
         next_pr_cursor = None
         if has_next_page and not early_termination:
             next_pr_cursor = page_info['endCursor']
@@ -1021,10 +1068,10 @@ async def extract_github_prs_commits_reviews_comments(
                 provider='github',
                 last_sync_date=last_sync_date,
                 first_item=False,
-                last_item=False,
-                last_job_item=False
+                last_item=True,            # 🔑 RELAY: Pass true to next page
+                last_job_item=True         # 🔑 RELAY: Pass true to next page
             )
-            logger.info(f"📤 Queued next PR page to extraction queue")
+            logger.info(f"📤 Queued next PR page to extraction queue with last_item=true, last_job_item=true")
         elif early_termination:
             logger.info(f"🛑 Early termination due to old PRs, not queuing next page")
 
@@ -1040,7 +1087,7 @@ async def extract_github_prs_commits_reviews_comments(
         # - raw_data_id=None signals completion
         # - last_item=True indicates this is the last page
         # - last_job_item=True indicates job should complete after this
-        if (not has_next_page or early_termination) and last_item:
+        if not has_next_page or early_termination:
             logger.info(f"🎯 [COMPLETION] Sending completion message for PR extraction (last page, no more data)")
             queue_manager.publish_transform_job(
                 tenant_id=tenant_id,
@@ -1076,7 +1123,12 @@ async def extract_nested_pagination(
     pr_node_id: str,
     nested_type: str,
     nested_cursor: str,
-    last_sync_date: Optional[str] = None
+    last_sync_date: Optional[str] = None,
+    nested_index: int = 0,
+    total_nested_types: int = 1,
+    is_last_nested_type: bool = False,
+    last_item: bool = False,  # 🔑 NEW: Received from message
+    last_job_item: bool = False  # 🔑 NEW: Received from message
 ) -> Dict[str, Any]:
     """
     Extract next page of nested data (commits, reviews, comments) for a specific PR.
@@ -1097,6 +1149,11 @@ async def extract_nested_pagination(
         pr_node_id: GraphQL node ID of the PR
         nested_type: Type of nested data ('commits', 'reviews', 'comments', 'review_threads')
         nested_cursor: Cursor for pagination
+        nested_index: Index of this nested type (0-based)
+        total_nested_types: Total number of nested types for this PR
+        is_last_nested_type: Whether this is the last nested type to process
+        last_item: True if this is the last nested type (from message)
+        last_job_item: True if this is the last nested type (from message)
 
     Returns:
         Dictionary with extraction result
@@ -1167,6 +1224,22 @@ async def extract_nested_pagination(
                 current_pr_node_id=pr_node_id,
                 rate_limit_reset_at=github_client.rate_limit_reset
             )
+
+            # 🔑 Send completion message to transform queue to signal job completion
+            # This allows the job to finish gracefully even though we hit rate limit
+            logger.info(f"📤 Sending completion message to transform queue due to rate limit in {nested_type}")
+            queue_manager.publish_transform_job(
+                tenant_id=tenant_id,
+                integration_id=integration.id,
+                raw_data_id=None,  # 🔑 Completion message marker
+                data_type='github_prs_commits_reviews_comments',
+                job_id=job_id,
+                provider='github',
+                first_item=False,
+                last_item=True,
+                last_job_item=True  # 🔑 Signal job completion
+            )
+
             return {
                 'success': False,
                 'error': 'Rate limit exceeded',
@@ -1181,10 +1254,10 @@ async def extract_nested_pagination(
         has_more = nested_data['pageInfo']['hasNextPage']
 
         # STEP 2: Save nested data to raw_data (Type 2)
+        # 🔑 No nested_data_only flag - message type indicates this is nested data
         raw_data = {
             'pr_id': pr_node_id,
             'repository_id': repository.id,  # 🔑 Include repository_id to avoid DB lookup in transform
-            'nested_data_only': True,
             'nested_type': nested_type,
             'data': nested_data['nodes'],
             'cursor': nested_data['pageInfo']['endCursor'] if has_more else None,
@@ -1194,13 +1267,26 @@ async def extract_nested_pagination(
         with get_write_session_context() as db:
             raw_data_id = _store_raw_extraction_data(
                 db, tenant_id, repository.integration_id,
-                'github_prs_commits_reviews_comments',
+                'github_prs_nested',  # 🔑 Renamed from github_prs_commits_reviews_comments
                 raw_data, repository.external_id  # 🔑 Use repository external_id, not PR id
             )
 
         logger.info(f"💾 Stored nested {nested_type} data (has_more={has_more})")
 
-        # STEP 3: Queue to transform
+        # STEP 3: Determine if this is the last item to queue
+        # 🔑 last_item=true ONLY if:
+        #    - This is the last nested type (is_last_nested_type=true)
+        #    - AND there are no more pages for this nested type (not has_more)
+        #    - AND we received last_item=true from the message (relay forward)
+        is_last_item = (is_last_nested_type and not has_more and last_item)
+
+        # 🔑 last_job_item=true ONLY if:
+        #    - This is the last nested type (is_last_nested_type=true)
+        #    - AND there are no more pages for this nested type (not has_more)
+        #    - AND we received last_job_item=true from the message (relay forward)
+        is_last_job_item = (is_last_nested_type and not has_more and last_job_item)
+
+        # STEP 4: Queue to transform
         queue_manager.publish_transform_job(
             tenant_id=tenant_id,
             integration_id=integration.id,
@@ -1209,13 +1295,14 @@ async def extract_nested_pagination(
             job_id=job_id,
             provider='github',
             first_item=False,
-            last_item=False,
-            last_job_item=False
+            last_item=is_last_item,  # 🔑 True only on last page of last nested type
+            last_job_item=is_last_job_item  # 🔑 True only on last page of last nested type
         )
 
-        logger.info(f"📤 Queued {nested_type} page to transform")
+        logger.info(f"📤 Queued {nested_type} page to transform (last_item={is_last_item})")
 
-        # STEP 4: If more pages exist, queue next nested page to extraction
+        # STEP 5: If more pages exist, queue next nested page to extraction
+        # 🔑 RELAY FLAGS: Pass last_item and last_job_item to next nested page
         if has_more:
             queue_manager.publish_extraction_job(
                 tenant_id=tenant_id,
@@ -1225,16 +1312,22 @@ async def extract_nested_pagination(
                     'repository_id': repository_id,
                     'pr_node_id': pr_node_id,
                     'nested_type': nested_type,
-                    'nested_cursor': nested_data['pageInfo']['endCursor']
+                    'nested_cursor': nested_data['pageInfo']['endCursor'],
+                    'nested_index': nested_index,                    # 🔑 Forward nested type info
+                    'total_nested_types': total_nested_types,        # 🔑 Forward nested type info
+                    'is_last_nested_type': is_last_nested_type       # 🔑 Forward nested type info
                 },
                 job_id=job_id,
                 provider='github',
                 last_sync_date=last_sync_date,
                 first_item=False,
-                last_item=False,
-                last_job_item=False
+                last_item=last_item,            # 🔑 RELAY: Pass through to next page
+                last_job_item=last_job_item     # 🔑 RELAY: Pass through to next page
             )
-            logger.info(f"📤 Queued next {nested_type} page to extraction queue")
+            logger.info(f"📤 Queued next {nested_type} page to extraction queue with last_item={last_item}, last_job_item={last_job_item}")
+        # 🔑 NOTE: Do NOT send completion message here!
+        # Completion message is only sent from main PR extraction when no more PR pages exist.
+        # Nested pagination extraction doesn't know about other PRs or PR pages.
 
         logger.info(f"✅ Nested {nested_type} extraction completed (items: {len(nested_data['nodes'])})")
         return {

@@ -1244,7 +1244,8 @@ async def check_job_completion(
                         logger.info(f"🔍 Step {step_name} not in valid state: extraction={extraction_status}, transform={transform_status}, embedding={embedding_status}")
                         break
                 # For GitHub steps (except github_repositories): can be idle if not executed
-                elif step_name in ['github_commits', 'github_reviews', 'github_pull_requests']:
+                # 🔑 Updated to include github_prs_commits_reviews_comments (Phase 4 step)
+                elif step_name in ['github_commits', 'github_reviews', 'github_pull_requests', 'github_prs_commits_reviews_comments']:
                     is_finished = (extraction_status == 'finished' and
                                    transform_status == 'finished' and
                                    embedding_status == 'finished')
