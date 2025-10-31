@@ -319,12 +319,19 @@ class IndividualJobTimer:
 
                 # Set job to RUNNING status with proper timezone handling
                 from app.core.utils import DateTimeHelper
+                import uuid
                 now = DateTimeHelper.now_default()
+                job_token = str(uuid.uuid4())  # 🔑 Generate unique token for this job execution
 
                 # Use atomic update with WHERE clause to prevent race conditions
+                # 🔑 Set both overall status to RUNNING and token for this execution
                 update_query = text("""
                     UPDATE etl_jobs
-                    SET status = jsonb_set(status, ARRAY['overall'], to_jsonb('RUNNING'::text)),
+                    SET status = jsonb_set(
+                          jsonb_set(status, ARRAY['overall'], to_jsonb('RUNNING'::text)),
+                          ARRAY['token'],
+                          to_jsonb(CAST(:token AS text))
+                        ),
                         last_run_started_at = :now,
                         last_updated_at = :now
                     WHERE id = :job_id AND tenant_id = :tenant_id AND status->>'overall' = 'READY'
@@ -333,7 +340,8 @@ class IndividualJobTimer:
                 rows_updated = session.execute(update_query, {
                     'job_id': self.job_id,
                     'tenant_id': self.tenant_id,
-                    'now': now
+                    'now': now,
+                    'token': job_token  # 🔑 Pass the generated token
                 }).rowcount
                 session.commit()
 

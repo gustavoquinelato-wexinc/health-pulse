@@ -194,9 +194,13 @@ class QueueManager:
         job_id: int = None,
         provider: str = None,
         last_sync_date: str = None,
+        new_last_sync_date: str = None,
         first_item: bool = False,
         last_item: bool = False,
-        last_job_item: bool = False
+        last_job_item: bool = False,
+        last_repo: bool = False,
+        last_pr: bool = False,
+        token: str = None  # 🔑 Job execution token
 
     ) -> bool:
         """
@@ -209,10 +213,14 @@ class QueueManager:
             data_type: Type of data ('jira_custom_fields', 'jira_issues', 'github_prs', etc.)
             job_id: ETL job ID (for completion tracking)
             provider: Provider name (jira, github, etc.)
-            last_sync_date: Last sync date to update on completion
+            last_sync_date: Last sync date used for filtering (old_last_sync_date)
+            new_last_sync_date: New last sync date to update on completion (extraction end date)
             first_item: True if this is the first item in the queue
             last_item: True if this is the last item in the current step
             last_job_item: True if this item should trigger job completion
+            last_repo: True if this is the last repository (GitHub only)
+            last_pr: True if this is the last PR of the last repository (GitHub only)
+            token: Job execution token for tracking messages through pipeline
 
         Returns:
             bool: True if published successfully
@@ -226,10 +234,15 @@ class QueueManager:
             'provider': provider,
             'first_item': first_item,
             'last_item': last_item,
-            'last_sync_date': last_sync_date,
+            'last_sync_date': last_sync_date,  # 🔑 Used for filtering (old_last_sync_date)
+            'new_last_sync_date': new_last_sync_date,  # 🔑 Used for job completion (extraction end date)
             'last_job_item': last_job_item,
+            'token': token,  # 🔑 Job execution token for tracking
             # Extraction → Transform specific fields
-            'raw_data_id': raw_data_id
+            'raw_data_id': raw_data_id,
+            # GitHub-specific boundary flags
+            'last_repo': last_repo,
+            'last_pr': last_pr
         }
 
         # Get tenant tier and route to tier-based queue
@@ -247,9 +260,13 @@ class QueueManager:
         job_id: int = None,
         provider: str = None,
         last_sync_date: str = None,
+        new_last_sync_date: str = None,
         first_item: bool = False,
         last_item: bool = False,
-        last_job_item: bool = False
+        last_job_item: bool = False,
+        last_repo: bool = False,
+        last_pr: bool = False,
+        token: str = None  # 🔑 Job execution token
     ) -> bool:
         """
         Publish an extraction job to the tier-based extraction queue.
@@ -261,10 +278,14 @@ class QueueManager:
             extraction_data: Additional data for extraction (issue_id, issue_key, etc.)
             etl_job_id: ETL job ID (for completion tracking)
             provider_name: Provider name (Jira, GitHub, etc.)
-            last_sync_date: Last sync date to update on completion
+            last_sync_date: Last sync date used for filtering (old_last_sync_date)
+            new_last_sync_date: New last sync date to update on completion (extraction end date)
             first_item: True if this is the first item in the queue
             last_item: True if this is the last item in the current step
             last_job_item: True if this item should trigger job completion
+            last_repo: True if this is the last repository (GitHub only)
+            last_pr: True if this is the last PR of the last repository (GitHub only)
+            token: Job execution token for tracking messages through the pipeline
 
         Returns:
             bool: True if published successfully
@@ -273,6 +294,8 @@ class QueueManager:
             'tenant_id': tenant_id,
             'integration_id': integration_id,
             'type': extraction_type,
+            'last_repo': last_repo,
+            'last_pr': last_pr,
             **extraction_data  # Merge additional data (issue_id, issue_key, etc.)
         }
 
@@ -282,7 +305,11 @@ class QueueManager:
         if provider is not None:
             message['provider'] = provider
         if last_sync_date is not None:
-            message['last_sync_date'] = last_sync_date
+            message['last_sync_date'] = last_sync_date  # 🔑 Used for filtering (old_last_sync_date)
+        if new_last_sync_date is not None:
+            message['new_last_sync_date'] = new_last_sync_date  # 🔑 Used for job completion (extraction end date)
+        if token is not None:
+            message['token'] = token  # 🔑 Job execution token for message tracking
 
         # 🎯 ALWAYS include flags (not just when True) for proper worker orchestration
         message['first_item'] = first_item
@@ -304,10 +331,12 @@ class QueueManager:
         integration_id: int = None,
         provider: str = None,
         last_sync_date: str = None,
+        new_last_sync_date: str = None,
         first_item: bool = False,
         last_item: bool = False,
         last_job_item: bool = False,
-        step_type: str = None
+        step_type: str = None,
+        token: str = None  # 🔑 Job execution token
     ) -> bool:
         """
         Publish an individual entity embedding job to the tier-based embedding queue.
@@ -319,11 +348,13 @@ class QueueManager:
             job_id: ETL job ID (for completion tracking)
             integration_id: Integration ID
             provider: Provider name (jira, github, etc.)
-            last_sync_date: Last sync date to update on completion
+            last_sync_date: Last sync date used for filtering (old_last_sync_date)
+            new_last_sync_date: New last sync date to update on completion (extraction end date)
             first_item: True if this is the first item in the queue
             last_item: True if this is the last item that completes the job
             last_job_item: True if this is the final item that completes the entire job
             step_type: ETL step type for status tracking
+            token: Job execution token for tracking messages through pipeline
 
         Returns:
             bool: True if published successfully
@@ -337,8 +368,10 @@ class QueueManager:
             'provider': provider,
             'first_item': first_item,
             'last_item': last_item,
-            'last_sync_date': last_sync_date,
+            'last_sync_date': last_sync_date,  # 🔑 Used for filtering (old_last_sync_date)
+            'new_last_sync_date': new_last_sync_date,  # 🔑 Used for job completion (extraction end date)
             'last_job_item': last_job_item,
+            'token': token,  # 🔑 Job execution token for tracking
             # Transform → Embedding specific fields
             'table_name': table_name,
             'external_id': external_id
@@ -490,10 +523,10 @@ class QueueManager:
     def get_queue_stats(self, queue_name: str) -> Optional[Dict[str, int]]:
         """
         Get statistics for a queue.
-        
+
         Args:
             queue_name: Name of the queue
-            
+
         Returns:
             Dict with message_count and consumer_count, or None if error
         """
@@ -507,6 +540,59 @@ class QueueManager:
         except Exception as e:
             logger.error(f"Failed to get queue stats for {queue_name}: {e}")
             return None
+
+    def check_messages_with_token(self, queue_name: str, token: str, max_peek: int = 100) -> bool:
+        """
+        Check if there are any messages in the queue with the given token.
+
+        This method peeks at messages without consuming them to check if any have the matching token.
+
+        Args:
+            queue_name: Name of the queue to check
+            token: Token to search for in messages
+            max_peek: Maximum number of messages to peek at (default: 100)
+
+        Returns:
+            bool: True if any message with the token is found, False otherwise
+        """
+        try:
+            with self.get_channel() as channel:
+                peeked_count = 0
+
+                while peeked_count < max_peek:
+                    # Get a message without auto-acking
+                    method_frame, header_frame, body = channel.basic_get(queue=queue_name, auto_ack=False)
+
+                    if not method_frame:
+                        # No more messages in queue
+                        logger.debug(f"No more messages in {queue_name} after peeking {peeked_count} messages")
+                        return False
+
+                    try:
+                        message = json.loads(body)
+                        message_token = message.get('token')
+
+                        # Immediately requeue the message (put it back)
+                        channel.basic_nack(delivery_tag=method_frame.delivery_tag, requeue=True)
+
+                        if message_token == token:
+                            logger.info(f"✅ Found message with token {token} in {queue_name}")
+                            return True
+
+                        peeked_count += 1
+
+                    except Exception as e:
+                        logger.error(f"Error parsing message while peeking: {e}")
+                        # Requeue the message
+                        channel.basic_nack(delivery_tag=method_frame.delivery_tag, requeue=True)
+                        peeked_count += 1
+
+                logger.info(f"No messages with token {token} found in {queue_name} (checked {peeked_count} messages)")
+                return False
+
+        except Exception as e:
+            logger.error(f"Error checking messages with token in {queue_name}: {e}")
+            return False
 
 
 # Global queue manager instance

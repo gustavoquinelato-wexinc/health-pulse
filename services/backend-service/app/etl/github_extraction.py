@@ -34,7 +34,8 @@ async def extract_github_repositories(
     integration_id: int,
     tenant_id: int,
     job_id: int,
-    last_sync_date: Optional[str] = None
+    last_sync_date: Optional[str] = None,
+    token: str = None  # 🔑 Job execution token
 ) -> Dict[str, Any]:
     """
     Extract GitHub repositories (Phase 3 / Step 1).
@@ -111,11 +112,15 @@ async def extract_github_repositories(
                 # Default: last 90 days
                 start_date = (datetime.now() - timedelta(days=90)).strftime('%Y-%m-%d')
 
+            # 🔑 IMPORTANT: Capture current date at extraction start
+            # This is the END date of the search range and will be used as the new_last_sync_date
+            # for the NEXT job run (for incremental sync)
             end_date = datetime.now().strftime('%Y-%m-%d')
 
             logger.info(f"📅 Search date range: {start_date} to {end_date}")
             logger.info(f"🔍 Repository filters: {name_filters}")
             logger.info(f"🏢 Organization: {org}")
+            logger.info(f"🔄 Next sync will use new_last_sync_date: {end_date}")
 
             # Step 1: Query Jira PR links for non-health repository names
             logger.info("Step 1: Querying Jira PR links for repository names...")
@@ -183,62 +188,54 @@ async def extract_github_repositories(
         from app.etl.queue.queue_manager import QueueManager
         queue_manager = QueueManager()
 
-        # Search GitHub repositories incrementally and queue as we go
-        # This prevents large payloads and allows streaming processing
+        # Search GitHub repositories and accumulate all results
         total_repositories = 0
-        is_first_batch = True
-        last_repo_pushed_date = None  # Track for rate limit recovery
 
-        try:
-            repositories_generator = _search_github_repositories_paginated(
-                token=integration_data['github_token'],
-                org=integration_data['org'],
-                start_date=integration_data['start_date'],
-                end_date=integration_data['end_date'],
-                name_filters=integration_data['name_filters'],
-                additional_repo_names=list(integration_data['non_health_repo_names']) if integration_data['non_health_repo_names'] else None
-            )
+        # Get all repositories as a complete list
+        all_repositories = _search_github_repositories_paginated(
+            token=integration_data['github_token'],
+            org=integration_data['org'],
+            start_date=integration_data['start_date'],
+            end_date=integration_data['end_date'],
+            name_filters=integration_data['name_filters'],
+            additional_repo_names=list(integration_data['non_health_repo_names']) if integration_data['non_health_repo_names'] else None
+        )
 
-            # Process each batch of repositories
-            is_first_batch_overall = True  # Track if this is the first batch across all pages
-            for batch_repos, is_last_batch in repositories_generator:
-                logger.info(f"📊 Processing batch of {len(batch_repos)} repositories (is_last_batch={is_last_batch})")
+        logger.info(f"📊 Retrieved {len(all_repositories)} total repositories from GitHub API")
 
-                # Track last repo's pushed date for rate limit recovery
-                if batch_repos:
-                    last_repo = batch_repos[-1]  # Last repo in batch
-                    if 'pushed_at' in last_repo:
-                        # Extract date only (YYYY-MM-DD) without time
-                        last_repo_pushed_date = last_repo['pushed_at'].split('T')[0]
-                        logger.info(f"📅 Last repo pushed date: {last_repo_pushed_date}")
+        # Process each repository as a separate raw_extraction_data record
+        if all_repositories:
+            for i, repo in enumerate(all_repositories):
+                is_first = (i == 0)
+                is_last = (i == len(all_repositories) - 1)
 
-                # Store batch in raw_extraction_data
+                # Store individual repository in raw_extraction_data
+                # 🔑 Transform worker expects 'repositories' key (array), so wrap single repo in array
                 raw_data_id = store_raw_extraction_data(
                     integration_id, tenant_id, "github_repositories",
                     {
-                        'repositories': batch_repos,
+                        'repositories': [repo],  # 🔑 Wrap in array with 'repositories' key
                         'search_date_range': {
                             'start_date': integration_data['start_date'],
                             'end_date': integration_data['end_date']
                         },
                         'search_filters': integration_data['name_filters'],
                         'organization': integration_data['org'],
-                        'extracted_at': datetime.now().isoformat(),
-                        'batch_info': {
-                            'is_first_batch': is_first_batch_overall,
-                            'is_last_batch': is_last_batch
-                        }
+                        'extracted_at': datetime.now().isoformat(),  # Using module-level import from line 24
+                        'repo_index': i + 1,
+                        'total_repositories': len(all_repositories)
                     }
                 )
 
                 if not raw_data_id:
-                    logger.error("Failed to store raw repository batch data")
-                    return {'success': False, 'error': 'Failed to store raw repository batch data'}
+                    logger.error(f"Failed to store raw repository data for repo {i+1}/{len(all_repositories)}")
+                    return {'success': False, 'error': f'Failed to store raw repository data for repo {i+1}'}
 
                 # Queue for transform with proper first_item/last_item flags
-                # 🔑 first_item=true ONLY on first batch of first page
-                # 🔑 last_item=true ONLY on last batch of last page
-                logger.info(f"Queuing batch of {len(batch_repos)} repositories for transform (raw_data_id={raw_data_id}, first={is_first_batch_overall}, last={is_last_batch})")
+                # 🔑 first_item=true ONLY on first repository
+                # 🔑 last_item=true ONLY on last repository
+                # 🔑 last_repo=true ONLY on last repository (signals to Step 2 that this is the final repo)
+                logger.info(f"Queuing repository {i+1}/{len(all_repositories)} for transform (raw_data_id={raw_data_id}, first={is_first}, last={is_last})")
                 success = queue_manager.publish_transform_job(
                     tenant_id=tenant_id,
                     integration_id=integration_id,
@@ -246,73 +243,53 @@ async def extract_github_repositories(
                     data_type='github_repositories',
                     job_id=job_id,
                     provider='github',
-                    last_sync_date=last_sync_date,
-                    first_item=is_first_batch_overall,  # 🔑 True only on first batch overall
-                    last_item=is_last_batch,            # 🔑 True only on last batch
-                    last_job_item=False                 # 🔑 Never set to True here - job continues to PR extraction
+                    last_sync_date=last_sync_date,  # 🔑 Used for filtering (old_last_sync_date)
+                    new_last_sync_date=end_date,  # 🔑 Used for job completion (extraction end date)
+                    token=token,  # 🔑 Include token in message
+                    first_item=is_first,              # 🔑 True only on first repo
+                    last_item=is_last,                # 🔑 True only on last repo
+                    last_job_item=False,              # 🔑 Never set to True here - job continues to PR extraction
+                    last_repo=is_last                 # 🔑 True only on last repo - signals to Step 2
                 )
 
                 if not success:
-                    logger.error(f"Failed to queue repository batch for transform")
+                    logger.error(f"Failed to queue repository {i+1}/{len(all_repositories)} for transform")
 
-                total_repositories += len(batch_repos)
-                is_first_batch_overall = False  # After first batch, never true again
+            total_repositories = len(all_repositories)
 
-            logger.info(f"✅ [GITHUB] Repository extraction completed: {total_repositories} repositories found and queued for transform")
+        logger.info(f"✅ [GITHUB] Repository extraction completed: {total_repositories} repositories found and queued for transform")
 
-            # 🎯 Handle case when NO repositories were found
-            if total_repositories == 0:
-                logger.info(f"📤 No repositories found - sending completion message to transform queue")
-                success = queue_manager.publish_transform_job(
-                    tenant_id=tenant_id,
-                    integration_id=integration_id,
-                    raw_data_id=None,  # 🔑 Completion message marker
-                    data_type='github_repositories',
-                    job_id=job_id,
-                    provider='github',
-                    last_sync_date=last_sync_date,
-                    first_item=True,
-                    last_item=True,
-                    last_job_item=True  # 🔑 Complete the job since no data to process
-                )
-                if not success:
-                    logger.error(f"Failed to queue completion message for no repositories case")
+        # 🎯 Handle case when NO repositories were found
+        if total_repositories == 0:
+            logger.info(f"📤 No repositories found - sending completion message to transform queue")
+            # 🔑 Completion message pattern:
+            # - raw_data_id=None signals this is a closing message
+            # - last_job_item=True signals job completion
+            # - Transform worker will set its own status to finished and forward to embedding
+            # - Embedding worker will update its status and overall job status to finished
+            success = queue_manager.publish_transform_job(
+                tenant_id=tenant_id,
+                integration_id=integration_id,
+                raw_data_id=None,  # 🔑 Completion message marker
+                data_type='github_repositories',
+                job_id=job_id,
+                provider='github',
+                last_sync_date=last_sync_date,  # 🔑 Used for filtering (old_last_sync_date)
+                new_last_sync_date=end_date,  # 🔑 Used for job completion (extraction end date)
+                first_item=True,
+                last_item=True,
+                last_job_item=True,  # 🔑 Signal job completion - transform will forward to embedding
+                token=token  # 🔑 Include token in message
+            )
+            if not success:
+                logger.error(f"Failed to queue completion message for no repositories case")
 
-            return {
-                'success': True,
-                'repositories_count': total_repositories,
-                'last_sync_date': last_sync_date,  # 🔑 Pass to PR extraction
-                'message': f'Successfully extracted and queued {total_repositories} repositories'
-            }
-
-        except StopIteration:
-            # Generator exhausted normally
-            logger.info(f"✅ [GITHUB] Repository extraction completed: {total_repositories} repositories found and queued for transform")
-
-            # 🎯 Handle case when NO repositories were found
-            if total_repositories == 0:
-                logger.info(f"📤 No repositories found - sending completion message to transform queue")
-                success = queue_manager.publish_transform_job(
-                    tenant_id=tenant_id,
-                    integration_id=integration_id,
-                    raw_data_id=None,  # 🔑 Completion message marker
-                    data_type='github_repositories',
-                    job_id=job_id,
-                    provider='github',
-                    last_sync_date=last_sync_date,
-                    first_item=True,
-                    last_item=True,
-                    last_job_item=True  # 🔑 Complete the job since no data to process
-                )
-                if not success:
-                    logger.error(f"Failed to queue completion message for no repositories case")
-
-            return {
-                'success': True,
-                'repositories_count': total_repositories,
-                'last_sync_date': last_sync_date,  # 🔑 Pass to PR extraction
-                'message': f'Successfully extracted and queued {total_repositories} repositories'
-            }
+        return {
+            'success': True,
+            'repositories_count': total_repositories,
+            'last_sync_date': last_sync_date,  # 🔑 Pass to PR extraction
+            'message': f'Successfully extracted and queued {total_repositories} repositories'
+        }
 
     except Exception as e:
         logger.error(f"❌ [GITHUB] Error extracting repositories: {e}")
@@ -386,8 +363,8 @@ def _search_github_repositories_paginated(
     """
     Search GitHub repositories using the GitHub Search API with pagination.
 
-    Yields batches of repositories as they are fetched, allowing incremental processing
-    without loading all results into memory first.
+    Accumulates ALL repositories from all pages and search patterns, then returns
+    a complete list. This allows the caller to determine which item is last.
 
     Uses combined search patterns with OR operators to find repositories matching:
     1. The name_filters patterns (e.g., ['health-', 'bp-'])
@@ -404,8 +381,8 @@ def _search_github_repositories_paginated(
         name_filters: Array of pattern filters (e.g., ['health-', 'bp-'])
         additional_repo_names: List of specific repo names to include
 
-    Yields:
-        Tuple of (batch_repos: list, is_last_batch: bool)
+    Returns:
+        List of all repositories found across all pages and search patterns
     """
     import httpx
 
@@ -442,11 +419,9 @@ def _search_github_repositories_paginated(
                     repo_name = full_name
                 search_patterns.append(f"{repo_name} in:name")
 
-        batch_size = 100  # Batch size for yielding results
-
         if not search_patterns:
             logger.warning("🔍 [GITHUB SEARCH] No search patterns provided for GitHub repository search")
-            return
+            return []
 
         logger.info(f"🔍 [GITHUB SEARCH] Total search patterns: {len(search_patterns)}")
 
@@ -455,11 +430,13 @@ def _search_github_repositories_paginated(
 
         logger.info(f"🔍 [GITHUB SEARCH] Executing {len(pattern_batches)} search requests to stay within character limit")
 
+        # Accumulate ALL repositories from all pages and patterns
+        all_repositories = []
+
         # Execute each batch
         logger.info(f"🔍 [GITHUB SEARCH] Creating HTTP client...")
         with httpx.Client() as client:
             logger.info(f"🔍 [GITHUB SEARCH] HTTP client created successfully")
-            total_repos_yielded = 0
             for i, batch_patterns in enumerate(pattern_batches, 1):
                 # Combine patterns with OR and wrap in parentheses for proper GitHub search syntax
                 combined_patterns = " OR ".join(batch_patterns)
@@ -484,11 +461,10 @@ def _search_github_repositories_paginated(
                 logger.info(f"🔍 [GITHUB SEARCH] Making HTTP request to {endpoint}?q={urllib.parse.quote(full_query)}")
                 try:
                     # Paginate through search results using Link header
-                    # Yield batches as we fetch them to avoid loading all into memory
+                    # Accumulate all repos from all pages
                     accumulated_repos = []
                     next_url = None
                     page = 1
-                    is_last_pattern_batch = (i == len(pattern_batches))
 
                     while True:
                         if next_url:
@@ -509,7 +485,7 @@ def _search_github_repositories_paginated(
                             # Extract reset time from headers
                             reset_time = response.headers.get('X-RateLimit-Reset')
                             if reset_time:
-                                from datetime import datetime
+                                # Using module-level import from line 24
                                 reset_at = datetime.utcfromtimestamp(int(reset_time)).isoformat() + 'Z'
                                 logger.warning(f"Rate limit resets at: {reset_at}")
                             else:
@@ -535,14 +511,10 @@ def _search_github_repositories_paginated(
                         accumulated_repos.extend(items)
                         logger.info(f"Batch {i}, Page {page}: {len(items)} items, accumulated: {len(accumulated_repos)}")
 
-                        # Yield accumulated repos when we reach batch_size or hit limits
-                        should_yield = False
+                        # Check if we've reached 1000 result limit (GitHub Search API limit)
                         is_last_page = False
-
-                        # Check if we've reached 1000 result limit
                         if len(accumulated_repos) >= 1000:
                             logger.info(f"🔍 [GITHUB SEARCH] Reached 1000 result limit")
-                            should_yield = True
                             is_last_page = True
 
                         # Parse Link header for next page
@@ -559,18 +531,13 @@ def _search_github_repositories_paginated(
 
                         if not next_url:
                             logger.info(f"🔍 [GITHUB SEARCH] No next link in header, pagination complete for this pattern batch")
-                            should_yield = True
                             is_last_page = True
 
-                        # Yield batch if we have repos and either reached batch_size or end of pagination
-                        if accumulated_repos and (should_yield or len(accumulated_repos) >= batch_size):
-                            is_last_batch = is_last_page and is_last_pattern_batch
-                            logger.info(f"🔍 [GITHUB SEARCH] Yielding {len(accumulated_repos)} repos (is_last_batch={is_last_batch})")
-                            yield (accumulated_repos, is_last_batch)
-                            total_repos_yielded += len(accumulated_repos)
-                            accumulated_repos = []
-
+                        # Accumulate all repos (don't yield yet)
                         if is_last_page:
+                            logger.info(f"🔍 [GITHUB SEARCH] End of pagination for pattern batch {i}/{len(pattern_batches)}: accumulated {len(accumulated_repos)} repos")
+                            all_repositories.extend(accumulated_repos)
+                            accumulated_repos = []
                             break
 
                         page += 1
@@ -587,14 +554,9 @@ def _search_github_repositories_paginated(
                         rate_limit_reset_at=e.reset_at,
                         last_repo_pushed_date=last_repo_pushed_date
                     )
-                    # Return rate limit status to caller
-                    return {
-                        'success': False,
-                        'error': 'Rate limit exceeded during repository search',
-                        'is_rate_limit': True,
-                        'rate_limit_reset_at': e.reset_at,
-                        'repositories_count': total_repositories
-                    }
+                    # Return accumulated repos so far (partial results)
+                    logger.warning(f"Returning {len(all_repositories)} repositories collected before rate limit")
+                    return all_repositories
 
                 except Exception as e:
                     logger.error(f"Batch {i}/{len(pattern_batches)} failed: {e}")
@@ -604,13 +566,14 @@ def _search_github_repositories_paginated(
                     # Continue with other batches instead of failing completely
                     continue
 
-        logger.info(f"🔍 [GITHUB SEARCH] Total repositories yielded: {total_repos_yielded}")
+        logger.info(f"🔍 [GITHUB SEARCH] Total repositories found: {len(all_repositories)}")
+        return all_repositories
 
     except Exception as e:
         logger.error(f"❌ Error searching GitHub repositories: {e}")
         import traceback
         logger.error(f"Full traceback: {traceback.format_exc()}")
-        return
+        return []
 
 
 def _batch_search_patterns(base_query: str, patterns: list, max_length: int = 256) -> list:
@@ -680,6 +643,9 @@ async def github_extraction_worker(message: Dict[str, Any]) -> Dict[str, Any]:
 
         logger.info(f"🔀 [ROUTER] Extraction worker received message for repo {repository_id}")
 
+        # 🔑 Extract token from message
+        token = message.get('token')
+
         # ROUTER: Check if this is nested recovery from rate limit checkpoint
         if message.get('type') == 'github_nested_extraction_recovery':
             # NESTED RECOVERY: Resume from rate limit checkpoint
@@ -705,11 +671,13 @@ async def github_extraction_worker(message: Dict[str, Any]) -> Dict[str, Any]:
                 nested_type=message['nested_type'],
                 nested_cursor=message['nested_cursor'],
                 last_sync_date=message.get('last_sync_date'),  # Forward from message
+                new_last_sync_date=message.get('new_last_sync_date'),  # 🔑 Forward from message
                 nested_index=message.get('nested_index', 0),  # 🔑 Forward nested type info
                 total_nested_types=message.get('total_nested_types', 1),  # 🔑 Forward nested type info
                 is_last_nested_type=message.get('is_last_nested_type', False),  # 🔑 Forward nested type info
                 last_item=message.get('last_item', False),  # 🔑 Forward flag from message
-                last_job_item=message.get('last_job_item', False)  # 🔑 Forward flag from message
+                last_job_item=message.get('last_job_item', False),  # 🔑 Forward flag from message
+                token=token  # 🔑 Include token in message
             )
         else:
             # FRESH OR NEXT PR PAGE
@@ -724,7 +692,10 @@ async def github_extraction_worker(message: Dict[str, Any]) -> Dict[str, Any]:
                 repo_name=message.get('repo_name'),  # From message (avoids DB lookup)
                 first_item=message.get('first_item', False),  # 🔑 Forward from message
                 last_item=message.get('last_item', False),  # Forward from message
-                last_sync_date=message.get('last_sync_date')  # Forward from message
+                last_sync_date=message.get('last_sync_date'),  # Forward from message
+                token=token,  # 🔑 Include token in message
+                last_repo=message.get('last_repo', False),  # 🔑 Forward from message
+                last_pr=message.get('last_pr', False)  # 🔑 Forward from message
             )
 
         return result
@@ -745,7 +716,10 @@ async def extract_github_prs_commits_reviews_comments(
     repo_name: Optional[str] = None,
     first_item: bool = False,  # 🔑 NEW: Received from message
     last_item: bool = False,
-    last_sync_date: Optional[str] = None
+    last_sync_date: Optional[str] = None,
+    last_repo: bool = False,  # 🔑 NEW: True if this is the last repository
+    last_pr: bool = False,     # 🔑 NEW: True if this is the last PR of the last repository
+    token: str = None  # 🔑 Job execution token
 ) -> Dict[str, Any]:
     """
     Extract PRs with nested data (commits, reviews, comments) using GraphQL.
@@ -776,6 +750,8 @@ async def extract_github_prs_commits_reviews_comments(
         repo_name: Repository name (optional, from message - avoids DB lookup)
         first_item: True if this is the first PR of the first repository (from message)
         last_item: True if this is the last repo (from message)
+        last_repo: True if this is the last repository (from message)
+        last_pr: True if this is the last PR of the last repository (from message)
 
     Returns:
         Dictionary with extraction result
@@ -783,6 +759,11 @@ async def extract_github_prs_commits_reviews_comments(
     try:
         is_fresh = (pr_cursor is None)
         logger.info(f"🚀 Starting GitHub PR extraction - {'Fresh' if is_fresh else 'Next'} page for repo {repository_id}")
+
+        # 🔑 IMPORTANT: Capture current date at start of extraction
+        # This is the END date of the search range and will be used as new_last_sync_date
+        # for the NEXT job run (for incremental sync)
+        extraction_end_date = datetime.now().strftime('%Y-%m-%d')
 
         from app.core.database_router import get_read_session_context, get_write_session_context
         from app.core.config import AppConfig
@@ -860,6 +841,7 @@ async def extract_github_prs_commits_reviews_comments(
                 data_type='github_prs_commits_reviews_comments',
                 job_id=job_id,
                 provider='github',
+                last_sync_date=last_sync_date,  # 🔑 Forward last_sync_date
                 first_item=False,
                 last_item=True,
                 last_job_item=True  # 🔑 Signal job completion
@@ -879,6 +861,28 @@ async def extract_github_prs_commits_reviews_comments(
         prs = pr_page['data']['repository']['pullRequests']['nodes']
         if not prs:
             logger.warning(f"No PRs found in page for {owner}/{repo_name}")
+
+            # 🔑 If this is the last repository (last_repo=true), send completion message
+            if last_repo:
+                logger.info(f"🎯 [COMPLETION] No PRs found and this is the last repo - sending completion message")
+                queue_manager.publish_transform_job(
+                    tenant_id=tenant_id,
+                    integration_id=integration.id,
+                    raw_data_id=None,  # 🔑 Completion message marker
+                    data_type='github_prs_commits_reviews_comments',
+                    job_id=job_id,
+                    provider='github',
+                    last_sync_date=last_sync_date,  # 🔑 Used for filtering (old_last_sync_date)
+                    new_last_sync_date=extraction_end_date,  # 🔑 Used for job completion (extraction end date)
+                    first_item=False,
+                    last_item=True,
+                    last_job_item=True,  # 🔑 Signal job completion
+                    last_repo=last_repo,
+                    last_pr=False,
+                    token=token  # 🔑 Include token in message
+                )
+                logger.info(f"✅ Completion message queued to transform")
+
             return {'success': True, 'prs_processed': 0}
 
         logger.info(f"📦 Processing {len(prs)} PRs from page")
@@ -890,13 +894,13 @@ async def extract_github_prs_commits_reviews_comments(
 
         # 🔑 If no last_sync_date provided, use 2-year default (same as repository extraction)
         if not last_sync_date:
-            from datetime import datetime, timedelta
+            # Using module-level imports from line 24
             two_years_ago = datetime.now() - timedelta(days=730)
             last_sync_date = two_years_ago.strftime('%Y-%m-%d')
             logger.info(f"📅 No last_sync_date provided, using 2-year default: {last_sync_date}")
 
         logger.info(f"🔍 Filtering PRs by last_sync_date: {last_sync_date}")
-        from datetime import datetime, timezone
+        from datetime import timezone  # Only need timezone, datetime already imported at module level
 
         # Parse last_sync_date (format: YYYY-MM-DD or YYYY-MM-DD HH:MM)
         try:
@@ -976,15 +980,28 @@ async def extract_github_prs_commits_reviews_comments(
         # 🔑 first_item=true ONLY on first PR when received from message
         # 🔑 last_item=true ONLY on last PR when no more PR pages to fetch
         # 🔑 last_job_item=true ONLY on last PR when:
-        #    - No more PR pages (not has_next_page)
+        #    - last_repo=true (this is the last repository)
+        #    - AND last_pr=true (this is the last PR of the last repo)
+        #    - AND no more PR pages (not has_next_page)
         #    - AND no nested pagination needed (all nested data fits in first page)
         for i, raw_data_id in enumerate(raw_data_ids):
             is_first = (i == 0 and first_item)  # 🔑 Use received first_item flag, not is_fresh
-            is_last = (i == len(raw_data_ids) - 1 and not has_next_page)  # Last only if no more PR pages
+            is_last_pr_in_page = (i == len(raw_data_ids) - 1 and not has_next_page)  # Last only if no more PR pages
 
-            # 🔑 Only set last_job_item=true if this is the last PR AND no nested pagination needed
-            # If nested pagination exists, nested workers will handle job completion
-            is_last_job_item = (is_last and not has_nested_pagination)
+            # 🔑 Set last_item=true ONLY when:
+            # - This is the last PR in the page AND no more PR pages
+            # - AND no nested pagination needed (all nested data fits in first page)
+            # - AND this is the last repo (last_repo=true)
+            # - AND this is the last PR of the last repo (last_pr=true)
+            # 🔑 NOTE: last_item signals end of THIS repository's PR extraction AND job completion
+            is_last_item = (is_last_pr_in_page and not has_nested_pagination and last_repo and last_pr)
+
+            # 🔑 Only set last_job_item=true if:
+            # - This is the last PR in the page AND no more PR pages
+            # - AND this is the last repo (last_repo=true)
+            # - AND this is the last PR of the last repo (last_pr=true)
+            # - AND no nested pagination needed
+            is_last_job_item = (is_last_pr_in_page and last_repo and last_pr and not has_nested_pagination)
 
             queue_manager.publish_transform_job(
                 tenant_id=tenant_id,
@@ -993,9 +1010,14 @@ async def extract_github_prs_commits_reviews_comments(
                 data_type='github_prs_commits_reviews_comments',
                 job_id=job_id,
                 provider='github',
+                last_sync_date=last_sync_date,  # 🔑 Used for filtering (old_last_sync_date)
+                new_last_sync_date=extraction_end_date,  # 🔑 Used for job completion (extraction end date)
                 first_item=is_first,
-                last_item=is_last,
-                last_job_item=is_last_job_item  # 🔑 True only when no nested pagination
+                last_item=is_last_item,  # 🔑 True only when all conditions met
+                last_job_item=is_last_job_item,  # 🔑 True only when all conditions met
+                last_repo=last_repo,
+                last_pr=last_pr,
+                token=token  # 🔑 Include token in message
             )
 
         logger.info(f"📤 Queued {len(raw_data_ids)} PRs to transform")
@@ -1017,7 +1039,7 @@ async def extract_github_prs_commits_reviews_comments(
                 nested_types_needing_pagination.append(('review_threads', pr['reviewThreads']['pageInfo']['endCursor']))
 
             # Queue each nested type with index info
-            # 🔑 RELAY FLAGS: Pass last_item=true, last_job_item=true to LAST nested type
+            # 🔑 RELAY FLAGS: Pass last_pr=true to LAST nested type
             # This signals "you will be the last nested type to process" through the nested chain
             total_nested_types = len(nested_types_needing_pagination)
             for nested_index, (nested_type, nested_cursor) in enumerate(nested_types_needing_pagination):
@@ -1038,18 +1060,21 @@ async def extract_github_prs_commits_reviews_comments(
                     },
                     job_id=job_id,
                     provider='github',
-                    last_sync_date=last_sync_date,
+                    last_sync_date=last_sync_date,  # 🔑 Used for filtering (old_last_sync_date)
+                    new_last_sync_date=extraction_end_date,  # 🔑 Used for job completion (extraction end date)
                     first_item=False,
-                    last_item=is_last_nested_type,      # 🔑 RELAY: True only on last nested type
-                    last_job_item=is_last_nested_type   # 🔑 RELAY: True only on last nested type
+                    last_item=False,                    # 🔑 Will be set to true only on final nested page
+                    last_job_item=False,                # 🔑 Will be set to true only on final nested page
+                    last_repo=last_repo,                # 🔑 Forward: true if last repository
+                    last_pr=is_last_nested_type         # 🔑 True only on last nested type
                 )
-                logger.info(f"📤 Queued {nested_type} pagination (index {nested_index}/{total_nested_types}, is_last={is_last_nested_type}, last_item={is_last_nested_type}, last_job_item={is_last_nested_type})")
+                logger.info(f"📤 Queued {nested_type} pagination (index {nested_index}/{total_nested_types}, is_last_nested_type={is_last_nested_type}, last_pr={is_last_nested_type})")
 
         logger.info(f"📤 Queued nested pagination messages for PRs with incomplete data")
 
         # STEP 5: Queue next PR page if exists (and we didn't hit early termination)
-        # 🔑 RELAY FLAGS: Pass last_item=true, last_job_item=true to next page
-        # This signals "you will be the last page to fetch" through the PR page chain
+        # 🔑 RELAY FLAGS: Pass last_repo=true to next page
+        # This signals "you are processing the last repository" through the PR page chain
         next_pr_cursor = None
         if has_next_page and not early_termination:
             next_pr_cursor = page_info['endCursor']
@@ -1066,12 +1091,15 @@ async def extract_github_prs_commits_reviews_comments(
                 },
                 job_id=job_id,
                 provider='github',
-                last_sync_date=last_sync_date,
+                last_sync_date=last_sync_date,  # 🔑 Used for filtering (old_last_sync_date)
+                new_last_sync_date=extraction_end_date,  # 🔑 Used for job completion (extraction end date)
                 first_item=False,
-                last_item=True,            # 🔑 RELAY: Pass true to next page
-                last_job_item=True         # 🔑 RELAY: Pass true to next page
+                last_item=False,           # 🔑 Not the last item yet - more PRs to process
+                last_job_item=False,       # 🔑 Not job completion yet
+                last_repo=last_repo,       # 🔑 Forward: true if last repository
+                last_pr=last_pr            # 🔑 Forward: true if last PR of last repo
             )
-            logger.info(f"📤 Queued next PR page to extraction queue with last_item=true, last_job_item=true")
+            logger.info(f"📤 Queued next PR page to extraction queue with last_repo={last_repo}, last_pr={last_pr}")
         elif early_termination:
             logger.info(f"🛑 Early termination due to old PRs, not queuing next page")
 
@@ -1082,25 +1110,9 @@ async def extract_github_prs_commits_reviews_comments(
             prs_processed=len(filtered_prs)
         )
 
-        # STEP 7: Send completion message if this is the last PR page (no more pages or early termination)
-        # 🔑 Completion message pattern (same as Jira dev_status):
-        # - raw_data_id=None signals completion
-        # - last_item=True indicates this is the last page
-        # - last_job_item=True indicates job should complete after this
-        if not has_next_page or early_termination:
-            logger.info(f"🎯 [COMPLETION] Sending completion message for PR extraction (last page, no more data)")
-            queue_manager.publish_transform_job(
-                tenant_id=tenant_id,
-                integration_id=integration.id,
-                raw_data_id=None,  # 🔑 Completion message marker
-                data_type='github_prs_commits_reviews_comments',
-                job_id=job_id,
-                provider='github',
-                first_item=False,
-                last_item=True,
-                last_job_item=True  # 🔑 Signal job completion
-            )
-            logger.info(f"✅ Completion message queued to transform")
+        # 🔑 NOTE: Completion message is ONLY sent when there are NO PRs to extract
+        # (see early return above when not prs). This ensures we only send one completion
+        # message per repository extraction, not multiple times.
 
         logger.info(f"✅ PR extraction completed: {len(prs)} PRs processed")
         return {
@@ -1124,11 +1136,15 @@ async def extract_nested_pagination(
     nested_type: str,
     nested_cursor: str,
     last_sync_date: Optional[str] = None,
+    new_last_sync_date: Optional[str] = None,  # 🔑 NEW: Extraction end date for job completion
     nested_index: int = 0,
     total_nested_types: int = 1,
     is_last_nested_type: bool = False,
     last_item: bool = False,  # 🔑 NEW: Received from message
-    last_job_item: bool = False  # 🔑 NEW: Received from message
+    last_job_item: bool = False,  # 🔑 NEW: Received from message
+    last_repo: bool = False,  # 🔑 NEW: True if this is the last repository
+    last_pr: bool = False,     # 🔑 NEW: True if this is the last PR of the last repository
+    token: str = None  # 🔑 Job execution token
 ) -> Dict[str, Any]:
     """
     Extract next page of nested data (commits, reviews, comments) for a specific PR.
@@ -1154,6 +1170,8 @@ async def extract_nested_pagination(
         is_last_nested_type: Whether this is the last nested type to process
         last_item: True if this is the last nested type (from message)
         last_job_item: True if this is the last nested type (from message)
+        last_repo: True if this is the last repository (from message)
+        last_pr: True if this is the last PR of the last repository (from message)
 
     Returns:
         Dictionary with extraction result
@@ -1277,14 +1295,15 @@ async def extract_nested_pagination(
         # 🔑 last_item=true ONLY if:
         #    - This is the last nested type (is_last_nested_type=true)
         #    - AND there are no more pages for this nested type (not has_more)
-        #    - AND we received last_item=true from the message (relay forward)
-        is_last_item = (is_last_nested_type and not has_more and last_item)
+        #    - AND last_pr=true (this is the last PR of the last repo)
+        is_last_item = (is_last_nested_type and not has_more and last_pr)
 
         # 🔑 last_job_item=true ONLY if:
         #    - This is the last nested type (is_last_nested_type=true)
         #    - AND there are no more pages for this nested type (not has_more)
-        #    - AND we received last_job_item=true from the message (relay forward)
-        is_last_job_item = (is_last_nested_type and not has_more and last_job_item)
+        #    - AND last_repo=true (this is the last repository)
+        #    - AND last_pr=true (this is the last PR of the last repo)
+        is_last_job_item = (is_last_nested_type and not has_more and last_repo and last_pr)
 
         # STEP 4: Queue to transform
         queue_manager.publish_transform_job(
@@ -1294,15 +1313,20 @@ async def extract_nested_pagination(
             data_type='github_prs_commits_reviews_comments',
             job_id=job_id,
             provider='github',
+            last_sync_date=last_sync_date,  # 🔑 Used for filtering (old_last_sync_date)
+            new_last_sync_date=new_last_sync_date,  # 🔑 Used for job completion (extraction end date)
             first_item=False,
-            last_item=is_last_item,  # 🔑 True only on last page of last nested type
-            last_job_item=is_last_job_item  # 🔑 True only on last page of last nested type
+            last_item=is_last_item,  # 🔑 True only on last page of last nested type of last PR of last repo
+            last_job_item=is_last_job_item,  # 🔑 True only on last page of last nested type of last PR of last repo
+            last_repo=last_repo,
+            last_pr=last_pr,
+            token=token  # 🔑 Include token in message
         )
 
-        logger.info(f"📤 Queued {nested_type} page to transform (last_item={is_last_item})")
+        logger.info(f"📤 Queued {nested_type} page to transform (last_item={is_last_item}, last_job_item={is_last_job_item})")
 
         # STEP 5: If more pages exist, queue next nested page to extraction
-        # 🔑 RELAY FLAGS: Pass last_item and last_job_item to next nested page
+        # 🔑 RELAY FLAGS: Pass last_repo and last_pr to next nested page
         if has_more:
             queue_manager.publish_extraction_job(
                 tenant_id=tenant_id,
@@ -1319,12 +1343,16 @@ async def extract_nested_pagination(
                 },
                 job_id=job_id,
                 provider='github',
-                last_sync_date=last_sync_date,
+                last_sync_date=last_sync_date,  # 🔑 Used for filtering (old_last_sync_date)
+                new_last_sync_date=new_last_sync_date,  # 🔑 Used for job completion (extraction end date)
                 first_item=False,
-                last_item=last_item,            # 🔑 RELAY: Pass through to next page
-                last_job_item=last_job_item     # 🔑 RELAY: Pass through to next page
+                last_item=False,                # 🔑 Will be set to true only on final nested page
+                last_job_item=False,            # 🔑 Will be set to true only on final nested page
+                last_repo=last_repo,            # 🔑 Forward: true if last repository
+                last_pr=last_pr,                # 🔑 Forward: true if last PR of last repo
+                token=token  # 🔑 CRITICAL: Forward token to nested extraction
             )
-            logger.info(f"📤 Queued next {nested_type} page to extraction queue with last_item={last_item}, last_job_item={last_job_item}")
+            logger.info(f"📤 Queued next {nested_type} page to extraction queue with last_repo={last_repo}, last_pr={last_pr}")
         # 🔑 NOTE: Do NOT send completion message here!
         # Completion message is only sent from main PR extraction when no more PR pages exist.
         # Nested pagination extraction doesn't know about other PRs or PR pages.

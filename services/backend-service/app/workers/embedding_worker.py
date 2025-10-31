@@ -227,7 +227,8 @@ class EmbeddingWorker(BaseWorker):
             provider = message.get('provider')
             first_item = message.get('first_item', False)
             last_item = message.get('last_item', False)
-            last_sync_date = message.get('last_sync_date')
+            last_sync_date = message.get('last_sync_date')  # old_last_sync_date (for filtering)
+            new_last_sync_date = message.get('new_last_sync_date')  # extraction end date (for job completion)
             last_job_item = message.get('last_job_item', False)
 
             # Transform → Embedding specific fields
@@ -240,9 +241,11 @@ class EmbeddingWorker(BaseWorker):
             is_etl_step_message = step_type is not None and table_name is None
             is_individual_entity_message = table_name is not None and external_id is not None
 
-            # Send WebSocket status: embedding worker starting (for any message with first_item=true)
+            # 🔑 Send WebSocket status: embedding worker starting on first_item=true
+            # This applies to ALL messages (ETL step or individual entity)
+            # Every worker sends RUNNING status when receiving first_item=true
             if job_id and first_item:
-                step_name = step_type or table_name or "embedding"
+                step_name = step_type or 'embedding'
                 logger.debug(f"🔄 EMBEDDING WORKER: Starting step {step_name} for job {job_id}")
                 # Send status update using sync helper to avoid event loop conflicts
                 self._send_worker_status_sync(
@@ -256,9 +259,13 @@ class EmbeddingWorker(BaseWorker):
             # Process the embedding message asynchronously
             result = self._process_embedding_message_sync_helper(message)
 
-            # Send WebSocket status: embedding worker finished (for any message with last_item=true)
-            if job_id and last_item:
-                step_name = step_type or table_name or "embedding"
+            # 🔑 Send WebSocket status: embedding worker finished on last_item=true
+            # This applies to ALL messages (ETL step or individual entity)
+            # Every worker sends FINISHED status when receiving last_item=true
+            should_send_finished = last_item
+
+            if job_id and should_send_finished:
+                step_name = step_type or 'embedding'
                 if result:
                     logger.debug(f"✅ EMBEDDING WORKER: Finished step {step_name} for job {job_id}")
                     # Send status update using sync helper to avoid event loop conflicts
@@ -280,12 +287,22 @@ class EmbeddingWorker(BaseWorker):
                         step=step_name
                     )
 
-            # Handle job completion when last_job_item=true
-            if job_id and last_job_item:
-                logger.info(f"🏁 EMBEDDING WORKER: Processing last job item - completing ETL job {job_id}")
+            # Handle job completion when:
+            # - last_job_item=true (Jira steps OR GitHub completion messages with raw_data_id=None)
+            # - OR last_item=true for github_prs_commits_reviews_comments (the LAST GitHub step)
+            # 🔑 IMPORTANT: Only complete job on the LAST step, not on intermediate steps
+            # For GitHub:
+            #   - Step 1 (github_repositories) can send completion with last_job_item=True if no repos
+            #   - Step 2 (github_prs_commits_reviews_comments) completes job when last_item=True
+            should_complete_job = last_job_item or (last_item and step_type == 'github_prs_commits_reviews_comments')
+
+            if job_id and should_complete_job:
+                logger.info(f"🏁 EMBEDDING WORKER: Processing last job item - completing ETL job {job_id} (last_job_item={last_job_item}, last_item={last_item}, step_type={step_type})")
                 if result:
-                    self._complete_etl_job(job_id, tenant_id, last_sync_date)
-                    logger.info(f"✅ EMBEDDING WORKER: ETL job {job_id} marked as FINISHED with date updates")
+                    # 🔑 Use new_last_sync_date (extraction end date) for job completion
+                    # This ensures next run starts from the correct date
+                    self._complete_etl_job(job_id, tenant_id, new_last_sync_date)
+                    logger.info(f"✅ EMBEDDING WORKER: ETL job {job_id} marked as FINISHED with new_last_sync_date={new_last_sync_date}")
                 else:
                     self._update_job_status(job_id, overall_status="FAILED", message="ETL job failed during embedding")
                     logger.error(f"❌ EMBEDDING WORKER: ETL job {job_id} marked as FAILED")
@@ -1568,6 +1585,13 @@ class EmbeddingWorker(BaseWorker):
                 return True
 
         except Exception as e:
+            # Handle race condition: another worker may have inserted the same record
+            from psycopg2.errors import UniqueViolation
+            if isinstance(e.__cause__, UniqueViolation) or 'duplicate key' in str(e).lower():
+                logger.info(f"ℹ️ EMBEDDING WORKER: Record already exists (race condition handled): {entity_type}_{entity_id}")
+                # This is not an error - another worker already inserted it
+                return True
+
             logger.error(f"❌ EMBEDDING WORKER: Error updating bridge table: {e}")
             return False
 

@@ -269,6 +269,43 @@ if job_id and last_item:
 - `/ws/job/transform/{tenant_id}/{job_id}` - Transform worker updates
 - `/ws/job/embedding/{tenant_id}/{job_id}` - Embedding worker updates
 
+### 🔑 Token Mechanism for Job Tracking
+
+Every ETL job uses a **unique token (UUID)** that is generated at job start and forwarded through the entire pipeline for job tracking and correlation:
+
+**Token Lifecycle:**
+1. **Generation**: Token created in `etl/jobs.py` when job starts (stored in `etl_jobs.status->token`)
+2. **Forwarding**: Token included in EVERY message through all stages:
+   - Extraction → Transform queue
+   - Transform → Embedding queue
+   - Nested extraction jobs (GitHub pagination)
+   - Dev status extraction (Jira step 4)
+3. **Usage**: Workers use token for:
+   - Job correlation across logs
+   - Tracking message flow through pipeline
+   - Debugging multi-step jobs
+   - Ensuring message integrity
+
+**Token in Message Structure:**
+```python
+# All messages include token
+message = {
+    'tenant_id': 1,
+    'job_id': 123,
+    'token': '6f0fa209-3c3e-4e21-9bbe-ecff52563b61',  # 🔑 Unique job token
+    'type': 'jira_dev_status',
+    'first_item': True,
+    'last_item': False,
+    # ... other fields
+}
+```
+
+**Critical Rule**: Token MUST be forwarded in ALL queue messages:
+- ✅ Extraction → Transform: Include `token` parameter
+- ✅ Transform → Embedding: Include `token` parameter
+- ✅ Nested extraction (GitHub): Include `token` parameter
+- ✅ Dev status extraction (Jira): Include `token` parameter
+
 **Message Format:**
 ```json
 {
@@ -392,6 +429,7 @@ DEAD_LETTER_QUEUE = {
   "first_item": true,
   "last_item": false,
   "last_job_item": false,
+  "token": "6f0fa209-3c3e-4e21-9bbe-ecff52563b61",
   "issue_id": "2035047",
   "issue_key": "BEX-7997"
 }
@@ -409,20 +447,23 @@ DEAD_LETTER_QUEUE = {
   "first_item": false,
   "last_item": true,
   "last_job_item": true,
+  "token": "6f0fa209-3c3e-4e21-9bbe-ecff52563b61",
   "raw_data_id": 789
 }
 ```
 
-#### Vectorization Message
+#### Embedding Worker Message
 ```json
 {
   "tenant_id": 1,
   "table_name": "work_items",
   "external_id": "PROJ-123",
   "job_id": 123,
+  "type": "jira_dev_status",
   "first_item": false,
   "last_item": true,
-  "last_job_item": true
+  "last_job_item": true,
+  "token": "6f0fa209-3c3e-4e21-9bbe-ecff52563b61"
 }
 ```
 
@@ -431,6 +472,7 @@ DEAD_LETTER_QUEUE = {
 - **Worker Status**: Workers set themselves to "running" on `first_item=true` and "finished" on `last_item=true`
 - **Job Completion**: Only the final message with `last_job_item=true` triggers job completion
 - **Data References**: Extraction→Transform uses `raw_data_id`, Transform→Embedding uses `external_id`
+- **Token Forwarding**: `token` (UUID) is generated at job start and forwarded through ALL stages (extraction → transform → embedding) for job tracking and correlation
 
 ### Queue Workers
 

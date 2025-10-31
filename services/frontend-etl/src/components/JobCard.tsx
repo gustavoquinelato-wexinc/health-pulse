@@ -52,6 +52,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
   const [isJobRunning, setIsJobRunning] = useState<boolean>(false)
   const [finishedTransitionTimer, setFinishedTransitionTimer] = useState<NodeJS.Timeout | null>(null)
   const [resetCountdown, setResetCountdown] = useState<number | null>(null)
+  const [jobToken, setJobToken] = useState<string | null>(null)  // 🔑 Store execution token
   // Track if we're currently resetting to prevent WebSocket from interfering
   const isResettingRef = useRef<boolean>(false)
   // Track reset attempts for exponential backoff: 30s → 60s → 180s
@@ -59,6 +60,10 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
   // Throttle state updates to prevent UI freezing from rapid WebSocket messages
   // Track WebSocket connection to prevent React StrictMode double connections
   const wsConnectionRef = useRef<(() => void) | null>(null)
+  // 🔑 Track when countdown started (local time) to avoid relying on stale job.last_run_finished_at
+  const countdownStartTimeRef = useRef<number | null>(null)
+  // 🔑 Track the initial countdown value (30, 60, 180, or 300 seconds)
+  const initialCountdownRef = useRef<number | null>(null)
 
   // Get display name for step from step data or fallback
   const getStepDisplayName = (stepName: string) => {
@@ -313,31 +318,41 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
   }, [realTimeStatus, job.last_run_finished_at, job.id, user?.tenant_id])
 
   // Reset countdown timer - calculates remaining time based on server time (not local state)
+  // 🔑 Initialize countdown start time when countdown is first set
+  // This ensures the countdown starts AFTER the UI has rendered the FINISHED status
   useEffect(() => {
     if (resetCountdown === null || realTimeStatus !== 'FINISHED') {
       return
     }
 
-    const interval = setInterval(async () => {
+    // Only set the start time once, when the countdown is first initialized
+    if (countdownStartTimeRef.current === null) {
+      countdownStartTimeRef.current = Date.now()
+    }
+  }, [resetCountdown, realTimeStatus])
+
+  // 🔑 Countdown timer effect - decrements every second
+  useEffect(() => {
+    if (resetCountdown === null || realTimeStatus !== 'FINISHED') {
+      return
+    }
+
+    if (countdownStartTimeRef.current === null) {
+      // Should not happen, but fallback just in case
+      return
+    }
+
+    const interval = setInterval(() => {
       try {
-        if (!user?.tenant_id) {
-          return
-        }
-
-        // Query server to get accurate current time
-        const response = await jobsApi.checkJobCompletion(job.id, user.tenant_id)
-        const serverTime = new Date(response.data.server_time).getTime()
-        const finishedTime = job.last_run_finished_at ? new Date(job.last_run_finished_at).getTime() : 0
-        const elapsedSeconds = Math.floor((serverTime - finishedTime) / 1000)
-
-        // Calculate remaining time based on server time (not local state)
-        const remainingSeconds = Math.max(0, 30 - elapsedSeconds)
+        const elapsedSeconds = Math.floor((Date.now() - countdownStartTimeRef.current!) / 1000)
+        const initialCountdown = initialCountdownRef.current || 30
+        const remainingSeconds = Math.max(0, initialCountdown - elapsedSeconds)
 
         if (remainingSeconds <= 0) {
           // Timer expired, trigger reset
           setResetCountdown(0)
         } else {
-          // Update countdown based on server time
+          // Update countdown based on elapsed time
           setResetCountdown(remainingSeconds)
         }
       } catch (error) {
@@ -352,7 +367,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
     }, 1000)
 
     return () => clearInterval(interval)
-  }, [realTimeStatus, job.last_run_finished_at, job.id, user?.tenant_id])
+  }, [realTimeStatus])
 
   // Trigger reset when countdown reaches 0
   useEffect(() => {
@@ -364,6 +379,29 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
           isResettingRef.current = true
 
           if (user?.tenant_id) {
+            // 🔑 Check for remaining messages in embedding queue using token
+            if (jobToken) {
+              try {
+                const remainingCheck = await jobsApi.checkRemainingMessages(job.id, jobToken, user.tenant_id)
+
+                if (remainingCheck.data.has_remaining_messages) {
+                  // Messages still being processed, extend countdown
+                  console.info(`⏱️ Messages still in queue, extending countdown for job ${job.id}`)
+
+                  // Extend countdown based on attempt number (exponential backoff)
+                  const nextCountdown = resetAttemptsRef.current === 0 ? 60 : (resetAttemptsRef.current === 1 ? 180 : 300)
+                  setResetCountdown(nextCountdown)
+                  resetAttemptsRef.current += 1
+                  countdownStartTimeRef.current = Date.now()
+                  initialCountdownRef.current = nextCountdown
+                  return
+                }
+              } catch (error) {
+                console.warn(`Failed to check remaining messages: ${error}`)
+                // Continue with reset anyway
+              }
+            }
+
             // First check if all steps are truly finished
             const completionCheck = await jobsApi.checkJobCompletion(job.id, user.tenant_id)
 
@@ -392,14 +430,22 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
                   transform: { status: 'idle' },
                   embedding: { status: 'idle' },
                   isActive: false,
+                  overall: 'READY',  // 🔑 Set to READY after reset
+                  token: null,  // 🔑 Clear token when resetting
                   steps: stepsData
                 })
+
+                // 🔑 Clear the stored token
+                setJobToken(null)
               }
 
               resetAttemptsRef.current = 0 // Reset attempt counter
+              countdownStartTimeRef.current = null  // 🔑 Clear countdown start time
+              initialCountdownRef.current = null  // 🔑 Clear initial countdown value
               setRealTimeStatus('READY')
               setFinishedTransitionTimer(null)
               setResetCountdown(null)
+              setIsJobRunning(false)  // 🔑 Ensure Run Now button is re-enabled
             } else {
               // Steps are still running, schedule another reset attempt with exponential backoff
               resetAttemptsRef.current += 1
@@ -498,92 +544,55 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
           setJobProgress(data)
           setIsJobRunning(data.isActive)
 
-          // Update overall status based on job progress
-          // IMPORTANT: Once job is FINISHED or FAILED, don't let WebSocket change it back to RUNNING
-          // But still allow step status updates
-          if (data.isActive && (realTimeStatus === 'FINISHED' || realTimeStatus === 'FAILED')) {
-            return
+          // 🔑 Capture the execution token when job starts running
+          if (data.overall === 'RUNNING' && !jobToken && data.token) {
+            setJobToken(data.token)
           }
 
-          if (data.isActive) {
+          // 🔑 CRITICAL FIX: Use the overall status from database directly
+          // Don't try to calculate it from individual worker statuses
+          // The backend already has the correct overall status
+          if (data.overall === 'RUNNING') {
             setRealTimeStatus('RUNNING')
             // Clear any existing finished transition timer
             if (finishedTransitionTimer) {
               clearTimeout(finishedTransitionTimer)
               setFinishedTransitionTimer(null)
             }
-          } else {
-            // Check if all workers finished successfully
-            const allFinished = data.extraction.status === 'finished' &&
-                              data.transform.status === 'finished' &&
-                              data.embedding.status === 'finished'
-            const anyFailed = data.extraction.status === 'failed' ||
-                            data.transform.status === 'failed' ||
-                            data.embedding.status === 'failed'
+          } else if (data.overall === 'FAILED') {
+            setRealTimeStatus('FAILED')
+            // Clear any existing finished transition timer
+            if (finishedTransitionTimer) {
+              clearTimeout(finishedTransitionTimer)
+              setFinishedTransitionTimer(null)
+            }
+          } else if (data.overall === 'FINISHED') {
+            setRealTimeStatus('FINISHED')
 
-            if (anyFailed) {
-              setRealTimeStatus('FAILED')
-              // Clear any existing finished transition timer
-              if (finishedTransitionTimer) {
-                clearTimeout(finishedTransitionTimer)
-                setFinishedTransitionTimer(null)
-              }
-            } else if (allFinished) {
-              setRealTimeStatus('FINISHED')
+            // Clear any existing timer first
+            if (finishedTransitionTimer) {
+              clearTimeout(finishedTransitionTimer)
+            }
 
-              // Clear any existing timer first
-              if (finishedTransitionTimer) {
-                clearTimeout(finishedTransitionTimer)
-              }
-
-              // Hybrid approach: Check if all steps are truly finished
-              // If yes, reset immediately. If no, wait 30 seconds and try again.
-              const checkAndReset = async () => {
-                try {
-                  if (!user?.tenant_id) {
-                    // Fallback: wait 30s and reset anyway
-                    setResetCountdown(30)
-                    setTimeout(performReset, 30000)
-                    return
-                  }
-
-                  // Check if all steps are truly finished
-                  const completionCheck = await jobsApi.checkJobCompletion(job.id, user.tenant_id)
-
-                  if (completionCheck.data.all_finished) {
-                    // All steps are finished, reset immediately
-                    await performReset()
-                  } else {
-                    // Not all steps finished yet, wait 30 seconds and try again
-                    setResetCountdown(30)
-                    const timer = setTimeout(checkAndReset, 30000)
-                    setFinishedTransitionTimer(timer)
-                  }
-                } catch (error) {
-                  // Fallback: wait 30s and reset anyway
-                  setResetCountdown(30)
-                  const timer = setTimeout(performReset, 30000)
-                  setFinishedTransitionTimer(timer)
-                }
-              }
-
-              const performReset = async () => {
-                try {
-                  // Call backend to reset job status in database
-                  if (user?.tenant_id) {
-                    await jobsApi.resetJobStatus(job.id, user.tenant_id)
-                  }
-                } catch (error) {
-                  // Silently handle error
-                }
-                // Update frontend state regardless of backend call result
-                setRealTimeStatus('READY')
-                setFinishedTransitionTimer(null)
-                setResetCountdown(null)
-              }
-
-              // Start the check and reset process
-              checkAndReset()
+            // 🔑 ALWAYS show 30-second countdown when job finishes
+            // If more messages arrive, the countdown will extend up to 300 seconds
+            // This matches the Jira behavior
+            if (resetCountdown === null) {
+              // Only initialize countdown if not already running
+              // 🔑 DO NOT set countdownStartTimeRef here - let the effect do it after render
+              setResetCountdown(30)
+              initialCountdownRef.current = 30  // 🔑 Track initial countdown value
+              resetAttemptsRef.current = 0
+            } else {
+              // Countdown already running - extend it if possible
+              // Extend up to 300 seconds (5 minutes) when new messages arrive
+              setResetCountdown(prev => {
+                if (prev === null) return 30
+                // Extend countdown but cap at 300 seconds
+                const newCountdown = Math.min(prev + 30, 300)
+                initialCountdownRef.current = newCountdown  // 🔑 Update initial countdown value
+                return newCountdown
+              })
             }
           }
         }

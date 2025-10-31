@@ -234,6 +234,9 @@ export const jobsApi = {
   resetJobStatus: async (jobId: number, tenantId: number) => {
     return await etlApi.post(`/jobs/${jobId}/reset?tenant_id=${tenantId}`)
   },
+  checkRemainingMessages: async (jobId: number, token: string, tenantId: number) => {
+    return await etlApi.get(`/jobs/${jobId}/check-remaining-messages?token=${token}&tenant_id=${tenantId}`)
+  },
 }
 
 export { etlApi }

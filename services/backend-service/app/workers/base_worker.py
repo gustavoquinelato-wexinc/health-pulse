@@ -75,8 +75,9 @@ class BaseWorker(ABC):
             while self.running:
                 try:
                     poll_count += 1
-                    if poll_count % 100 == 0:  # Log every 100 polls (about 10 seconds)
-                        logger.info(f"🔄 [WORKER-DEBUG] {self.__class__.__name__} still polling queue {self.queue_name} (poll #{poll_count})")
+                    # Disabled: Log every 100 polls (about 10 seconds) - too noisy
+                    # if poll_count % 100 == 0:
+                    #     logger.info(f"🔄 [WORKER-DEBUG] {self.__class__.__name__} still polling queue {self.queue_name} (poll #{poll_count})")
 
                     # Try to get a message with timeout
                     message = self.queue_manager.get_single_message(self.queue_name, timeout=1.0)

@@ -207,3 +207,66 @@ Step 1 → Step 2 (multiple projects → multiple statuses) → Step 3 (completi
    - Waits 30 seconds, then calls `resetJobStatus`
    - Resets all steps to "idle" and overall to "READY"
 
+---
+
+## Token Forwarding Through Jira Pipeline
+
+Every Jira job uses a **unique token (UUID)** that is generated at job start and forwarded through ALL stages for job tracking and correlation.
+
+### Token Flow for Each Step
+
+**Step 1: jira_projects_and_issue_types**
+```
+Job Start (token generated)
+    ↓ token in message
+Extraction → Transform Queue (line 564 in jira_extraction.py)
+    ↓ token in message
+Transform → Embedding Queue (line 2233 in transform_worker.py)
+    ↓ token in message
+Embedding Worker (line 248, 268 in embedding_worker.py)
+```
+
+**Step 2: jira_statuses_and_relationships**
+```
+Extraction → Transform Queue (line 668 in jira_extraction.py)
+    ↓ token in message
+Transform → Embedding Queue (line 2233 in transform_worker.py)
+    ↓ token in message
+Embedding Worker (line 248, 268 in embedding_worker.py)
+```
+
+**Step 3: jira_issues_with_changelogs**
+```
+Extraction → Transform Queue (line 906 in jira_extraction.py)
+    ↓ token in message
+Transform → Embedding Queue (line 2233 in transform_worker.py)
+    ↓ token in message
+Embedding Worker (line 248, 268 in embedding_worker.py)
+```
+
+**Step 4: jira_dev_status (CRITICAL - Must forward token)**
+```
+Extraction (Initial) → Dev Status Extraction (line 1420 in jira_extraction.py)
+    ↓ token in message
+Extraction Worker → Transform Queue (line 490 in extraction_worker.py)
+    ↓ token in message
+Transform → Embedding Queue (line 3684 in transform_worker.py)
+    ↓ token in message
+Embedding Worker (line 248, 268 in embedding_worker.py)
+```
+
+### Critical Implementation Points
+
+1. **jira_extraction.py line 1420**: Must include `token=token` when queuing dev_status extraction
+2. **extraction_worker.py line 490**: Must include `token=message.get('token')` when publishing to transform
+3. **transform_worker.py line 3676**: Must extract token from message: `token = message.get('token')`
+4. **transform_worker.py line 3684**: Must include `token=token` when calling `_queue_entities_for_embedding()`
+
+### Token Verification
+
+To verify token is properly forwarded:
+1. Check logs for token value in first message
+2. Verify same token appears in all subsequent messages
+3. Confirm token is present in embedding worker logs
+4. Token should NOT become `None` at any stage
+

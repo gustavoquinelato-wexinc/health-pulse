@@ -26,15 +26,18 @@ def verify_internal_auth(request: Request):
     internal_secret = settings.ETL_INTERNAL_SECRET
     provided = request.headers.get("X-Internal-Auth")
 
+    logger.info(f"🔐 Internal auth check: provided={provided}, secret_configured={bool(internal_secret)}")
+
     if not internal_secret:
         logger.warning("ETL_INTERNAL_SECRET not configured; rejecting internal auth request")
         raise HTTPException(status_code=status.HTTP_503_SERVICE_UNAVAILABLE, detail="Internal auth not configured")
     if not provided or provided != internal_secret:
         # Don't log warning here - it's expected to fail when using user auth instead
         # The warning will be logged in verify_hybrid_auth if BOTH auth methods fail
+        logger.info(f"🔐 Internal auth failed: provided={provided}, expected={internal_secret}")
         raise HTTPException(status_code=status.HTTP_401_UNAUTHORIZED, detail="Unauthorized internal request")
 
-    logger.debug("Internal authentication successful")
+    logger.info("🔐 Internal authentication successful")
 
 # Hybrid authentication: accepts both user tokens and service-to-service auth
 async def verify_hybrid_auth(request: Request):
@@ -46,13 +49,13 @@ async def verify_hybrid_auth(request: Request):
     Returns: dict with auth_type ('user' or 'service') and user info if applicable
     """
     # Try service-to-service auth first (X-Internal-Auth header)
-    logger.debug(f"Hybrid auth: Checking headers for X-Internal-Auth")
+    logger.info(f"🔐 Hybrid auth: Checking headers for X-Internal-Auth")
     try:
         verify_internal_auth(request)
-        logger.info("Hybrid auth: Service-to-service authentication successful")
+        logger.info("🔐 Hybrid auth: Service-to-service authentication successful")
         return {"auth_type": "service", "user": None}
     except HTTPException as e:
-        logger.debug(f"Hybrid auth: Service-to-service auth not provided, trying user auth")
+        logger.info(f"🔐 Hybrid auth: Service-to-service auth failed ({e.detail}), trying user auth")
         pass  # Fall through to user auth
 
     # Try user authentication (JWT token)
@@ -538,12 +541,19 @@ async def run_job_now(
         # Set to RUNNING and record start time with proper timezone
         # Use atomic update to prevent race conditions
         from app.core.utils import DateTimeHelper
+        import uuid
         now = DateTimeHelper.now_default()
+        job_token = str(uuid.uuid4())  # 🔑 Generate unique token for this job execution
 
         # Use atomic update with WHERE clause to prevent race conditions
+        # 🔑 Set both overall status to RUNNING and token for this execution
         update_query = text("""
             UPDATE etl_jobs
-            SET status = jsonb_set(status, ARRAY['overall'], to_jsonb('RUNNING'::text)),
+            SET status = jsonb_set(
+                  jsonb_set(status, ARRAY['overall'], to_jsonb('RUNNING'::text)),
+                  ARRAY['token'],
+                  to_jsonb(CAST(:token AS text))
+                ),
                 last_run_started_at = :now,
                 last_updated_at = :now
             WHERE id = :job_id AND tenant_id = :tenant_id AND status->>'overall' != 'RUNNING'
@@ -552,7 +562,8 @@ async def run_job_now(
         rows_updated = db.execute(update_query, {
             'job_id': job_id,
             'tenant_id': tenant_id,
-            'now': now
+            'now': now,
+            'token': job_token  # 🔑 Pass the generated token
         }).rowcount
 
         # If no rows were updated, another process already set it to RUNNING
@@ -560,7 +571,46 @@ async def run_job_now(
             logger.warning(f"⚠️ RACE CONDITION: Job '{job_name}' was already set to RUNNING by another process")
             raise HTTPException(status_code=400, detail=f"Job {job_name} is already running")
 
+        # 🔑 Commit the transaction so the token is visible to other sessions
+        db.commit()
+
         logger.info(f"✅ JOB STARTED: Job '{job_name}' (ID: {job_id}) status changed: {current_status} -> RUNNING")
+
+        # 🔑 Send WebSocket update to notify frontend that job is now RUNNING
+        # This ensures the UI updates immediately when user clicks "Run Now"
+        try:
+            from app.api.websocket_routes import get_job_websocket_manager
+            import asyncio
+
+            # Get the updated job status from database
+            status_query = text("SELECT status FROM etl_jobs WHERE id = :job_id AND tenant_id = :tenant_id")
+            status_result = db.execute(status_query, {'job_id': job_id, 'tenant_id': tenant_id}).fetchone()
+
+            if status_result:
+                job_status = status_result[0]
+
+                # Send WebSocket notification with the updated status
+                job_websocket_manager = get_job_websocket_manager()
+
+                # Create async task to send WebSocket update
+                async def send_ws_update():
+                    await job_websocket_manager.send_job_status_update(
+                        tenant_id=tenant_id,
+                        job_id=job_id,
+                        status_json=job_status
+                    )
+
+                # Run the async function
+                loop = asyncio.new_event_loop()
+                asyncio.set_event_loop(loop)
+                try:
+                    loop.run_until_complete(send_ws_update())
+                    logger.info(f"✅ WebSocket update sent for job {job_id} - status changed to RUNNING")
+                finally:
+                    loop.close()
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to send WebSocket update for job {job_id}: {e}")
+            # Don't fail the request if WebSocket update fails - job is still queued
 
         # Queue job for extraction instead of executing directly
         if job_name.lower() == 'jira':
@@ -782,11 +832,30 @@ async def _queue_jira_extraction_job(tenant_id: int, integration_id: int, job_id
         from app.etl.queue.queue_manager import QueueManager
         from sqlalchemy import text
         from app.core.database import get_database
+        import json
 
         # Note: Job status is already set to 'RUNNING' by run_job_now function
         # No need to update it again here to avoid database locks
 
         logger.info(f"✅ Job {job_id} status updated to QUEUED")
+
+        # 🔑 Fetch the job token from the job status
+        database = get_database()
+        with database.get_read_session_context() as session:
+            query = text("""
+                SELECT status
+                FROM etl_jobs
+                WHERE id = :job_id AND tenant_id = :tenant_id
+            """)
+            result = session.execute(query, {'job_id': job_id, 'tenant_id': tenant_id}).fetchone()
+
+            if result:
+                status = result[0]
+                if isinstance(status, str):
+                    status = json.loads(status)
+                job_token = status.get('token')  # 🔑 Get token from status JSON
+            else:
+                job_token = None
 
         # Queue the first extraction step: projects and issue types
         queue_manager = QueueManager()
@@ -795,7 +864,8 @@ async def _queue_jira_extraction_job(tenant_id: int, integration_id: int, job_id
             'tenant_id': tenant_id,
             'integration_id': integration_id,
             'job_id': job_id,
-            'extraction_type': 'jira_projects_and_issue_types'
+            'extraction_type': 'jira_projects_and_issue_types',
+            'token': job_token  # 🔑 Include token in message
         }
 
         # Get tenant tier and route to tier-based extraction queue
@@ -859,7 +929,9 @@ async def _queue_github_extraction_job(tenant_id: int, integration_id: int, job_
             ).first()
 
             if job and job.has_recovery_checkpoints():
-                checkpoint = json.loads(job.checkpoint_data)
+                # 🔑 checkpoint_data is already a dict (SQLAlchemy deserializes JSONB)
+                # Don't call json.loads() on it
+                checkpoint = job.checkpoint_data if isinstance(job.checkpoint_data, dict) else json.loads(job.checkpoint_data)
 
                 if checkpoint.get('rate_limit_hit'):
                     logger.info(f"🔄 Resuming job {job_id} from rate limit checkpoint")
@@ -898,6 +970,24 @@ async def _queue_github_extraction_job(tenant_id: int, integration_id: int, job_
         # Normal start (no recovery checkpoint)
         logger.info(f"🚀 Starting fresh GitHub extraction for job {job_id}")
 
+        # 🔑 Fetch the job token from the job status
+        database = get_database()
+        with database.get_read_session_context() as session:
+            query = text("""
+                SELECT status
+                FROM etl_jobs
+                WHERE id = :job_id AND tenant_id = :tenant_id
+            """)
+            result = session.execute(query, {'job_id': job_id, 'tenant_id': tenant_id}).fetchone()
+
+            if result:
+                status = result[0]
+                if isinstance(status, str):
+                    status = json.loads(status)
+                job_token = status.get('token')  # 🔑 Get token from status JSON
+            else:
+                job_token = None
+
         # Queue the first extraction step: github_repositories
         queue_manager = QueueManager()
 
@@ -908,7 +998,8 @@ async def _queue_github_extraction_job(tenant_id: int, integration_id: int, job_
             'type': 'github_repositories',  # 🔑 Step 1: Repository discovery
             'provider': 'github',
             'first_item': True,  # First step of 2-step job
-            'last_item': False   # Not the last step - PR extraction comes next
+            'last_item': False,   # Not the last step - PR extraction comes next
+            'token': job_token  # 🔑 Include token in message
             # 🔑 last_sync_date is fetched from database by extraction worker
         }
 
@@ -1333,6 +1424,9 @@ async def reset_job_status(
         # Set overall status to READY
         current_status['overall'] = 'READY'
 
+        # 🔑 Clear the token when resetting to READY
+        current_status['token'] = None
+
         # Update database
         update_query = text("""
             UPDATE etl_jobs
@@ -1362,4 +1456,76 @@ async def reset_job_status(
         db.rollback()
         logger.error(f"Error resetting job {job_id} status: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to reset job status: {str(e)}")
+
+
+@router.get("/jobs/{job_id}/check-remaining-messages")
+async def check_remaining_messages(
+    job_id: int,
+    token: str = Query(..., description="Job execution token"),
+    tenant_id: int = Query(..., description="Tenant ID"),
+    db: Session = Depends(get_db_session),
+    auth_result: dict = Depends(verify_hybrid_auth)
+):
+    """
+    Check if there are remaining messages in the embedding queue for a specific job token.
+
+    This endpoint is used by the frontend countdown timer to verify that all messages
+    have been processed before resetting the job to READY state.
+
+    Args:
+        job_id: ETL job ID
+        token: Job execution token (from status JSON)
+        tenant_id: Tenant ID
+
+    Returns:
+        JSON with has_remaining_messages boolean
+    """
+    try:
+        from app.etl.queue.queue_manager import QueueManager
+
+        # Validate job exists and belongs to tenant
+        query = text("""
+            SELECT status
+            FROM etl_jobs
+            WHERE id = :job_id AND tenant_id = :tenant_id
+        """)
+        result = db.execute(query, {'job_id': job_id, 'tenant_id': tenant_id}).fetchone()
+
+        if not result:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+        # Validate token matches the job's current token
+        status = result[0]
+        if isinstance(status, str):
+            status = json.loads(status)
+
+        job_token = status.get('token')
+        if job_token != token:
+            logger.warning(f"Token mismatch for job {job_id}: provided {token}, expected {job_token}")
+            raise HTTPException(status_code=400, detail="Invalid token for this job")
+
+        # 🔑 Check embedding queue for messages with this token
+        queue_manager = QueueManager()
+        tier = queue_manager._get_tenant_tier(tenant_id)
+        embedding_queue = queue_manager.get_tier_queue_name(tier, 'embedding')
+
+        logger.info(f"🔍 Checking {embedding_queue} for messages with token {token}")
+
+        has_remaining = queue_manager.check_messages_with_token(embedding_queue, token)
+
+        logger.info(f"✅ Queue check complete for job {job_id}: has_remaining_messages={has_remaining}")
+
+        return {
+            "success": True,
+            "job_id": job_id,
+            "token": token,
+            "has_remaining_messages": has_remaining,
+            "message": "remaining messages found" if has_remaining else "no remaining messages"
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error checking remaining messages for job {job_id}: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to check remaining messages: {str(e)}")
 

@@ -377,7 +377,8 @@ class ExtractionWorker(BaseWorker):
                         last_sync_date=message.get('last_sync_date'),  # ✅ Preserved
                         first_item=first_item,    # ✅ Preserved
                         last_item=last_item,      # ✅ Preserved (True)
-                        last_job_item=last_job_item  # ✅ Preserved (True)
+                        last_job_item=last_job_item,  # ✅ Preserved (True)
+                        token=message.get('token')  # 🔑 Include token in message
                     )
                     logger.info(f"🎯 [COMPLETION] Transform completion message published: {success}")
 
@@ -420,7 +421,8 @@ class ExtractionWorker(BaseWorker):
                         last_sync_date=message.get('last_sync_date'),  # ✅ Preserved
                         first_item=first_item,    # ✅ Preserved
                         last_item=last_item,      # ✅ Preserved (True)
-                        last_job_item=last_job_item  # ✅ Preserved (True)
+                        last_job_item=last_job_item,  # ✅ Preserved (True)
+                        token=message.get('token')  # 🔑 Include token in message
                     )
                     logger.info(f"🎯 [COMPLETION] Transform completion message published: {success}")
 
@@ -484,7 +486,8 @@ class ExtractionWorker(BaseWorker):
                 last_sync_date=message.get('last_sync_date'),  # 🔧 Forward last_sync_date from incoming message
                 first_item=first_item,
                 last_item=last_item,
-                last_job_item=last_job_item  # 🎯 Forward the last_job_item flag
+                last_job_item=last_job_item,  # 🎯 Forward the last_job_item flag
+                token=message.get('token')  # 🔑 Include token in message
             )
 
             logger.info(f"🔍 [DEBUG] Published transform job: success={success}, raw_data_id={raw_data_id}, flags=(first={first_item}, last={last_item}, job_end={last_job_item})")
@@ -577,11 +580,12 @@ class ExtractionWorker(BaseWorker):
             # Extract projects and issue types using existing logic
             from app.etl.jira_extraction import _extract_projects_and_issue_types
 
-
+            # 🔑 Extract token from message
+            token = message.get('token')
 
             # Execute extraction (this is async, so we use await)
             result = await _extract_projects_and_issue_types(
-                jira_client, integration_id, tenant_id, job_id=job_id
+                jira_client, integration_id, tenant_id, job_id=job_id, token=token
             )
 
             if result.get('success'):
@@ -651,7 +655,7 @@ class ExtractionWorker(BaseWorker):
             import asyncio
             try:
                 result = asyncio.run(_extract_statuses_and_relationships(
-                    jira_client, integration_id, tenant_id, job_id
+                    jira_client, integration_id, tenant_id, job_id, token=token
                 ))
                 logger.info(f"🔍 [DEBUG] _extract_statuses_and_relationships completed, result: {result}")
             except Exception as async_error:
@@ -747,7 +751,7 @@ class ExtractionWorker(BaseWorker):
 
             # Execute extraction using existing logic
             result = asyncio.run(_extract_issues_with_changelogs(
-                jira_client, integration_id, tenant_id, incremental, job_id
+                jira_client, integration_id, tenant_id, incremental, job_id, token=token
             ))
 
             if result.get('success'):
@@ -1032,7 +1036,7 @@ class ExtractionWorker(BaseWorker):
 
     async def _queue_to_transform(self, tenant_id: int, integration_id: int, job_id: int,
                                  step_type: str, first_item: bool = False, last_item: bool = False,
-                                 bulk_processing: bool = False, external_id: str = None):
+                                 bulk_processing: bool = False, external_id: str = None, token: str = None):
         """Queue data to transform worker with enhanced message structure."""
         try:
             from app.etl.queue.queue_manager import QueueManager
@@ -1050,6 +1054,7 @@ class ExtractionWorker(BaseWorker):
                 'last_item': last_item,
                 'last_sync_date': None,  # Will be set by transform worker
                 'last_job_item': False,  # Will be determined by transform worker
+                'token': token,  # 🔑 Job execution token
                 # Extraction → Transform specific fields
                 'raw_data_id': None,  # Will be set for individual messages
                 'bulk_processing': bulk_processing,
@@ -1188,9 +1193,12 @@ class ExtractionWorker(BaseWorker):
             # Extract repositories using existing logic
             from app.etl.github_extraction import extract_github_repositories
 
+            # 🔑 Extract token from message
+            token = message.get('token')
+
             # Execute extraction
             result = await extract_github_repositories(
-                integration_id, tenant_id, job_id, last_sync_date=last_sync_date
+                integration_id, tenant_id, job_id, last_sync_date=last_sync_date, token=token
             )
 
             # Check for rate limit error

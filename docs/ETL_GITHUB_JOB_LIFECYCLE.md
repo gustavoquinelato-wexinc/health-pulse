@@ -88,7 +88,15 @@ GitHub has 2 steps:
 
 ---
 
-## Flag Handling: first_item, last_item, last_job_item
+## Flag Handling: first_item, last_item, last_job_item, last_repo, last_pr
+
+### **Flag Definitions**
+
+- **first_item**: True only on the first item in a sequence (for WebSocket status updates)
+- **last_item**: True only on the last item in a sequence (for WebSocket status updates and step completion)
+- **last_job_item**: True only when the entire job should complete (triggers job completion in embedding worker)
+- **last_repo**: Internal flag used by extraction worker to track repository boundaries - indicates this is the last repository
+- **last_pr**: Internal flag used by extraction worker to track PR boundaries within the last repository - indicates this is the last PR of the last repository
 
 ### **Extraction Worker**
 
@@ -105,17 +113,23 @@ GitHub has 2 steps:
 
     **Case 1.1.2.1: NO nested pagination needed**
     - Sends last_item=true and last_job_item=true to the LAST PR message to TransformWorker
+    - All other PRs sent with last_item=false, last_job_item=false
 
     **Case 1.1.2.2: YES nested pagination needed**
-    - Sends ALL PR messages to TransformWorker with last_item=false, last_job_item=false
-    - Loops each PR needing nested pagination and queues nested extraction jobs with last_item=false, last_job_item=false
-    - On the LAST nested type (commits → reviews → comments → reviewThreads order):
-      - Sets last_item=true, last_job_item=true on this extraction message
+    - **Loop 1: Queue all PRs to TransformWorker** with last_item=false, last_job_item=false
+    - **Loop 2: Queue nested extraction jobs** for each PR needing nested pagination:
+      - For each nested type (commits → reviews → comments → reviewThreads order):
+        - If this is NOT the last nested type: queue with last_pr=false
+        - If this IS the last nested type: queue with last_pr=true ✅
+      - Example: If PR needs commits, reviews, comments only (no reviewThreads):
+        - commits: last_pr=false
+        - reviews: last_pr=false
+        - comments: last_pr=true ✅ (last nested type)
     - Nested extraction workers continue processing pages and forward flags through
-    - On final nested page: sends last_item=true, last_job_item=true to TransformWorker
+    - On final nested page of final nested type: sends last_item=true, last_job_item=true to TransformWorker
 
   **Case 1.2: NO - More PR pages exist**
-  - Queues next PR page to ExtractionWorker with last_item=true, last_job_item=true
+  - Queues next PR page to ExtractionWorker with last_item=false, last_job_item=false, last_repo=true
   - Sends ALL PR messages in current page to TransformWorker with last_item=false, last_job_item=false
 
 **Case 2: If no more PR pages exist**
@@ -148,22 +162,43 @@ GitHub has 2 steps:
 
 ## Critical Rules for GitHub Step 2
 
-1. **Flag Propagation Through Pipeline**
+1. **last_repo and last_pr Flags (Extraction Worker Internal)**
+   - `last_repo=true` is sent to extraction worker when processing the last repository
+   - `last_pr=true` is set by extraction worker when queuing nested extraction for the last PR that needs nested pagination
+   - These flags help extraction worker determine when to set `last_item=true, last_job_item=true`
+   - **Rule for PR queuing**: Set `last_item=true, last_job_item=true` on last PR ONLY when:
+     - This is the last PR in the page AND no more PR pages
+     - AND no nested pagination needed for ANY PR
+     - AND `last_repo=true` AND `last_pr=true`
+
+2. **Nested Type Ordering**
+   - Nested types are processed in fixed order: commits → reviews → comments → reviewThreads
+   - When queuing nested extraction for a PR needing pagination:
+     - Set `last_pr=false` on all nested types EXCEPT the last one
+     - Set `last_pr=true` ONLY on the final nested type that needs extraction
+   - Example: If PR needs commits and comments only:
+     - commits: `last_pr=false`
+     - comments: `last_pr=true` ✅ (last nested type)
+
+3. **Flag Propagation Through Pipeline**
    - Extraction determines when last_item=true and last_job_item=true based on PR pages and nested pagination
    - Transform forwards these flags to Embedding
    - Embedding uses last_job_item=true to finalize the job
+   - **Status Update Rule**: Only send "finished" status when sending `last_item=true` to transform
 
-2. **Nested Pagination Flag Handling**
-   - Nested extraction workers receive and forward flags through all pages
-   - Only the LAST nested type of the LAST PR gets last_item=true, last_job_item=true
+4. **Nested Pagination Flag Handling**
+   - Nested extraction workers receive `last_pr=true` on the final nested type
+   - When processing nested pages with `last_pr=true`:
+     - If more pages exist: queue next page with `last_item=false, last_job_item=false, last_pr=true`
+     - If final page: send to transform with `last_item=true, last_job_item=true, last_pr=true`
    - This ensures job completion only after all nested data is processed
 
-3. **Multiple PR Pages**
-   - When more PR pages exist: queue next page with last_item=true, last_job_item=true
+5. **Multiple PR Pages**
+   - When more PR pages exist: queue next page with last_item=false, last_job_item=false, last_repo=true
    - Current page PRs sent to Transform with last_item=false, last_job_item=false
    - Extraction continues until reaching final PR page
 
-4. **No Nested Pagination Needed**
+6. **No Nested Pagination Needed**
    - When last PR page has no nested pagination: send last_item=true, last_job_item=true on last PR
    - Job completion happens immediately after Transform and Embedding process this message
 
@@ -235,4 +270,63 @@ Step 1 (repositories) → Step 2 (PRs only, no nested)
    - Checks if all steps are finished (or idle for Step 2 if no PRs)
    - Waits 30 seconds, then calls `resetJobStatus`
    - Resets all steps to "idle" and overall to "READY"
+
+---
+
+## Token Forwarding Through GitHub Pipeline
+
+Every GitHub job uses a **unique token (UUID)** that is generated at job start and forwarded through ALL stages for job tracking and correlation.
+
+### Token Flow for Each Step
+
+**Step 1: github_repositories**
+```
+Job Start (token generated)
+    ↓ token in message
+Extraction → Transform Queue
+    ↓ token in message
+Transform → Embedding Queue
+    ↓ token in message
+Embedding Worker
+```
+
+**Step 2: github_prs_commits_reviews_comments (with nested pagination)**
+```
+Extraction (Initial PR page) → Transform Queue
+    ↓ token in message
+Extraction (Nested pagination) → Extraction Queue (line 1353 in github_extraction.py)
+    ↓ token in message (CRITICAL: Must forward token for nested extraction)
+Extraction Worker (processes nested page)
+    ↓ token in message
+Transform → Embedding Queue
+    ↓ token in message
+Embedding Worker
+```
+
+### Critical Implementation Points
+
+1. **github_extraction.py line 1353**: Must include `token=token` when queuing nested extraction jobs
+   - This ensures nested pagination messages (commits, reviews, comments) maintain the token
+   - Without this, token becomes `None` after first nested page
+
+2. **transform_worker.py line 4155**: Extract token from message for repositories step
+   - `token = message.get('token') if message else None`
+
+3. **transform_worker.py line 4189**: Forward token when queuing repositories to embedding
+   - `token=token` parameter in `publish_embedding_job()`
+
+4. **transform_worker.py line 3676**: Extract token from message for PR/nested step
+   - `token = message.get('token') if message else None`
+
+5. **transform_worker.py line 5077**: Forward token when queuing PR entities to embedding
+   - `token=token` parameter in `publish_embedding_job()`
+
+### Token Verification for GitHub
+
+To verify token is properly forwarded through nested pagination:
+1. Check logs for token value in first repository message
+2. Verify same token appears in first PR message
+3. Verify same token appears in nested extraction messages (commits, reviews, comments)
+4. Confirm token is present in all embedding worker logs
+5. Token should NOT become `None` at any stage, especially during nested pagination
 

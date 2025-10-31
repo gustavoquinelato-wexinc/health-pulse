@@ -158,7 +158,8 @@ def setup_logging(force_reconfigure=False):
             "🚀 ETL JOB STARTED:", "🏁 ETL JOB FINISHED:", "💥 ETL JOB FAILED:",
             "Job scheduler started successfully", "Backend Service started successfully",
             "[WORKER-DEBUG]", "[DEBUG]", "🚀 Starting PREMIUM WORKER POOLS", "✅ ETL workers started",
-            "📨", "🔍", "📋", "✅ Jira extraction job queued", "❌ Failed to publish", "DEBOGA"
+            "📨", "🔍", "📋", "✅ Jira extraction job queued", "❌ Failed to publish", "DEBOGA",
+            "🔐"  # Authentication debug logs
         ]):
             return True
         return False

@@ -250,6 +250,7 @@ class TransformWorker(BaseWorker):
             first_item = message.get('first_item', False)
             last_item = message.get('last_item', False)
             bulk_processing = message.get('bulk_processing', False)
+            token = message.get('token')  # 🔑 Extract token from message
 
             # Send WebSocket status update when first_item=true (worker starting)
             logger.info(f"🔍 [DEBUG] Checking WebSocket conditions: job_id={job_id}, first_item={first_item}")
@@ -294,7 +295,8 @@ class TransformWorker(BaseWorker):
                     last_sync_date=message.get('last_sync_date'),
                     first_item=message.get('first_item', False),  # ✅ Preserved
                     last_item=message.get('last_item', False),    # ✅ Preserved
-                    last_job_item=message.get('last_job_item', False)  # ✅ Preserved
+                    last_job_item=message.get('last_job_item', False),  # ✅ Preserved
+                    token=token  # 🔑 Include token in message
                 )
 
                 logger.info(f"🎯 [COMPLETION] Completion message processed and forwarded to embedding")
@@ -360,7 +362,8 @@ class TransformWorker(BaseWorker):
                     last_sync_date=message.get('last_sync_date'),
                     first_item=message.get('first_item', False),  # ✅ Preserved
                     last_item=message.get('last_item', False),    # ✅ Preserved
-                    last_job_item=message.get('last_job_item', False)  # ✅ Preserved
+                    last_job_item=message.get('last_job_item', False),  # ✅ Preserved
+                    token=message.get('token')  # 🔑 Include token in message
                 )
 
                 logger.info(f"🎯 [COMPLETION] github_prs_commits_reviews_comments completion message processed and forwarded to embedding")
@@ -611,7 +614,8 @@ class TransformWorker(BaseWorker):
                     message_type='jira_projects_and_issue_types',
                     provider=provider,
                     last_sync_date=last_sync_date,
-                    last_job_item=last_job_item
+                    last_job_item=last_job_item,
+                    token=token  # 🔑 Include token in message
                 )
 
                 # ✅ Send transform worker "finished" status when last_item=True
@@ -1838,7 +1842,8 @@ class TransformWorker(BaseWorker):
                             last_sync_date=last_sync_date,
                             first_item=is_first,
                             last_item=is_last,
-                            last_job_item=last_job_item
+                            last_job_item=last_job_item,
+                            token=token  # 🔑 Include token in message
                         )
 
                     logger.info(f"🎯 [STATUSES] Queued {len(status_external_ids)} distinct statuses for embedding")
@@ -2107,7 +2112,8 @@ class TransformWorker(BaseWorker):
         message_type: str = None,
         integration_id: int = None,
         first_item: bool = False,
-        last_job_item: bool = False
+        last_job_item: bool = False,
+        token: str = None  # 🔑 Job execution token
     ):
         """
         Queue entities for embedding by publishing messages to embedding queue.
@@ -2134,7 +2140,8 @@ class TransformWorker(BaseWorker):
                 first_item=first_item,
                 last_item=last_item,
                 last_job_item=last_job_item,  # 🎯 Signal job completion
-                step_type=message_type
+                step_type=message_type,
+                token=token  # 🔑 Include token in message
             )
 
             if success:
@@ -2160,7 +2167,8 @@ class TransformWorker(BaseWorker):
                     first_item=first_item,    # ✅ Preserved
                     last_item=last_item,      # ✅ Preserved (True)
                     last_job_item=last_job_item,  # ✅ Preserved
-                    step_type=message_type
+                    step_type=message_type,
+                    token=token  # 🔑 Include token in message
                 )
                 logger.info(f"🎯 [COMPLETION] Embedding completion message published: {success}")
             else:
@@ -2221,7 +2229,8 @@ class TransformWorker(BaseWorker):
                     first_item=first_item and (queued_count == 0),  # Use passed first_item flag
                     last_item=last_item and (queued_count == len(entities) - 1),  # Use passed last_item flag
                     last_job_item=last_job_item,  # Forward last_job_item flag from incoming message
-                    step_type=message_type  # Pass the step type (e.g., 'jira_projects_and_issue_types')
+                    step_type=message_type,  # Pass the step type (e.g., 'jira_projects_and_issue_types')
+                    token=token  # 🔑 Include token in message
                 )
 
                 if success:
@@ -2243,7 +2252,8 @@ class TransformWorker(BaseWorker):
         message_type: str,
         provider: str,
         last_sync_date: str,
-        last_job_item: bool
+        last_job_item: bool,
+        token: str = None  # 🔑 Job execution token
     ):
         """
         Queue ALL active projects and wits for embedding (not just changed ones).
@@ -2299,7 +2309,8 @@ class TransformWorker(BaseWorker):
                     last_sync_date=last_sync_date,
                     first_item=is_first,
                     last_item=is_last,
-                    last_job_item=last_job_item
+                    last_job_item=last_job_item,
+                    token=token  # 🔑 Include token in message
                 )
 
             # Queue ALL wits (not just changed ones)
@@ -2318,7 +2329,8 @@ class TransformWorker(BaseWorker):
                     last_sync_date=last_sync_date,
                     first_item=is_first,
                     last_item=is_last,
-                    last_job_item=last_job_item
+                    last_job_item=last_job_item,
+                    token=token  # 🔑 Include token in message
                 )
 
             logger.info(f"✅ Successfully queued {total_entities} entities for embedding")
@@ -3049,7 +3061,8 @@ class TransformWorker(BaseWorker):
             self._queue_entities_for_embedding(tenant_id, 'work_items', issues_to_update, job_id,
                                              message_type='jira_issues_with_changelogs', integration_id=integration_id,
                                              provider=provider, last_sync_date=last_sync_date,
-                                             first_item=first_item, last_item=last_item, last_job_item=last_job_item)
+                                             first_item=first_item, last_item=last_item, last_job_item=last_job_item,
+                                             token=token)  # 🔑 Include token in message
 
         return len(issues_to_insert) + len(issues_to_update)
 
@@ -3660,13 +3673,15 @@ class TransformWorker(BaseWorker):
             last_job_item = message.get('last_job_item', False) if message else False
             provider = message.get('provider') if message else 'jira'
             last_sync_date = message.get('last_sync_date') if message else None
+            token = message.get('token') if message else None  # 🔑 Extract token from message
 
             # Queue for embedding - forward first_item/last_item/last_job_item flags from incoming message
             if inserted_links:
                 self._queue_entities_for_embedding(tenant_id, 'work_items_prs_links', inserted_links, job_id,
                                                  message_type='jira_dev_status', integration_id=integration_id,
                                                  provider=provider, last_sync_date=last_sync_date,
-                                                 first_item=first_item, last_item=last_item, last_job_item=last_job_item)
+                                                 first_item=first_item, last_item=last_item, last_job_item=last_job_item,
+                                                 token=token)  # 🔑 Forward token to embedding
 
         return len(pr_links_to_insert)
 
@@ -4138,6 +4153,9 @@ class TransformWorker(BaseWorker):
                 repo_last_item = is_last_repo_in_loop
                 repo_last_job_item = is_last_repo_in_loop and last_job_item
 
+                # 🔑 Extract token from message
+                token = message.get('token') if message else None
+
                 self.queue_manager.publish_embedding_job(
                     tenant_id=tenant_id,
                     table_name='repositories',
@@ -4149,7 +4167,8 @@ class TransformWorker(BaseWorker):
                     last_sync_date=last_sync_date,
                     first_item=repo_first_item,
                     last_item=repo_last_item,
-                    last_job_item=repo_last_job_item
+                    last_job_item=repo_last_job_item,
+                    token=token  # 🔑 Include token in message
                 )
 
                 logger.debug(f"Queued repo {repo_info['full_name']} for embedding (first={repo_first_item}, last={repo_last_item}, job_end={repo_last_job_item})")
@@ -4188,6 +4207,14 @@ class TransformWorker(BaseWorker):
                 pr_last_sync_date = message.get('last_sync_date') if message else None
                 logger.info(f"📅 Passing last_sync_date to PR extraction: {pr_last_sync_date}")
 
+                # 🔑 Get first_item flag from incoming message to pass to first PR extraction
+                incoming_first_item = message.get('first_item', False) if message else False
+                logger.info(f"📋 Incoming first_item flag: {incoming_first_item}")
+
+                # 🔑 Get token from message to pass to PR extraction
+                token = message.get('token') if message else None
+                logger.info(f"🔑 Passing token to PR extraction: {token}")
+
                 # Extract repositories from the original batch payload
                 repos_from_payload = raw_batch_data.get('repositories', [])
 
@@ -4221,6 +4248,9 @@ class TransformWorker(BaseWorker):
                             is_first_repo = (i == 0)
                             is_last_repo = (i == len(repos_from_payload) - 1)
 
+                            # 🔑 first_item=True ONLY on first repo AND if incoming message had first_item=True
+                            pr_first_item = is_first_repo and incoming_first_item
+
                             self.queue_manager.publish_extraction_job(
                                 tenant_id=tenant_id,
                                 integration_id=integration_id,
@@ -4235,9 +4265,12 @@ class TransformWorker(BaseWorker):
                                 job_id=job_id,
                                 provider='github',
                                 last_sync_date=pr_last_sync_date,  # 🔑 Pass from repository extraction
-                                first_item=is_first_repo,
+                                first_item=pr_first_item,  # 🔑 True only on first repo AND if incoming had first_item=True
                                 last_item=is_last_repo,
-                                last_job_item=False  # 🔑 Never set to True here - completion message sent from PR extraction
+                                last_job_item=False,  # 🔑 Never set to True here - completion message sent from PR extraction
+                                last_repo=is_last_repo,  # 🔑 Signal to Step 2 that this is the last repository
+                                last_pr=is_last_repo,  # 🔑 Signal to Step 2 that this is the last PR (will be set properly in extraction)
+                                token=token  # 🔑 Include token in message
                             )
 
                             logger.debug(f"Queued PR extraction for repo {full_name} (first={is_first_repo}, last={is_last_repo})")
@@ -4431,6 +4464,8 @@ class TransformWorker(BaseWorker):
                 # 🔑 Queue to embedding AFTER commit so entities are visible in database
                 if entities_to_queue_after_commit:
                     last_item_flag = message.get('last_item', False) if message else False
+                    last_job_item_flag = message.get('last_job_item', False) if message else False
+                    token = message.get('token') if message else None  # 🔑 Extract token from message
 
                     self._queue_github_nested_entities_for_embedding(
                         tenant_id=tenant_id,
@@ -4440,9 +4475,10 @@ class TransformWorker(BaseWorker):
                         provider=message.get('provider', 'github') if message else 'github',
                         first_item=message.get('first_item', False) if message else False,
                         last_item=last_item_flag,  # 🔑 Use actual flag from message
-                        last_job_item=last_item_flag,  # 🔑 When last_item=True, also set last_job_item=True for job completion
+                        last_job_item=last_job_item_flag,  # 🔑 Only True if this is the last message in the entire job
                         message=message,
-                        entities_to_queue=entities_to_queue_after_commit  # 🔑 Pass list of entities with external IDs
+                        entities_to_queue=entities_to_queue_after_commit,  # 🔑 Pass list of entities with external IDs
+                        token=token  # 🔑 Include token in message
                     )
 
                     # ✅ Send transform worker "finished" status when last_item=True
@@ -4589,6 +4625,7 @@ class TransformWorker(BaseWorker):
 
                 # 🔑 Queue to embedding AFTER commit so entities are visible in database
                 if entities_to_queue:
+                    token = message.get('token') if message else None  # 🔑 Extract token from message
                     self._queue_github_nested_entities_for_embedding(
                         tenant_id=tenant_id,
                         pr_external_id=pr_id,
@@ -4599,7 +4636,8 @@ class TransformWorker(BaseWorker):
                         last_item=message.get('last_item', False) if message else False,  # 🔑 Use actual flag from message
                         last_job_item=message.get('last_job_item', False) if message else False,
                         message=message,
-                        entities_to_queue=entities_to_queue
+                        entities_to_queue=entities_to_queue,
+                        token=token  # 🔑 Include token in message
                     )
 
                 return True
@@ -4939,7 +4977,8 @@ class TransformWorker(BaseWorker):
         last_item: bool = False,
         last_job_item: bool = False,
         message: Dict[str, Any] = None,
-        entities_to_queue: List[Dict[str, Any]] = None
+        entities_to_queue: List[Dict[str, Any]] = None,
+        token: str = None  # 🔑 Job execution token
     ) -> None:
         """
         Queue GitHub entities for embedding using individual entity messages.
@@ -4963,6 +5002,10 @@ class TransformWorker(BaseWorker):
             if not entities_to_queue:
                 logger.warning(f"⚠️ No entities provided for queuing GitHub entities")
                 return
+
+            # 🔑 Extract both dates from message
+            last_sync_date = message.get('last_sync_date') if message else None  # old_last_sync_date (for filtering)
+            new_last_sync_date = message.get('new_last_sync_date') if message else None  # extraction end date (for job completion)
 
             logger.info(f"📤 Queuing {len(entities_to_queue)} GitHub entities for embedding (first_item={first_item}, last_item={last_item}, last_job_item={last_job_item})")
 
@@ -4988,10 +5031,13 @@ class TransformWorker(BaseWorker):
                     job_id=job_id,
                     integration_id=integration_id,
                     provider=provider,
+                    last_sync_date=last_sync_date,  # 🔑 Used for filtering (old_last_sync_date)
+                    new_last_sync_date=new_last_sync_date,  # 🔑 Used for job completion (extraction end date)
                     first_item=entity_first_item,  # Only first entity has first_item=true
                     last_item=entity_last_item,  # Only last entity has last_item=true
                     last_job_item=entity_last_job_item,  # Only last entity signals job completion
-                    step_type='github_prs_commits_reviews_comments'  # 🔑 ETL step name for status tracking
+                    step_type='github_prs_commits_reviews_comments',  # 🔑 ETL step name for status tracking
+                    token=token  # 🔑 Include token in message
                 )
 
             logger.info(f"📤 Queued {len(entities_to_queue)} GitHub entities for embedding")

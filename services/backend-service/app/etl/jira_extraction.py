@@ -451,7 +451,8 @@ async def _extract_projects_and_issue_types(
     jira_client: JiraAPIClient,
     integration_id: int,
     tenant_id: int,
-    job_id: int = None  # ETL job ID for tracking
+    job_id: int = None,  # ETL job ID for tracking
+    token: str = None  # 🔑 Job execution token
 ) -> Dict[str, Any]:
     """Extract projects and issue types (Phase 2.1 / Step 1)."""
 
@@ -559,7 +560,8 @@ async def _extract_projects_and_issue_types(
             provider=provider_name,
             last_sync_date=job_start_time.isoformat(),
             first_item=True,  # ✅ Single message (first)
-            last_item=True   # ✅ Single message (last)
+            last_item=True,   # ✅ Single message (last)
+            token=token  # 🔑 Include token in message
         )
 
         if success:
@@ -580,7 +582,8 @@ async def _extract_statuses_and_relationships(
     jira_client: JiraAPIClient,
     integration_id: int,
     tenant_id: int,
-    job_id: int = None
+    job_id: int = None,
+    token: str = None  # 🔑 Job execution token
 ) -> Dict[str, Any]:
     """Extract statuses and project relationships (Phase 2.2 / Step 2)."""
 
@@ -661,7 +664,8 @@ async def _extract_statuses_and_relationships(
                     job_id=job_id,
                     provider='jira',
                     first_item=first_item,
-                    last_item=last_item
+                    last_item=last_item,
+                    token=token  # 🔑 Include token in message
                 )
 
                 logger.info(f"🔍 [DEBUG] Transform job queued: {queued} for project {project_key}")
@@ -898,7 +902,8 @@ async def _extract_issues_with_changelogs_for_complete_job(
                 integration_id=integration_id,
                 raw_data_id=raw_data_id,
                 data_type='jira_issues_with_changelogs',  # 🔧 Use correct step name for UI
-                provider='jira'
+                provider='jira',
+                token=token  # 🔑 Include token in message
             )
 
             if success:
@@ -1131,7 +1136,8 @@ async def _extract_issues_with_changelogs(
     integration_id: int,
     tenant_id: int,
     incremental: bool,
-    job_id: int = None
+    job_id: int = None,
+    token: str = None  # 🔑 Job execution token
 ) -> Dict[str, Any]:
     """
     Extract issues with changelogs from Jira and store in raw_extraction_data.
@@ -1305,7 +1311,8 @@ async def _extract_issues_with_changelogs(
             last_sync_date=last_sync_date_str,
             first_item=True,
             last_item=True,
-            last_job_item=True  # 🎯 Complete the job since no data to process
+            last_job_item=True,  # 🎯 Complete the job since no data to process
+            token=token  # 🔑 Include token in message
         )
 
         if success:
@@ -1352,7 +1359,8 @@ async def _extract_issues_with_changelogs(
             last_sync_date=last_sync_date_str,
             first_item=first_item,
             last_item=last_item,
-            last_job_item=last_job_item  # 🎯 Complete job if no dev_status needed
+            last_job_item=last_job_item,  # 🎯 Complete job if no dev_status needed
+            token=token  # 🔑 Include token in message
         )
 
         if success:
@@ -1408,7 +1416,8 @@ async def _extract_issues_with_changelogs(
                 last_sync_date=last_sync_date_str,
                 first_item=first_item,
                 last_item=last_item,
-                last_job_item=last_job_item
+                last_job_item=last_job_item,
+                token=token  # 🔑 Forward token to dev_status extraction
             )
 
             if success:
