@@ -4478,7 +4478,7 @@ class TransformWorker(BaseWorker):
                         last_job_item=last_job_item_flag,  # 🔑 Only True if this is the last message in the entire job
                         message=message,
                         entities_to_queue=entities_to_queue_after_commit,  # 🔑 Pass list of entities with external IDs
-                        token=token  # 🔑 Include token in message
+                        token=token  # 🔑 Forward token to embedding
                     )
 
                     # ✅ Send transform worker "finished" status when last_item=True
@@ -4637,7 +4637,7 @@ class TransformWorker(BaseWorker):
                         last_job_item=message.get('last_job_item', False) if message else False,
                         message=message,
                         entities_to_queue=entities_to_queue,
-                        token=token  # 🔑 Include token in message
+                        token=token  # 🔑 Forward token to embedding
                     )
 
                 return True
