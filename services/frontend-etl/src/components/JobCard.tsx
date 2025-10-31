@@ -567,22 +567,15 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
               setFinishedTransitionTimer(null)
             }
           } else if (data.overall === 'FINISHED') {
-            setRealTimeStatus('FINISHED')
-
-            // Clear any existing timer first
-            if (finishedTransitionTimer) {
-              clearTimeout(finishedTransitionTimer)
-            }
-
-            // 🔑 ALWAYS show 30-second countdown when job finishes
-            // If more messages arrive, the countdown will extend up to 300 seconds
-            // This matches the Jira behavior
+            // 🔑 CRITICAL: Set countdown FIRST before updating status
+            // This ensures the countdown effect triggers immediately
             if (resetCountdown === null) {
               // Only initialize countdown if not already running
-              // 🔑 DO NOT set countdownStartTimeRef here - let the effect do it after render
               setResetCountdown(30)
               initialCountdownRef.current = 30  // 🔑 Track initial countdown value
               resetAttemptsRef.current = 0
+              // 🔑 Set countdown start time immediately when FINISHED is received
+              countdownStartTimeRef.current = Date.now()
             } else {
               // Countdown already running - extend it if possible
               // Extend up to 300 seconds (5 minutes) when new messages arrive
@@ -593,6 +586,14 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
                 initialCountdownRef.current = newCountdown  // 🔑 Update initial countdown value
                 return newCountdown
               })
+            }
+
+            // 🔑 THEN update the status to FINISHED
+            setRealTimeStatus('FINISHED')
+
+            // Clear any existing timer first
+            if (finishedTransitionTimer) {
+              clearTimeout(finishedTransitionTimer)
             }
           }
         }
