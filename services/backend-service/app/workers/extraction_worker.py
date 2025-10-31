@@ -625,6 +625,7 @@ class ExtractionWorker(BaseWorker):
             tenant_id = message.get('tenant_id')
             integration_id = message.get('integration_id')
             job_id = message.get('job_id')
+            token = message.get('token')  # 🔑 Extract token from message
 
             logger.info(f"🏁 [DEBUG] Starting Jira statuses and relationships extraction for tenant {tenant_id}, integration {integration_id}, job {job_id}")
 
@@ -726,6 +727,7 @@ class ExtractionWorker(BaseWorker):
             integration_id = message.get('integration_id')
             job_id = message.get('job_id')
             incremental = message.get('incremental', True)
+            token = message.get('token')  # 🔑 Extract token from message
 
             logger.info(f"🏁 [DEBUG] Starting Jira issues with changelogs extraction for tenant {tenant_id}, integration {integration_id}, job {job_id}")
 
