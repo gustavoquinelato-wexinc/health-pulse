@@ -4246,8 +4246,10 @@ class TransformWorker(BaseWorker):
                             is_first_repo = (i == 0)
                             is_last_repo = (i == len(repos_from_payload) - 1)
 
-                            # 🔑 first_item=True ONLY on first repo AND if incoming message had first_item=True
-                            pr_first_item = is_first_repo and incoming_first_item
+                            # 🔑 CRITICAL: first_item=True ONLY on FIRST repo of Step 2
+                            # This ensures embedding worker receives first_item=True on first message
+                            # regardless of whether Step 1 had first_item=True
+                            pr_first_item = is_first_repo
 
                             self.queue_manager.publish_extraction_job(
                                 tenant_id=tenant_id,
@@ -4263,7 +4265,7 @@ class TransformWorker(BaseWorker):
                                 job_id=job_id,
                                 provider='github',
                                 last_sync_date=pr_last_sync_date,  # 🔑 Pass from repository extraction
-                                first_item=pr_first_item,  # 🔑 True only on first repo AND if incoming had first_item=True
+                                first_item=pr_first_item,  # 🔑 True ONLY on first repo (Step 2 start)
                                 last_item=is_last_repo,
                                 last_job_item=False,  # 🔑 Never set to True here - completion message sent from PR extraction
                                 last_repo=is_last_repo,  # 🔑 Signal to Step 2 that this is the last repository
