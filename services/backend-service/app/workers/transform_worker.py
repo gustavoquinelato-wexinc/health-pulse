@@ -262,6 +262,8 @@ class TransformWorker(BaseWorker):
                 try:
                     loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "running", message_type))
                     logger.info(f"✅ [DEBUG] WebSocket status update completed for {message_type}")
+                except Exception as ws_error:
+                    logger.error(f"❌ [DEBUG] Error sending WebSocket status: {ws_error}")
                 finally:
                     loop.close()
             else:
@@ -271,140 +273,99 @@ class TransformWorker(BaseWorker):
             logger.info(f"🔍 [DEBUG] Checking completion message: raw_data_id={raw_data_id}, message_type={message_type}")
             if raw_data_id is None:
                 logger.info(f"🎯 [COMPLETION] raw_data_id is None - processing completion message for {message_type}")
+
+                # Send WebSocket status: transform worker finished (on last_item)
+                if last_item and job_id:
+                    import asyncio
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "finished", message_type))
+                        logger.info(f"✅ Transform worker marked as finished for {message_type} (completion message)")
+                    except Exception as e:
+                        logger.error(f"❌ Error sending finished status for {message_type}: {e}")
+                    finally:
+                        loop.close()
+
+                # Handle different completion message types
                 if message_type == 'jira_dev_status':
-                    logger.info(f"🎯 [COMPLETION] Received completion message for jira_dev_status (no data to process)")
-
-                    # Send WebSocket status: transform worker finished (on last_item)
-                    if last_item and job_id:
-                        import asyncio
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        try:
-                            loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "finished", "jira_dev_status"))
-                            logger.info(f"✅ Transform worker marked as finished for jira_dev_status (completion message)")
-                        finally:
-                            loop.close()
-
-                    # Send completion message to embedding queue (preserve all flags)
+                    logger.info(f"🎯 [COMPLETION] Processing jira_dev_status completion message")
                     self._queue_entities_for_embedding(
                         tenant_id=tenant_id,
                         table_name='work_items_prs_links',
                         entities=[],  # Empty list - signals completion
                         job_id=job_id,
                         message_type='jira_dev_status',
-                    integration_id=integration_id,
-                    provider=message.get('provider', 'jira'),
-                    last_sync_date=message.get('last_sync_date'),
-                    first_item=message.get('first_item', False),  # ✅ Preserved
-                    last_item=message.get('last_item', False),    # ✅ Preserved
-                    last_job_item=message.get('last_job_item', False),  # ✅ Preserved
-                    token=token  # 🔑 Include token in message
-                )
+                        integration_id=integration_id,
+                        provider=message.get('provider', 'jira'),
+                        last_sync_date=message.get('last_sync_date'),
+                        first_item=message.get('first_item', False),  # ✅ Preserved
+                        last_item=message.get('last_item', False),    # ✅ Preserved
+                        last_job_item=message.get('last_job_item', False),  # ✅ Preserved
+                        token=token  # 🔑 Include token in message
+                    )
+                    logger.info(f"🎯 [COMPLETION] jira_dev_status completion message forwarded to embedding")
+                    return True
 
-                logger.info(f"🎯 [COMPLETION] Completion message processed and forwarded to embedding")
-                return True
+                elif message_type == 'jira_issues_with_changelogs':
+                    logger.info(f"🎯 [COMPLETION] Processing jira_issues_with_changelogs completion message")
+                    self._queue_entities_for_embedding(
+                        tenant_id=tenant_id,
+                        table_name='work_items',
+                        entities=[],  # Empty list - signals completion
+                        job_id=job_id,
+                        message_type='jira_issues_with_changelogs',
+                        integration_id=integration_id,
+                        provider=message.get('provider', 'jira'),
+                        last_sync_date=message.get('last_sync_date'),
+                        first_item=message.get('first_item', False),  # ✅ Preserved
+                        last_item=message.get('last_item', False),    # ✅ Preserved
+                        last_job_item=message.get('last_job_item', False)  # ✅ Preserved
+                    )
+                    logger.info(f"🎯 [COMPLETION] jira_issues_with_changelogs completion message forwarded to embedding")
+                    return True
 
-            # 🎯 HANDLE COMPLETION MESSAGE: jira_issues_with_changelogs with raw_data_id=None
-            if raw_data_id is None and message_type == 'jira_issues_with_changelogs':
-                logger.info(f"🎯 [COMPLETION] Received completion message for jira_issues_with_changelogs (no data to process)")
+                elif message_type == 'github_repositories':
+                    logger.info(f"🎯 [COMPLETION] Processing github_repositories completion message")
+                    self.queue_manager.publish_embedding_job(
+                        tenant_id=tenant_id,
+                        table_name='repositories',
+                        external_id=None,  # 🔑 Completion message marker
+                        job_id=job_id,
+                        step_type='github_repositories',
+                        integration_id=integration_id,
+                        provider=message.get('provider', 'github'),
+                        last_sync_date=message.get('last_sync_date'),
+                        first_item=message.get('first_item', False),  # ✅ Preserved
+                        last_item=message.get('last_item', False),    # ✅ Preserved
+                        last_job_item=message.get('last_job_item', False),  # ✅ Preserved
+                        token=message.get('token')  # 🔑 Include token in message
+                    )
+                    logger.info(f"🎯 [COMPLETION] github_repositories completion message forwarded to embedding")
+                    return True
 
-                # Send WebSocket status: transform worker finished (on last_item)
-                if last_item and job_id:
-                    import asyncio
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    try:
-                        loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "finished", "jira_issues_with_changelogs"))
-                        logger.info(f"✅ Transform worker marked as finished for jira_issues_with_changelogs (completion message)")
-                    finally:
-                        loop.close()
+                elif message_type in ('github_prs', 'github_prs_nested', 'github_prs_commits_reviews_comments'):
+                    logger.info(f"🎯 [COMPLETION] Processing {message_type} completion message")
+                    self.queue_manager.publish_embedding_job(
+                        tenant_id=tenant_id,
+                        table_name='prs',
+                        external_id=None,  # 🔑 Completion message marker
+                        job_id=job_id,
+                        step_type='github_prs_commits_reviews_comments',
+                        integration_id=integration_id,
+                        provider=message.get('provider', 'github'),
+                        last_sync_date=message.get('last_sync_date'),
+                        first_item=message.get('first_item', False),  # ✅ Preserved
+                        last_item=message.get('last_item', False),    # ✅ Preserved
+                        last_job_item=message.get('last_job_item', False),  # ✅ Preserved
+                        token=message.get('token')  # 🔑 Include token in message
+                    )
+                    logger.info(f"🎯 [COMPLETION] {message_type} completion message forwarded to embedding")
+                    return True
 
-                # Send completion message to embedding queue (preserve all flags)
-                self._queue_entities_for_embedding(
-                    tenant_id=tenant_id,
-                    table_name='work_items',
-                    entities=[],  # Empty list - signals completion
-                    job_id=job_id,
-                    message_type='jira_issues_with_changelogs',
-                    integration_id=integration_id,
-                    provider=message.get('provider', 'jira'),
-                    last_sync_date=message.get('last_sync_date'),
-                    first_item=message.get('first_item', False),  # ✅ Preserved
-                    last_item=message.get('last_item', False),    # ✅ Preserved
-                    last_job_item=message.get('last_job_item', False)  # ✅ Preserved
-                )
-
-                logger.info(f"🎯 [COMPLETION] jira_issues_with_changelogs completion message processed and forwarded to embedding")
-                return True
-
-            logger.info(f"🔍 [DEBUG] Before github_repositories check: raw_data_id={raw_data_id}, message_type={message_type}")
-            # 🎯 HANDLE COMPLETION MESSAGE: github_repositories with raw_data_id=None
-            if raw_data_id is None and message_type == 'github_repositories':
-                logger.info(f"🎯 [COMPLETION] Received completion message for github_repositories (no data to process)")
-
-                # Send WebSocket status: transform worker finished (on last_item)
-                if last_item and job_id:
-                    import asyncio
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    try:
-                        loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "finished", "github_repositories"))
-                        logger.info(f"✅ Transform worker marked as finished for github_repositories (completion message)")
-                    finally:
-                        loop.close()
-
-                # Send completion message to embedding queue (preserve all flags)
-                self.queue_manager.publish_embedding_job(
-                    tenant_id=tenant_id,
-                    table_name='repositories',
-                    external_id=None,  # 🔑 Completion message marker
-                    job_id=job_id,
-                    step_type='github_repositories',
-                    integration_id=integration_id,
-                    provider=message.get('provider', 'github'),
-                    last_sync_date=message.get('last_sync_date'),
-                    first_item=message.get('first_item', False),  # ✅ Preserved
-                    last_item=message.get('last_item', False),    # ✅ Preserved
-                    last_job_item=message.get('last_job_item', False),  # ✅ Preserved
-                    token=message.get('token')  # 🔑 Include token in message
-                )
-
-                logger.info(f"🎯 [COMPLETION] github_repositories completion message processed and forwarded to embedding")
-                return True
-
-            # 🎯 HANDLE COMPLETION MESSAGE: github_prs, github_prs_nested, or github_prs_commits_reviews_comments with raw_data_id=None
-            if raw_data_id is None and message_type in ('github_prs', 'github_prs_nested', 'github_prs_commits_reviews_comments'):
-                logger.info(f"🎯 [COMPLETION] Received completion message for {message_type} (no data to process)")
-
-                # Send WebSocket status: transform worker finished (on last_item)
-                if last_item and job_id:
-                    import asyncio
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    try:
-                        loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "finished", "github_prs_commits_reviews_comments"))
-                        logger.info(f"✅ Transform worker marked as finished for github_prs_commits_reviews_comments (completion message)")
-                    finally:
-                        loop.close()
-
-                # Send completion message to embedding queue (preserve all flags)
-                self.queue_manager.publish_embedding_job(
-                    tenant_id=tenant_id,
-                    table_name='prs',
-                    external_id=None,  # 🔑 Completion message marker
-                    job_id=job_id,
-                    step_type='github_prs_commits_reviews_comments',
-                    integration_id=integration_id,
-                    provider=message.get('provider', 'github'),
-                    last_sync_date=message.get('last_sync_date'),
-                    first_item=message.get('first_item', False),  # ✅ Preserved
-                    last_item=message.get('last_item', False),    # ✅ Preserved
-                    last_job_item=message.get('last_job_item', False),  # ✅ Preserved
-                    token=message.get('token')  # 🔑 Include token in message
-                )
-
-                logger.info(f"🎯 [COMPLETION] github_prs_commits_reviews_comments completion message processed and forwarded to embedding")
-                return True
+                else:
+                    logger.warning(f"⚠️ [COMPLETION] Unknown completion message type: {message_type}")
+                    return False
 
             # Check required fields - for bulk processing, raw_data_id is optional
             if bulk_processing:
