@@ -270,7 +270,7 @@ class TransformWorker(BaseWorker):
                 logger.info(f"❌ [DEBUG] WebSocket conditions not met: job_id={job_id}, first_item={first_item}")
 
             # 🎯 HANDLE COMPLETION MESSAGE: raw_data_id=None signals completion (check BEFORE field validation)
-            logger.info(f"🔍 [DEBUG] Checking completion message: raw_data_id={raw_data_id}, message_type={message_type}")
+            logger.info(f"🔍 [DEBUG] Checking completion message: raw_data_id={raw_data_id} (type={type(raw_data_id).__name__}), message_type={message_type}")
             if raw_data_id is None:
                 logger.info(f"🎯 [COMPLETION] raw_data_id is None - processing completion message for {message_type}")
 
