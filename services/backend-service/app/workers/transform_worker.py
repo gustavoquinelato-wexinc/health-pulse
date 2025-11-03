@@ -335,6 +335,40 @@ class TransformWorker(BaseWorker):
                 logger.info(f"🎯 [COMPLETION] jira_issues_with_changelogs completion message processed and forwarded to embedding")
                 return True
 
+            # 🎯 HANDLE COMPLETION MESSAGE: github_repositories with raw_data_id=None
+            if raw_data_id is None and message_type == 'github_repositories':
+                logger.info(f"🎯 [COMPLETION] Received completion message for github_repositories (no data to process)")
+
+                # Send WebSocket status: transform worker finished (on last_item)
+                if last_item and job_id:
+                    import asyncio
+                    loop = asyncio.new_event_loop()
+                    asyncio.set_event_loop(loop)
+                    try:
+                        loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "finished", "github_repositories"))
+                        logger.info(f"✅ Transform worker marked as finished for github_repositories (completion message)")
+                    finally:
+                        loop.close()
+
+                # Send completion message to embedding queue (preserve all flags)
+                self.queue_manager.publish_embedding_job(
+                    tenant_id=tenant_id,
+                    table_name='repositories',
+                    external_id=None,  # 🔑 Completion message marker
+                    job_id=job_id,
+                    step_type='github_repositories',
+                    integration_id=integration_id,
+                    provider=message.get('provider', 'github'),
+                    last_sync_date=message.get('last_sync_date'),
+                    first_item=message.get('first_item', False),  # ✅ Preserved
+                    last_item=message.get('last_item', False),    # ✅ Preserved
+                    last_job_item=message.get('last_job_item', False),  # ✅ Preserved
+                    token=message.get('token')  # 🔑 Include token in message
+                )
+
+                logger.info(f"🎯 [COMPLETION] github_repositories completion message processed and forwarded to embedding")
+                return True
+
             # 🎯 HANDLE COMPLETION MESSAGE: github_prs, github_prs_nested, or github_prs_commits_reviews_comments with raw_data_id=None
             if raw_data_id is None and message_type in ('github_prs', 'github_prs_nested', 'github_prs_commits_reviews_comments'):
                 logger.info(f"🎯 [COMPLETION] Received completion message for {message_type} (no data to process)")
