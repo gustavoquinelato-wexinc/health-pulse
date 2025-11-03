@@ -1333,14 +1333,17 @@ async def extract_nested_pagination(
         # 🔑 last_item=true ONLY if:
         #    - This is the last nested type (is_last_nested_type=true)
         #    - AND there are no more pages for this nested type (not has_more)
+        #    - AND last_repo=true (this is the last repository)
         #    - AND last_pr=true (this is the last PR of the last repo)
-        is_last_item = (is_last_nested_type and not has_more and last_pr)
+        # 🔑 NOTE: last_item signals "end of step" - only true on FINAL item of ENTIRE job
+        is_last_item = (is_last_nested_type and not has_more and last_repo and last_pr)
 
         # 🔑 last_job_item=true ONLY if:
         #    - This is the last nested type (is_last_nested_type=true)
         #    - AND there are no more pages for this nested type (not has_more)
         #    - AND last_repo=true (this is the last repository)
         #    - AND last_pr=true (this is the last PR of the last repo)
+        # 🔑 NOTE: last_job_item signals "end of job" - same conditions as last_item for nested extraction
         is_last_job_item = (is_last_nested_type and not has_more and last_repo and last_pr)
 
         # STEP 4: Queue to transform

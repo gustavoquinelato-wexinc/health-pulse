@@ -367,7 +367,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
     }, 1000)
 
     return () => clearInterval(interval)
-  }, [realTimeStatus])
+  }, [realTimeStatus, resetCountdown])  // 🔑 Include resetCountdown to restart interval when countdown changes
 
   // Trigger reset when countdown reaches 0
   useEffect(() => {
@@ -388,12 +388,20 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
                   // Messages still being processed, extend countdown
                   console.info(`⏱️ Messages still in queue, extending countdown for job ${job.id}`)
 
-                  // Extend countdown based on attempt number (exponential backoff)
-                  const nextCountdown = resetAttemptsRef.current === 0 ? 60 : (resetAttemptsRef.current === 1 ? 180 : 300)
+                  // Extend countdown based on attempt number (exponential backoff: 30s → 60s → 180s → 300s)
+                  let nextCountdown: number
+                  if (resetAttemptsRef.current === 0) {
+                    nextCountdown = 60  // 2nd check: 60s
+                  } else if (resetAttemptsRef.current === 1) {
+                    nextCountdown = 180  // 3rd check: 180s (3 minutes)
+                  } else {
+                    nextCountdown = 300  // 4th+ check: 300s (5 minutes)
+                  }
+
                   setResetCountdown(nextCountdown)
                   resetAttemptsRef.current += 1
-                  countdownStartTimeRef.current = Date.now()
-                  initialCountdownRef.current = nextCountdown
+                  countdownStartTimeRef.current = Date.now()  // 🔑 Reset start time for new countdown
+                  initialCountdownRef.current = nextCountdown  // 🔑 Track new countdown duration
                   return
                 }
               } catch (error) {
