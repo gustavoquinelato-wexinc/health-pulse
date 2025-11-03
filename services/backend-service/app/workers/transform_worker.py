@@ -268,7 +268,9 @@ class TransformWorker(BaseWorker):
                 logger.info(f"❌ [DEBUG] WebSocket conditions not met: job_id={job_id}, first_item={first_item}")
 
             # 🎯 HANDLE COMPLETION MESSAGE: raw_data_id=None signals completion (check BEFORE field validation)
+            logger.info(f"🔍 [DEBUG] Checking completion message: raw_data_id={raw_data_id}, message_type={message_type}")
             if raw_data_id is None:
+                logger.info(f"🎯 [COMPLETION] raw_data_id is None - processing completion message for {message_type}")
                 if message_type == 'jira_dev_status':
                     logger.info(f"🎯 [COMPLETION] Received completion message for jira_dev_status (no data to process)")
 
@@ -335,6 +337,7 @@ class TransformWorker(BaseWorker):
                 logger.info(f"🎯 [COMPLETION] jira_issues_with_changelogs completion message processed and forwarded to embedding")
                 return True
 
+            logger.info(f"🔍 [DEBUG] Before github_repositories check: raw_data_id={raw_data_id}, message_type={message_type}")
             # 🎯 HANDLE COMPLETION MESSAGE: github_repositories with raw_data_id=None
             if raw_data_id is None and message_type == 'github_repositories':
                 logger.info(f"🎯 [COMPLETION] Received completion message for github_repositories (no data to process)")
