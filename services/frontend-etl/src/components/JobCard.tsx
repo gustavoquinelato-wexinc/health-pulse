@@ -750,17 +750,24 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
 
         {/* Right: Action Buttons */}
         <div className="flex items-center space-x-2">
-          {/* Run Now Button - Only show when active */}
+          {/* Run Now Button - Only show when active and status is READY or FAILED */}
           {job.active && (
             <button
               onClick={() => onRunNow(job.id)}
               className={`px-4 py-2 rounded-lg flex items-center space-x-2 transition-all ${
-                isJobRunning || realTimeStatus === 'RUNNING' || realTimeStatus === 'RATE_LIMIT_REACHED'
+                realTimeStatus !== 'READY' && realTimeStatus !== 'FAILED'
                   ? 'btn-crud-create opacity-50 cursor-not-allowed'
                   : 'btn-crud-create hover:opacity-90'
               }`}
-              title={realTimeStatus === 'RATE_LIMIT_REACHED' ? 'Job will resume automatically when rate limit resets' : realTimeStatus === 'RUNNING' ? 'Job is currently running' : 'Manually trigger job'}
-              disabled={isJobRunning || realTimeStatus === 'RUNNING' || realTimeStatus === 'RATE_LIMIT_REACHED'}
+              title={
+                realTimeStatus === 'RUNNING' ? 'Job is currently running' :
+                realTimeStatus === 'FINISHED' ? 'Job is resetting, please wait...' :
+                realTimeStatus === 'RATE_LIMIT_REACHED' ? 'Job will resume automatically when rate limit resets' :
+                realTimeStatus === 'FAILED' ? 'Manually trigger job' :
+                realTimeStatus === 'READY' ? 'Manually trigger job' :
+                'Job status is not ready'
+              }
+              disabled={realTimeStatus !== 'READY' && realTimeStatus !== 'FAILED'}
             >
               <Play className="w-4 h-4" />
               <span>Run Now</span>
