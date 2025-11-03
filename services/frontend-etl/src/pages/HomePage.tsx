@@ -118,7 +118,8 @@ export default function HomePage() {
     if (!user) return
 
     try {
-      // First, set the job status to RUNNING and clear next_run in the frontend
+      // 🔑 CRITICAL: Disable button IMMEDIATELY to prevent multiple clicks
+      // This is the FIRST action taken to ensure no race conditions
       setJobs(prevJobs =>
         prevJobs.map(job =>
           job.id === jobId
@@ -136,6 +137,15 @@ export default function HomePage() {
       )
 
     } catch (err: any) {
+      // 🔑 On error, revert the job status back to READY so user can retry
+      setJobs(prevJobs =>
+        prevJobs.map(job =>
+          job.id === jobId
+            ? { ...job, status: 'READY' }
+            : job
+        )
+      )
+
       // Show error toast (no console.error - toast is enough)
       showError(
         'Failed to run job',

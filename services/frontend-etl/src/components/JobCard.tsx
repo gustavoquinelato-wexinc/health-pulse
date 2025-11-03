@@ -754,8 +754,12 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
           {job.active && (
             <button
               onClick={() => onRunNow(job.id)}
-              className="btn-crud-create px-4 py-2 rounded-lg flex items-center space-x-2"
-              title={realTimeStatus === 'RATE_LIMIT_REACHED' ? 'Job will resume automatically when rate limit resets' : 'Manually trigger job'}
+              className={`px-4 py-2 rounded-lg flex items-center space-x-2 transition-all ${
+                isJobRunning || realTimeStatus === 'RUNNING' || realTimeStatus === 'RATE_LIMIT_REACHED'
+                  ? 'btn-crud-create opacity-50 cursor-not-allowed'
+                  : 'btn-crud-create hover:opacity-90'
+              }`}
+              title={realTimeStatus === 'RATE_LIMIT_REACHED' ? 'Job will resume automatically when rate limit resets' : realTimeStatus === 'RUNNING' ? 'Job is currently running' : 'Manually trigger job'}
               disabled={isJobRunning || realTimeStatus === 'RUNNING' || realTimeStatus === 'RATE_LIMIT_REACHED'}
             >
               <Play className="w-4 h-4" />
