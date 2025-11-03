@@ -4195,89 +4195,9 @@ class TransformWorker(BaseWorker):
                 finally:
                     loop.close()
 
-            # 🔑 CRITICAL: Queue next extraction step (github_prs_commits_reviews_comments) after all repos are processed
-            # This triggers Step 2 of the 2-step GitHub job
-            # Extract repos from the ORIGINAL PAYLOAD (not from database) - these are already filtered by date range
-            if job_id and last_item:
-                logger.info(f"🔀 [GITHUB] Step 1 complete - Queuing Step 2: github_prs_commits_reviews_comments extraction")
-
-                # 🔑 Get last_sync_date from message to pass to PR extraction
-                pr_last_sync_date = message.get('last_sync_date') if message else None
-                logger.info(f"📅 Passing last_sync_date to PR extraction: {pr_last_sync_date}")
-
-                # 🔑 Get first_item flag from incoming message to pass to first PR extraction
-                incoming_first_item = message.get('first_item', False) if message else False
-                logger.info(f"📋 Incoming first_item flag: {incoming_first_item}")
-
-                # 🔑 Get token from message to pass to PR extraction
-                token = message.get('token') if message else None
-                logger.info(f"🔑 Passing token to PR extraction: {token}")
-
-                # Extract repositories from the original batch payload
-                repos_from_payload = raw_batch_data.get('repositories', [])
-
-                if repos_from_payload:
-                    logger.info(f"📦 Queuing PR extraction for {len(repos_from_payload)} repositories from payload")
-
-                    # Queue PR extraction for each repository from the original payload
-                    for i, repo_data in enumerate(repos_from_payload):
-                        # Get repo info from the payload
-                        repo_id = repo_data.get('id')  # GitHub API ID
-                        repo_name = repo_data.get('name')
-                        repo_owner = repo_data.get('owner', {}).get('login') if isinstance(repo_data.get('owner'), dict) else repo_data.get('owner')
-                        full_name = repo_data.get('full_name')
-
-                        # Query database to get internal repository ID for this external_id
-                        with database.get_read_session_context() as db:
-                            repo_query = text("""
-                                SELECT id FROM repositories
-                                WHERE tenant_id = :tenant_id AND integration_id = :integration_id
-                                  AND external_id = :external_id AND active = true
-                                LIMIT 1
-                            """)
-                            repo_result = db.execute(repo_query, {
-                                'tenant_id': tenant_id,
-                                'integration_id': integration_id,
-                                'external_id': str(repo_id)
-                            }).fetchone()
-
-                        if repo_result:
-                            internal_repo_id = repo_result[0]
-                            is_first_repo = (i == 0)
-                            is_last_repo = (i == len(repos_from_payload) - 1)
-
-                            # 🔑 CRITICAL: first_item=True ONLY on FIRST repo of Step 2
-                            # This ensures embedding worker receives first_item=True on first message
-                            # regardless of whether Step 1 had first_item=True
-                            pr_first_item = is_first_repo
-
-                            self.queue_manager.publish_extraction_job(
-                                tenant_id=tenant_id,
-                                integration_id=integration_id,
-                                extraction_type='github_prs_commits_reviews_comments',
-                                extraction_data={
-                                    'repository_id': internal_repo_id,
-                                    'owner': repo_owner,
-                                    'repo_name': repo_name,
-                                    'full_name': full_name,
-                                    'pr_cursor': None  # Start from first page
-                                },
-                                job_id=job_id,
-                                provider='github',
-                                last_sync_date=pr_last_sync_date,  # 🔑 Pass from repository extraction
-                                first_item=pr_first_item,  # 🔑 True ONLY on first repo (Step 2 start)
-                                last_item=is_last_repo,
-                                last_job_item=False,  # 🔑 Never set to True here - completion message sent from PR extraction
-                                last_repo=is_last_repo,  # 🔑 Signal to Step 2 that this is the last repository
-                                last_pr=is_last_repo,  # 🔑 Signal to Step 2 that this is the last PR (will be set properly in extraction)
-                                token=token  # 🔑 Include token in message
-                            )
-
-                            logger.debug(f"Queued PR extraction for repo {full_name} (first={is_first_repo}, last={is_last_repo})")
-                        else:
-                            logger.warning(f"Repository with external_id {repo_id} not found in database")
-                else:
-                    logger.warning(f"No repositories found in payload for tenant {tenant_id}, integration {integration_id}")
+            # 🔑 NOTE: Step 2 extraction queuing is handled by Extraction worker (Step 1)
+            # Transform worker only processes and inserts data, does NOT queue next extraction steps
+            # This maintains unidirectional flow: Extract → Transform → Embed
 
             logger.info(f"✅ [GITHUB] Processed {len(repositories)} repositories and queued for embedding")
             return True
@@ -4376,11 +4296,34 @@ class TransformWorker(BaseWorker):
                 logger.info(f"  PR has {len(pr_commits)} commits, {len(pr_reviews)} reviews, {len(pr_comments)} comments, {len(pr_review_threads)} review threads")
                 logger.info(f"  Has pending nested data: {has_pending_nested}")
 
-                # 🔑 Extract repository_id from raw_json (stored during extraction)
-                repository_id = raw_json.get('repository_id')
-                if not repository_id:
-                    logger.error(f"Repository ID not found in raw_data for PR {pr_id}")
+                # 🔑 Look up repository_id by full_name (stored in raw_data from extraction)
+                full_name = raw_json.get('full_name')
+                owner = raw_json.get('owner')
+                repo_name = raw_json.get('repo_name')
+
+                if not full_name and (not owner or not repo_name):
+                    logger.error(f"full_name or owner/repo_name not found in raw_data for PR {pr_id}")
                     return False
+
+                # Use full_name if available, otherwise construct from owner/repo_name
+                lookup_full_name = full_name or f"{owner}/{repo_name}"
+
+                # Query repository by full_name
+                repo_lookup_query = text("""
+                    SELECT id FROM repositories
+                    WHERE full_name = :full_name AND tenant_id = :tenant_id
+                """)
+                repo_result = db.execute(repo_lookup_query, {
+                    'full_name': lookup_full_name,
+                    'tenant_id': tenant_id
+                }).fetchone()
+
+                if not repo_result:
+                    logger.error(f"Repository {lookup_full_name} not found in database for PR {pr_id}")
+                    return False
+
+                repository_id = repo_result[0]
+                logger.info(f"✅ Looked up repository_id={repository_id} for {lookup_full_name}")
 
                 # Insert PR data
                 pr_db_id = self._insert_pr(db, pr_data, tenant_id, integration_id, repository_id, raw_data_external_id)

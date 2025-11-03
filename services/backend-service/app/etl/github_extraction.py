@@ -205,6 +205,8 @@ async def extract_github_repositories(
 
         # Process each repository as a separate raw_extraction_data record
         if all_repositories:
+            # 🔑 LOOP 1: Extract all repos and queue to transform
+            logger.info(f"📋 [LOOP 1] Queuing {len(all_repositories)} repositories to transform")
             for i, repo in enumerate(all_repositories):
                 is_first = (i == 0)
                 is_last = (i == len(all_repositories) - 1)
@@ -255,9 +257,46 @@ async def extract_github_repositories(
                 if not success:
                     logger.error(f"Failed to queue repository {i+1}/{len(all_repositories)} for transform")
 
+            logger.info(f"✅ [LOOP 1 COMPLETE] All {len(all_repositories)} repositories queued to transform")
+
+            # 🔑 LOOP 2: Queue each repository to Step 2 extraction (NO database query)
+            logger.info(f"📋 [LOOP 2] Queuing {len(all_repositories)} repositories to Step 2 extraction")
+            for i, repo in enumerate(all_repositories):
+                is_first = (i == 0)
+                is_last = (i == len(all_repositories) - 1)
+
+                # Queue PR extraction for this repository
+                # 🔑 NO database query - use repo data directly from extraction
+                logger.info(f"Queuing PR extraction for repository {i+1}/{len(all_repositories)}: {repo.get('full_name')} (first={is_first}, last={is_last})")
+
+                success_pr = queue_manager.publish_extraction_job(
+                    tenant_id=tenant_id,
+                    integration_id=integration_id,
+                    extraction_type='github_prs_commits_reviews_comments',
+                    extraction_data={
+                        'owner': repo.get('owner', {}).get('login') if isinstance(repo.get('owner'), dict) else repo.get('owner'),
+                        'repo_name': repo.get('name'),
+                        'full_name': repo.get('full_name'),
+                        'integration_id': integration_id  # 🔑 Pass integration_id to avoid DB query
+                    },
+                    job_id=job_id,
+                    provider='github',
+                    last_sync_date=last_sync_date,  # 🔑 Pass for incremental sync
+                    new_last_sync_date=end_date,
+                    token=token,  # 🔑 Include token in message
+                    first_item=is_first,              # 🔑 True only on first repo
+                    last_item=is_last,                # 🔑 True only on last repo
+                    last_job_item=False,              # 🔑 Never set to True here - job continues
+                    last_repo=is_last                 # 🔑 True only on last repo - signals to Step 2
+                )
+
+                if not success_pr:
+                    logger.error(f"Failed to queue PR extraction for repository {i+1}/{len(all_repositories)}")
+
+            logger.info(f"✅ [LOOP 2 COMPLETE] All {len(all_repositories)} repositories queued to Step 2 extraction")
             total_repositories = len(all_repositories)
 
-        logger.info(f"✅ [GITHUB] Repository extraction completed: {total_repositories} repositories found and queued for transform")
+        logger.info(f"✅ [GITHUB] Repository extraction completed: {total_repositories} repositories found and queued for transform and PR extraction")
 
         # 🎯 Handle case when NO repositories were found
         if total_repositories == 0:
@@ -638,6 +677,7 @@ async def github_extraction_worker(message: Dict[str, Any]) -> Dict[str, Any]:
     """
     try:
         tenant_id = message.get('tenant_id')
+        integration_id = message.get('integration_id')  # 🔑 Extract from message
         job_id = message.get('job_id')
         repository_id = message.get('repository_id')
 
@@ -652,11 +692,14 @@ async def github_extraction_worker(message: Dict[str, Any]) -> Dict[str, Any]:
             logger.info(f"🔄 [ROUTER] Routing to extract_nested_recovery (PR {message.get('pr_id')})")
             result = await extract_nested_recovery(
                 tenant_id=tenant_id,
+                integration_id=integration_id,  # 🔑 For service-to-service auth
                 job_id=job_id,
-                repository_id=repository_id,
                 pr_id=message.get('pr_id'),
                 pr_node_id=message.get('pr_node_id'),
                 nested_nodes_status=message.get('nested_nodes_status', {}),
+                owner=message.get('owner'),  # 🔑 Pass repo info from message
+                repo_name=message.get('repo_name'),
+                full_name=message.get('full_name'),
                 last_sync_date=message.get('last_sync_date')
             )
         # ROUTER: Check if this is nested data continuation
@@ -665,11 +708,14 @@ async def github_extraction_worker(message: Dict[str, Any]) -> Dict[str, Any]:
             logger.info(f"🔀 [ROUTER] Routing to extract_nested_pagination (nested_type={message.get('nested_type')})")
             result = await extract_nested_pagination(
                 tenant_id=tenant_id,
+                integration_id=integration_id,  # 🔑 For service-to-service auth
                 job_id=job_id,
-                repository_id=repository_id,
                 pr_node_id=message['pr_node_id'],
                 nested_type=message['nested_type'],
                 nested_cursor=message['nested_cursor'],
+                owner=message.get('owner'),  # 🔑 Pass repo info from message
+                repo_name=message.get('repo_name'),
+                full_name=message.get('full_name'),
                 last_sync_date=message.get('last_sync_date'),  # Forward from message
                 new_last_sync_date=message.get('new_last_sync_date'),  # 🔑 Forward from message
                 nested_index=message.get('nested_index', 0),  # 🔑 Forward nested type info
@@ -677,6 +723,8 @@ async def github_extraction_worker(message: Dict[str, Any]) -> Dict[str, Any]:
                 is_last_nested_type=message.get('is_last_nested_type', False),  # 🔑 Forward nested type info
                 last_item=message.get('last_item', False),  # 🔑 Forward flag from message
                 last_job_item=message.get('last_job_item', False),  # 🔑 Forward flag from message
+                last_repo=message.get('last_repo', False),  # 🔑 Forward flag from message
+                last_pr=message.get('last_pr', False),  # 🔑 Forward flag from message
                 token=token  # 🔑 Include token in message
             )
         else:
@@ -685,14 +733,15 @@ async def github_extraction_worker(message: Dict[str, Any]) -> Dict[str, Any]:
             logger.info(f"🔀 [ROUTER] Routing to extract_github_prs_commits_reviews_comments ({'fresh' if is_fresh else 'next'} page)")
             result = await extract_github_prs_commits_reviews_comments(
                 tenant_id=tenant_id,
+                integration_id=integration_id,  # 🔑 For service-to-service auth
                 job_id=job_id,
-                repository_id=repository_id,
                 pr_cursor=message.get('pr_cursor'),  # None for fresh, value for next
                 owner=message.get('owner'),  # From message (avoids DB lookup)
                 repo_name=message.get('repo_name'),  # From message (avoids DB lookup)
                 first_item=message.get('first_item', False),  # 🔑 Forward from message
                 last_item=message.get('last_item', False),  # Forward from message
-                last_sync_date=message.get('last_sync_date'),  # Forward from message
+                last_sync_date=message.get('last_sync_date'),  # 🔑 Old sync date for filtering
+                new_last_sync_date=message.get('new_last_sync_date'),  # 🔑 New sync date for job completion
                 token=token,  # 🔑 Include token in message
                 last_repo=message.get('last_repo', False),  # 🔑 Forward from message
                 last_pr=message.get('last_pr', False)  # 🔑 Forward from message
@@ -709,14 +758,15 @@ async def github_extraction_worker(message: Dict[str, Any]) -> Dict[str, Any]:
 
 async def extract_github_prs_commits_reviews_comments(
     tenant_id: int,
+    integration_id: int,
     job_id: int,
-    repository_id: int,
     pr_cursor: Optional[str] = None,
     owner: Optional[str] = None,
     repo_name: Optional[str] = None,
     first_item: bool = False,  # 🔑 NEW: Received from message
     last_item: bool = False,
-    last_sync_date: Optional[str] = None,
+    last_sync_date: Optional[str] = None,  # 🔑 Old sync date for filtering
+    new_last_sync_date: Optional[str] = None,  # 🔑 New sync date for job completion
     last_repo: bool = False,  # 🔑 NEW: True if this is the last repository
     last_pr: bool = False,     # 🔑 NEW: True if this is the last PR of the last repository
     token: str = None  # 🔑 Job execution token
@@ -758,7 +808,7 @@ async def extract_github_prs_commits_reviews_comments(
     """
     try:
         is_fresh = (pr_cursor is None)
-        logger.info(f"🚀 Starting GitHub PR extraction - {'Fresh' if is_fresh else 'Next'} page for repo {repository_id}")
+        logger.info(f"🚀 Starting GitHub PR extraction - {'Fresh' if is_fresh else 'Next'} page for {owner}/{repo_name}")
 
         # 🔑 IMPORTANT: Capture current date at start of extraction
         # This is the END date of the search range and will be used as new_last_sync_date
@@ -769,42 +819,24 @@ async def extract_github_prs_commits_reviews_comments(
         from app.core.config import AppConfig
         from app.etl.queue.queue_manager import QueueManager
 
-        # If owner and repo_name not provided, fetch from database
+        # 🔑 owner and repo_name should ALWAYS be provided from message (no DB query for data)
         if not owner or not repo_name:
-            with get_read_session_context() as db:
-                from app.models.unified_models import Repository
-                repository = db.query(Repository).filter(
-                    Repository.id == repository_id,
-                    Repository.tenant_id == tenant_id
-                ).first()
+            logger.error(f"owner and repo_name must be provided in message for PR extraction")
+            return {'success': False, 'error': 'owner and repo_name required in message'}
 
-            if not repository:
-                logger.error(f"Repository {repository_id} not found")
-                return {'success': False, 'error': 'Repository not found'}
+        logger.info(f"✅ Using owner and repo_name from message: {owner}/{repo_name}")
+        logger.info(f"📅 Using last_sync_date for filtering: {last_sync_date}")
 
-            owner, repo_name = repository.full_name.split('/', 1)
-        else:
-            logger.info(f"✅ Using owner and repo_name from message: {owner}/{repo_name}")
-
-        # Get integration and GitHub token
+        # 🔑 Get integration (service-to-service, not data processing)
         with get_read_session_context() as db:
-            from app.models.unified_models import Repository
-            repository = db.query(Repository).filter(
-                Repository.id == repository_id,
-                Repository.tenant_id == tenant_id
+            integration = db.query(Integration).filter(
+                Integration.id == integration_id,
+                Integration.tenant_id == tenant_id
             ).first()
 
-            if repository:
-                integration = db.query(Integration).filter(
-                    Integration.id == repository.integration_id,
-                    Integration.tenant_id == tenant_id
-                ).first()
-            else:
-                integration = None
-
-        if not integration or not integration.password:
-            logger.error(f"Integration not found or token missing")
-            return {'success': False, 'error': 'Integration not found or token missing'}
+            if not integration or not integration.password:
+                logger.error(f"Integration {integration_id} not found or token missing")
+                return {'success': False, 'error': 'Integration not found or token missing'}
 
         # Decrypt the token
         key = AppConfig.load_key()
@@ -947,13 +979,15 @@ async def extract_github_prs_commits_reviews_comments(
             for pr in filtered_prs:
                 raw_data = {
                     'pr_id': pr['id'],
-                    'repository_id': repository.id,  # 🔑 Include repository_id to avoid DB lookup in transform
+                    'owner': owner,  # 🔑 Include owner for transform to lookup repository
+                    'repo_name': repo_name,  # 🔑 Include repo_name for transform to lookup repository
+                    'full_name': f"{owner}/{repo_name}",  # 🔑 Include full_name for easier analysis
                     'pr_data': pr  # 🔑 pr_data already contains commits, reviews, comments, reviewThreads
                 }
                 raw_data_id = _store_raw_extraction_data(
-                    db, tenant_id, repository.integration_id,
-                    'github_prs',  # 🔑 Renamed from github_prs_commits_reviews_comments
-                    raw_data, repository.external_id  # 🔑 Use repository external_id, not PR id
+                    db, tenant_id, integration_id,
+                    'github_prs_commits_reviews_comments',
+                    raw_data, pr['id']  # 🔑 Use PR external_id (GitHub PR node_id)
                 )
                 raw_data_ids.append(raw_data_id)
 
@@ -1047,10 +1081,12 @@ async def extract_github_prs_commits_reviews_comments(
 
                 queue_manager.publish_extraction_job(
                     tenant_id=tenant_id,
-                    integration_id=repository.integration_id,
+                    integration_id=integration_id,  # 🔑 Use integration_id from function parameter
                     extraction_type='github_prs_commits_reviews_comments',  # Route to github_extraction_worker
                     extraction_data={
-                        'repository_id': repository_id,
+                        'owner': owner,  # 🔑 Pass repo info instead of repository_id
+                        'repo_name': repo_name,
+                        'full_name': f"{owner}/{repo_name}",
                         'pr_node_id': pr_node_id,
                         'nested_type': nested_type,
                         'nested_cursor': nested_cursor,
@@ -1080,14 +1116,14 @@ async def extract_github_prs_commits_reviews_comments(
             next_pr_cursor = page_info['endCursor']
             queue_manager.publish_extraction_job(
                 tenant_id=tenant_id,
-                integration_id=repository.integration_id,
+                integration_id=integration_id,  # 🔑 Use integration_id from function parameter
                 extraction_type='github_prs_commits_reviews_comments',  # Same as main extraction type
                 extraction_data={
-                    'repository_id': repository_id,
+                    'owner': owner,  # 🔑 Pass repo info instead of repository_id
+                    'repo_name': repo_name,
+                    'full_name': f"{owner}/{repo_name}",
                     'pr_cursor': next_pr_cursor,
-                    'pr_node_id': None,  # Fresh request for next page
-                    'owner': owner,  # Include owner/repo_name to avoid DB lookup
-                    'repo_name': repo_name
+                    'pr_node_id': None  # Fresh request for next page
                 },
                 job_id=job_id,
                 provider='github',
@@ -1130,11 +1166,14 @@ async def extract_github_prs_commits_reviews_comments(
 
 async def extract_nested_pagination(
     tenant_id: int,
+    integration_id: int,
     job_id: int,
-    repository_id: int,
     pr_node_id: str,
     nested_type: str,
     nested_cursor: str,
+    owner: Optional[str] = None,  # 🔑 Repository owner
+    repo_name: Optional[str] = None,  # 🔑 Repository name
+    full_name: Optional[str] = None,  # 🔑 Full repository name
     last_sync_date: Optional[str] = None,
     new_last_sync_date: Optional[str] = None,  # 🔑 NEW: Extraction end date for job completion
     nested_index: int = 0,
@@ -1183,25 +1222,22 @@ async def extract_nested_pagination(
         from app.core.config import AppConfig
         from app.etl.queue.queue_manager import QueueManager
 
-        # Get repository info
-        with get_read_session_context() as db:
-            from app.models.unified_models import Repository
-            repository = db.query(Repository).filter(
-                Repository.id == repository_id,
-                Repository.tenant_id == tenant_id
-            ).first()
+        # 🔑 Use owner/repo_name from message (no DB query for data)
+        if not owner or not repo_name:
+            logger.error(f"owner and repo_name required for nested extraction")
+            return {'success': False, 'error': 'owner and repo_name required'}
 
-        if not repository:
-            return {'success': False, 'error': 'Repository not found'}
+        logger.info(f"✅ Using owner and repo_name from message: {owner}/{repo_name}")
 
-        # Get integration and GitHub token
+        # 🔑 Get integration and GitHub token (service-to-service, not data processing)
         with get_read_session_context() as db:
             integration = db.query(Integration).filter(
-                Integration.id == repository.integration_id,
+                Integration.id == integration_id,
                 Integration.tenant_id == tenant_id
             ).first()
 
         if not integration or not integration.password:
+            logger.error(f"Integration {integration_id} not found or token missing")
             return {'success': False, 'error': 'Integration not found or token missing'}
 
         # Decrypt the token
@@ -1272,10 +1308,12 @@ async def extract_nested_pagination(
         has_more = nested_data['pageInfo']['hasNextPage']
 
         # STEP 2: Save nested data to raw_data (Type 2)
-        # 🔑 No nested_data_only flag - message type indicates this is nested data
+        # 🔑 Include repo info for transform to lookup repository
         raw_data = {
             'pr_id': pr_node_id,
-            'repository_id': repository.id,  # 🔑 Include repository_id to avoid DB lookup in transform
+            'owner': owner,  # 🔑 Include repo info for transform
+            'repo_name': repo_name,
+            'full_name': full_name or f"{owner}/{repo_name}",
             'nested_type': nested_type,
             'data': nested_data['nodes'],
             'cursor': nested_data['pageInfo']['endCursor'] if has_more else None,
@@ -1284,9 +1322,9 @@ async def extract_nested_pagination(
 
         with get_write_session_context() as db:
             raw_data_id = _store_raw_extraction_data(
-                db, tenant_id, repository.integration_id,
+                db, tenant_id, integration_id,
                 'github_prs_nested',  # 🔑 Renamed from github_prs_commits_reviews_comments
-                raw_data, repository.external_id  # 🔑 Use repository external_id, not PR id
+                raw_data, pr_node_id  # 🔑 Use PR node_id as external_id
             )
 
         logger.info(f"💾 Stored nested {nested_type} data (has_more={has_more})")
@@ -1330,10 +1368,12 @@ async def extract_nested_pagination(
         if has_more:
             queue_manager.publish_extraction_job(
                 tenant_id=tenant_id,
-                integration_id=integration.id,
+                integration_id=integration_id,
                 extraction_type='github_prs_commits_reviews_comments',  # Route to github_extraction_worker
                 extraction_data={
-                    'repository_id': repository_id,
+                    'owner': owner,  # 🔑 Pass repo info instead of repository_id
+                    'repo_name': repo_name,
+                    'full_name': full_name or f"{owner}/{repo_name}",
                     'pr_node_id': pr_node_id,
                     'nested_type': nested_type,
                     'nested_cursor': nested_data['pageInfo']['endCursor'],
@@ -1374,11 +1414,14 @@ async def extract_nested_pagination(
 
 async def extract_nested_recovery(
     tenant_id: int,
+    integration_id: int,
     job_id: int,
-    repository_id: int,
     pr_id: str,
     pr_node_id: str,
     nested_nodes_status: Dict[str, Any],
+    owner: Optional[str] = None,  # 🔑 Repository owner
+    repo_name: Optional[str] = None,  # 🔑 Repository name
+    full_name: Optional[str] = None,  # 🔑 Full repository name
     last_sync_date: Optional[str] = None
 ) -> Dict[str, Any]:
     """
@@ -1445,11 +1488,14 @@ async def extract_nested_recovery(
 
                 result = await extract_nested_pagination(
                     tenant_id=tenant_id,
+                    integration_id=integration_id,  # 🔑 For service-to-service auth
                     job_id=job_id,
-                    repository_id=repository_id,
                     pr_node_id=pr_node_id,
                     nested_type=nested_type,
                     nested_cursor=cursor,
+                    owner=owner,  # 🔑 Pass repo info
+                    repo_name=repo_name,
+                    full_name=full_name,
                     last_sync_date=last_sync_date
                 )
 
@@ -1465,11 +1511,14 @@ async def extract_nested_recovery(
 
                 result = await extract_nested_pagination(
                     tenant_id=tenant_id,
+                    integration_id=integration_id,  # 🔑 For service-to-service auth
                     job_id=job_id,
-                    repository_id=repository_id,
                     pr_node_id=pr_node_id,
                     nested_type=nested_type,
                     nested_cursor=None,  # Start from beginning
+                    owner=owner,  # 🔑 Pass repo info
+                    repo_name=repo_name,
+                    full_name=full_name,
                     last_sync_date=last_sync_date
                 )
 

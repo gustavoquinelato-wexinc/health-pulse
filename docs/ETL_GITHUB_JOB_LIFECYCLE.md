@@ -39,10 +39,41 @@ GitHub has 2 steps:
   - First repository: `first_item=True, last_item=False`
   - Middle repositories: `first_item=False, last_item=False`
   - Last repository: `first_item=False, last_item=True`
-- **After queuing all repositories to transform**: Queues extraction job for Step 2 (PRs with nested data)
 - Transform processes each message and queues to embedding with same flags
 - Embedding processes each message
 - When `last_item=True`: sends "finished" status
+
+**Step 1 → Step 2 Transition (Extraction Worker Queues Next Extraction)**
+- ✅ **CORRECTED**: Extraction worker (Step 1) queues Step 2 extraction directly - NO backwards communication
+
+**Extraction Worker (Step 1) - LOOP 1: Queue all repositories to Transform**
+- Iterates through all extracted repositories
+- For each repo: stores in raw_extraction_data, queues to transform queue
+- First repository: `first_item=True`
+- Last repository: `last_item=True`
+- ✅ **LOOP 1 COMPLETES** - all repos queued to transform
+
+**Extraction Worker (Step 1) - LOOP 2: Queue all repositories to Step 2 Extraction**
+- ✅ **SAME EXTRACTION WORKER** - no waiting for transform
+- Iterates through all extracted repositories (same list from LOOP 1)
+- For each repo: queues to extraction queue for Step 2 (NO database query)
+- First repository: `first_item=True` (marks start of Step 2)
+- Last repository: `last_item=True`
+- Each message includes: `owner`, `repo_name`, `full_name`, `integration_id`, `last_sync_date`, `new_last_sync_date`
+- ✅ **NO database queries**: Uses repo data directly from extraction
+- ✅ **NO backwards communication**: Transform worker does NOT queue extraction
+- ✅ **Parallel processing**: Transform processes repos while extraction processes PRs
+
+**Transform Worker - Process Repositories**
+- Receives repository messages from transform queue
+- Inserts each repository into database
+- Queues to embedding with same flags
+- ✅ **No Step 2 queuing**: Extraction worker already queued Step 2
+
+**Extraction Worker (Step 2)**
+- Receives PR extraction messages from extraction queue
+- Uses `owner`, `repo_name`, `last_sync_date` from message (NO database query for repository)
+- Extracts PRs using GraphQL and queues to transform
 
 **Step 1 Completion (No Repositories Case)**
 - If NO repositories are extracted:
@@ -98,13 +129,14 @@ GitHub has 2 steps:
 - **last_repo**: Internal flag used by extraction worker to track repository boundaries - indicates this is the last repository
 - **last_pr**: Internal flag used by extraction worker to track PR boundaries within the last repository - indicates this is the last PR of the last repository
 
-### **Extraction Worker**
+### **Extraction Worker (Step 2)**
 
-**When first_item=true (First PR of first Repository)**
+**When first_item=true (First Repository's PR extraction)**
+- Receives first_item=true from extraction queue message (queued by extraction worker Step 1)
 - Updates step status to running and sends WebSocket notification
 - Forwards first_item=true to the very FIRST PR message sent to TransformWorker
 
-**When last_item=true and last_job_item=true (Last Repository)**
+**When last_item=true and last_job_item=true (Last Repository's PR extraction)**
 - Performs GraphQL request and checks: **Is this the last PR page?**
 
   **Case 1.1: YES - This is the last PR page**
