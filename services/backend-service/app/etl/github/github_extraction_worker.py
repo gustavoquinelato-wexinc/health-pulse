@@ -46,19 +46,25 @@ class GitHubExtractionWorker:
             bool: True if processing succeeded
         """
         try:
+            logger.info(f"🚀 [GITHUB] process_github_extraction called with type={message_type}")
+
             if message_type == 'github_repositories':
                 logger.info(f"🚀 [GITHUB] Processing github_repositories extraction")
-                return await self._extract_github_repositories(message)
+                result = await self._extract_github_repositories(message)
+                logger.info(f"🚀 [GITHUB] github_repositories extraction returned: {result}")
+                return result
             elif message_type == 'github_prs_commits_reviews_comments':
                 logger.info(f"🚀 [GITHUB] Processing github_prs_commits_reviews_comments extraction")
-                return await self._extract_github_prs(message)
+                result = await self._extract_github_prs(message)
+                logger.info(f"🚀 [GITHUB] github_prs_commits_reviews_comments extraction returned: {result}")
+                return result
             else:
                 logger.warning(f"Unknown GitHub extraction type: {message_type}")
                 return False
         except Exception as e:
-            logger.error(f"Error processing GitHub extraction message: {e}")
+            logger.error(f"💥 [GITHUB] Error in process_github_extraction: {e}")
             import traceback
-            logger.error(f"Full traceback: {traceback.format_exc()}")
+            logger.error(f"💥 [GITHUB] Full traceback: {traceback.format_exc()}")
             return False
 
     async def _extract_github_repositories(self, message: Dict[str, Any]) -> bool:
@@ -298,23 +304,31 @@ class GitHubExtractionWorker:
             Dict with success status and extraction results
         """
         try:
+            logger.info(f"🚀 [GITHUB] _execute_github_repositories_extraction START: integration_id={integration_id}, tenant_id={tenant_id}, job_id={job_id}")
+
             from app.etl.github.graphql_client import GitHubGraphQLClient
             from app.etl.workers.queue_manager import QueueManager
             from app.models.unified_models import Integration
             from app.core.database import get_database
 
-            logger.info(f"🚀 Extracting GitHub repositories for integration {integration_id}")
+            logger.info(f"🚀 [GITHUB] Extracting GitHub repositories for integration {integration_id}")
 
             # Get integration details
             database = get_database()
+            logger.info(f"🚀 [GITHUB] Getting database session")
+
             with database.get_read_session_context() as session:
+                logger.info(f"🚀 [GITHUB] Querying integration {integration_id}")
                 integration = session.query(Integration).filter(
                     Integration.id == integration_id,
                     Integration.tenant_id == tenant_id
                 ).first()
 
                 if not integration:
+                    logger.error(f"❌ [GITHUB] Integration not found: {integration_id}")
                     return {'success': False, 'error': 'Integration not found'}
+
+                logger.info(f"✅ [GITHUB] Integration found: {integration.name}")
 
                 # Get token from integration settings if not provided
                 if not token:
@@ -322,15 +336,20 @@ class GitHubExtractionWorker:
                     token = settings.get('token')
 
                 if not token:
+                    logger.error(f"❌ [GITHUB] GitHub token not found in integration settings")
                     return {'success': False, 'error': 'GitHub token not found'}
+
+                logger.info(f"✅ [GITHUB] Token found, initializing GraphQL client")
 
             # Initialize GraphQL client
             graphql_client = GitHubGraphQLClient(token)
             queue_manager = QueueManager()
 
+            logger.info(f"✅ [GITHUB] GraphQL client initialized")
+
             # Extract repositories using GraphQL
             # For now, return a placeholder result - actual extraction logic would go here
-            logger.info(f"✅ GitHub repositories extraction completed")
+            logger.info(f"✅ [GITHUB] GitHub repositories extraction completed")
 
             return {
                 'success': True,
@@ -339,9 +358,9 @@ class GitHubExtractionWorker:
             }
 
         except Exception as e:
-            logger.error(f"❌ Error in GitHub repositories extraction: {e}")
+            logger.error(f"💥 [GITHUB] Error in GitHub repositories extraction: {e}")
             import traceback
-            logger.error(f"Traceback: {traceback.format_exc()}")
+            logger.error(f"💥 [GITHUB] Traceback: {traceback.format_exc()}")
             return {'success': False, 'error': str(e), 'is_rate_limit': False}
 
     async def _execute_github_prs_extraction(self, message: Dict[str, Any]) -> Dict[str, Any]:
