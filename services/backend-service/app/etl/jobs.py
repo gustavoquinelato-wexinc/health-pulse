@@ -603,6 +603,8 @@ async def run_job_now(
                 except Exception as ws_error:
                     logger.warning(f"⚠️ Failed to send WebSocket update for job {job_id}: {ws_error}")
                     # Don't fail the request if WebSocket update fails - job is still queued
+        except Exception as e:
+            logger.warning(f"⚠️ Failed to send WebSocket update for job {job_id}: {e}")
 
         # Queue job for extraction instead of executing directly
         if job_name.lower() == 'jira':
