@@ -1043,7 +1043,7 @@ async def _queue_github_prs_extraction(
         bool: True if queued successfully
     """
     try:
-        from app.etl.queue.queue_manager import QueueManager
+        from app.etl.workers.queue_manager import QueueManager
 
         queue_manager = QueueManager()
 
@@ -1161,7 +1161,7 @@ async def _queue_github_repositories_extraction(
         bool: True if queued successfully
     """
     try:
-        from app.etl.queue.queue_manager import QueueManager
+        from app.etl.workers.queue_manager import QueueManager
 
         queue_manager = QueueManager()
 

@@ -193,7 +193,7 @@ class QueueManager:
         data_type: str,
         job_id: int = None,
         provider: str = None,
-        last_sync_date: str = None,
+        old_last_sync_date: str = None,
         new_last_sync_date: str = None,
         first_item: bool = False,
         last_item: bool = False,
@@ -213,7 +213,7 @@ class QueueManager:
             data_type: Type of data ('jira_custom_fields', 'jira_issues', 'github_prs', etc.)
             job_id: ETL job ID (for completion tracking)
             provider: Provider name (jira, github, etc.)
-            last_sync_date: Last sync date used for filtering (old_last_sync_date)
+            old_last_sync_date: Last sync date used for filtering (previous sync date)
             new_last_sync_date: New last sync date to update on completion (extraction end date)
             first_item: True if this is the first item in the queue
             last_item: True if this is the last item in the current step
@@ -234,7 +234,7 @@ class QueueManager:
             'provider': provider,
             'first_item': first_item,
             'last_item': last_item,
-            'last_sync_date': last_sync_date,  # 🔑 Used for filtering (old_last_sync_date)
+            'old_last_sync_date': old_last_sync_date,  # 🔑 Used for filtering (previous sync date)
             'new_last_sync_date': new_last_sync_date,  # 🔑 Used for job completion (extraction end date)
             'last_job_item': last_job_item,
             'token': token,  # 🔑 Job execution token for tracking
@@ -259,7 +259,7 @@ class QueueManager:
         extraction_data: Dict[str, Any],
         job_id: int = None,
         provider: str = None,
-        last_sync_date: str = None,
+        old_last_sync_date: str = None,
         new_last_sync_date: str = None,
         first_item: bool = False,
         last_item: bool = False,
@@ -278,7 +278,7 @@ class QueueManager:
             extraction_data: Additional data for extraction (issue_id, issue_key, etc.)
             etl_job_id: ETL job ID (for completion tracking)
             provider_name: Provider name (Jira, GitHub, etc.)
-            last_sync_date: Last sync date used for filtering (old_last_sync_date)
+            old_last_sync_date: Last sync date used for filtering (previous sync date)
             new_last_sync_date: New last sync date to update on completion (extraction end date)
             first_item: True if this is the first item in the queue
             last_item: True if this is the last item in the current step
@@ -304,8 +304,8 @@ class QueueManager:
             message['job_id'] = job_id
         if provider is not None:
             message['provider'] = provider
-        if last_sync_date is not None:
-            message['last_sync_date'] = last_sync_date  # 🔑 Used for filtering (old_last_sync_date)
+        if old_last_sync_date is not None:
+            message['old_last_sync_date'] = old_last_sync_date  # 🔑 Used for filtering (previous sync date)
         if new_last_sync_date is not None:
             message['new_last_sync_date'] = new_last_sync_date  # 🔑 Used for job completion (extraction end date)
         if token is not None:
@@ -450,42 +450,6 @@ class QueueManager:
         except Exception as e:
             logger.error(f"Failed to publish message to {queue_name}: {e}")
             return False
-    
-    def consume_messages(
-        self,
-        queue_name: str,
-        callback: Callable[[Dict[str, Any]], None],
-        auto_ack: bool = False
-    ):
-        """
-        Consume messages from a queue.
-        
-        Args:
-            queue_name: Name of the queue to consume from
-            callback: Function to call for each message (receives message dict)
-            auto_ack: Whether to auto-acknowledge messages
-        """
-        def on_message(ch, method, properties, body):
-            try:
-                message = json.loads(body)
-                callback(message)
-                if not auto_ack:
-                    ch.basic_ack(delivery_tag=method.delivery_tag)
-            except Exception as e:
-                logger.error(f"Error processing message: {e}")
-                if not auto_ack:
-                    ch.basic_nack(delivery_tag=method.delivery_tag, requeue=True)
-        
-        with self.get_channel() as channel:
-            channel.basic_qos(prefetch_count=1)
-            channel.basic_consume(
-                queue=queue_name,
-                on_message_callback=on_message,
-                auto_ack=auto_ack
-            )
-            
-            logger.info(f"Started consuming from {queue_name}")
-            channel.start_consuming()
 
     def get_single_message(self, queue_name: str, timeout: float = 1.0) -> Optional[Dict[str, Any]]:
         """

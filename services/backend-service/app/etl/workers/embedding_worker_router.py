@@ -24,7 +24,7 @@ from sqlalchemy.orm import Session
 warnings.filterwarnings("ignore", message=".*Event loop is closed.*", category=RuntimeWarning)
 warnings.filterwarnings("ignore", message=".*coroutine.*was never awaited.*", category=RuntimeWarning)
 
-from app.workers.base_worker import BaseWorker
+from app.etl.workers.base_worker import BaseWorker
 from app.core.logging_config import get_logger
 from app.models.unified_models import (
     WorkItem, Changelog, Project, Status, Wit,
@@ -32,7 +32,7 @@ from app.models.unified_models import (
     WorkItemPrLink, Integration, QdrantVector,
     WitHierarchy, WitMapping, StatusMapping, Workflow
 )
-from app.etl.queue.queue_manager import QueueManager
+from app.etl.workers.queue_manager import QueueManager
 from app.core.database import get_database
 
 logger = get_logger(__name__)
@@ -83,94 +83,6 @@ class EmbeddingWorker(BaseWorker):
         super().__init__(queue_name)
         self.tier = tier
         self.hybrid_provider = None
-
-    async def _send_worker_status(self, worker_type: str, tenant_id: int, job_id: int,
-                                 status: str, step: str, error_message: str = None):
-        """Send WebSocket status update by sending the current database JSON status."""
-        try:
-            # Update database worker status first
-            self._update_worker_status_in_db(worker_type, tenant_id, job_id, status, step, error_message)
-
-            # Get the current job status from database and send via WebSocket
-            from app.core.database import get_database
-            from sqlalchemy import text
-            import json
-
-            database = get_database()
-            # 🔑 Use WRITE session for etl_jobs (written by transform worker)
-            with database.get_write_session_context() as session:
-                result = session.execute(
-                    text('SELECT status FROM etl_jobs WHERE id = :job_id'),
-                    {'job_id': job_id}
-                ).fetchone()
-
-                if result:
-                    job_status = result[0]  # This is the JSON status structure
-
-                    # Send WebSocket notification with the same JSON structure the UI reads on refresh
-                    from app.api.websocket_routes import get_job_websocket_manager
-
-                    job_websocket_manager = get_job_websocket_manager()
-                    await job_websocket_manager.send_job_status_update(
-                        tenant_id=tenant_id,
-                        job_id=job_id,
-                        status_json=job_status
-                    )
-                    logger.info(f"[WS] Sent job status update for job {job_id} (tenant {tenant_id})")
-
-        except Exception as e:
-            logger.error(f"Error sending worker status: {e}")
-
-    def _send_worker_status_sync(self, worker_type: str, tenant_id: int, job_id: int, status: str, step: str, error_message: str = None):
-        """Synchronous wrapper for sending worker status updates."""
-        try:
-            import asyncio
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                loop.run_until_complete(self._send_worker_status(worker_type, tenant_id, job_id, status, step, error_message))
-            finally:
-                loop.close()
-        except Exception as e:
-            logger.error(f"Error in sync worker status update: {e}")
-
-    def _update_worker_status_in_db(self, worker_type: str, tenant_id: int, job_id: int, status: str, step: str, error_message: str = None):
-        """Update worker status in JSON status structure"""
-        try:
-            # Safety check: if step is None, skip the database update
-            if step is None:
-                logger.warning(f"Skipping worker status update - step is None for {worker_type} worker (job {job_id}, tenant {tenant_id})")
-                return
-
-            from app.core.database import get_write_session
-            from sqlalchemy import text
-
-            with get_write_session() as session:
-                # Update JSON status structure: status->steps->{step}->{worker_type} = status
-                # Use string formatting to avoid parameter style conflicts
-                # Escape single quotes in values to prevent SQL injection
-                safe_step = step.replace("'", "''")
-                safe_worker_type = worker_type.replace("'", "''")
-                safe_status = status.replace("'", "''")
-
-                update_query = text(f"""
-                    UPDATE etl_jobs
-                    SET status = jsonb_set(
-                        status,
-                        ARRAY['steps', '{safe_step}', '{safe_worker_type}'],
-                        to_jsonb('{safe_status}'::text)
-                    ),
-                    last_updated_at = NOW()
-                    WHERE id = {job_id} AND tenant_id = {tenant_id}
-                """)
-
-                session.execute(update_query)
-                session.commit()
-
-                logger.info(f"Updated {worker_type} worker status to {status} for step {step} in job {job_id}")
-
-        except Exception as e:
-            logger.error(f"Failed to update worker status in database: {e}")
 
     def _complete_etl_job_on_final_step(self, job_id: int, tenant_id: int):
         """Complete ETL job when embedding worker finishes the final step."""
@@ -227,7 +139,7 @@ class EmbeddingWorker(BaseWorker):
             provider = message.get('provider')
             first_item = message.get('first_item', False)
             last_item = message.get('last_item', False)
-            last_sync_date = message.get('last_sync_date')  # old_last_sync_date (for filtering)
+            old_last_sync_date = message.get('old_last_sync_date')  # old_last_sync_date (for filtering)
             new_last_sync_date = message.get('new_last_sync_date')  # extraction end date (for job completion)
             last_job_item = message.get('last_job_item', False)
 

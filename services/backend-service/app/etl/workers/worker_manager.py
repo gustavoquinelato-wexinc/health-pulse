@@ -8,10 +8,10 @@ import threading
 from typing import Dict, List
 from concurrent.futures import ThreadPoolExecutor
 
-from .extraction_worker import ExtractionWorker
-from .transform_worker import TransformWorker
-from .embedding_worker import EmbeddingWorker
-from app.etl.queue.queue_manager import QueueManager
+from app.etl.workers.extraction_worker_router import ExtractionWorker
+from app.etl.workers.transform_worker_router import TransformWorker
+from app.etl.workers.embedding_worker_router import EmbeddingWorker
+from app.etl.workers.queue_manager import QueueManager
 from app.core.logging_config import get_logger
 
 logger = get_logger(__name__)

@@ -1,8 +1,8 @@
 """
-Unit tests for GitHub Phase 4 extraction and transform logic.
+Unit tests for GitHub Step 2 extraction and transform logic.
 
 Tests the following components:
-- github_extraction_worker router
+- github_prs_extraction_router router
 - extract_github_prs_commits_reviews_comments function
 - extract_nested_pagination function
 - _process_github_prs_commits_reviews_comments transform method
@@ -22,7 +22,7 @@ class TestGitHubExtractionRouter:
         """Test that fresh PR requests (pr_cursor=None) route to extract_github_prs_commits_reviews_comments"""
         import sys
         sys.path.insert(0, 'services/backend-service')
-        from app.etl.github_extraction import github_extraction_worker
+        from app.etl.github_extraction import github_prs_extraction_router
 
         message = {
             'tenant_id': 1,
@@ -36,7 +36,7 @@ class TestGitHubExtractionRouter:
         with patch('app.etl.github_extraction.extract_github_prs_commits_reviews_comments') as mock_extract:
             mock_extract.return_value = {'success': True, 'prs_processed': 5}
 
-            result = await github_extraction_worker(message)
+            result = await github_prs_extraction_router(message)
 
             assert result['success'] is True
             mock_extract.assert_called_once()
@@ -46,7 +46,7 @@ class TestGitHubExtractionRouter:
         """Test that next page requests (pr_cursor=value) route to extract_github_prs_commits_reviews_comments"""
         import sys
         sys.path.insert(0, 'services/backend-service')
-        from app.etl.github_extraction import github_extraction_worker
+        from app.etl.github_extraction import github_prs_extraction_router
 
         message = {
             'tenant_id': 1,
@@ -60,7 +60,7 @@ class TestGitHubExtractionRouter:
         with patch('app.etl.github_extraction.extract_github_prs_commits_reviews_comments') as mock_extract:
             mock_extract.return_value = {'success': True, 'prs_processed': 5}
 
-            result = await github_extraction_worker(message)
+            result = await github_prs_extraction_router(message)
 
             assert result['success'] is True
             mock_extract.assert_called_once()
@@ -70,7 +70,7 @@ class TestGitHubExtractionRouter:
         """Test that nested_type messages route to extract_nested_pagination"""
         import sys
         sys.path.insert(0, 'services/backend-service')
-        from app.etl.github_extraction import github_extraction_worker
+        from app.etl.github_extraction import github_prs_extraction_router
 
         message = {
             'tenant_id': 1,
@@ -86,7 +86,7 @@ class TestGitHubExtractionRouter:
         with patch('app.etl.github_extraction.extract_nested_pagination') as mock_nested:
             mock_nested.return_value = {'success': True, 'nested_type': 'commits', 'items_processed': 10}
 
-            result = await github_extraction_worker(message)
+            result = await github_prs_extraction_router(message)
 
             assert result['success'] is True
             mock_nested.assert_called_once()
@@ -96,7 +96,7 @@ class TestGitHubExtractionRouter:
         """Test that router handles extraction errors gracefully"""
         import sys
         sys.path.insert(0, 'services/backend-service')
-        from app.etl.github_extraction import github_extraction_worker
+        from app.etl.github_extraction import github_prs_extraction_router
 
         message = {
             'tenant_id': 1,
@@ -108,7 +108,7 @@ class TestGitHubExtractionRouter:
         with patch('app.etl.github_extraction.extract_github_prs_commits_reviews_comments') as mock_extract:
             mock_extract.side_effect = Exception("API Error")
 
-            result = await github_extraction_worker(message)
+            result = await github_prs_extraction_router(message)
 
             assert result['success'] is False
             assert 'error' in result

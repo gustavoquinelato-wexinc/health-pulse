@@ -1,12 +1,11 @@
 """
-Embedding Queue Management API
-Handles queueing records for embedding
+Jira Embedding API
+Handles queueing Jira mapping records for embedding
 """
 
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
-import json
 
 from app.auth.auth_middleware import require_authentication
 from app.core.database import get_database
@@ -14,7 +13,7 @@ from app.models.unified_models import (
     User, WitHierarchy, WitMapping, StatusMapping, Workflow
 )
 from app.core.logging_config import get_logger
-from app.etl.queue.queue_manager import QueueManager
+from app.etl.workers.queue_manager import QueueManager
 
 logger = get_logger(__name__)
 router = APIRouter()
@@ -37,7 +36,7 @@ async def queue_table_for_embedding(
     user: User = Depends(require_authentication)
 ):
     """
-    Queue all active records from a mapping table for embedding.
+    Queue all active records from a Jira mapping table for embedding.
     Sends messages directly to embedding_queue_tenant_{id}.
 
     Supported tables:
@@ -121,3 +120,4 @@ async def queue_table_for_embedding(
             status_code=500,
             detail=f"Failed to queue table for embedding: {str(e)}"
         )
+

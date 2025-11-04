@@ -2,20 +2,23 @@
 Base worker class for queue processing.
 
 Provides common functionality for all queue workers including connection management,
-error handling, and message acknowledgment.
+error handling, message acknowledgment, and shared ETL communication utilities.
 """
 
 import warnings
 import json
+import asyncio
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Callable
 from contextlib import contextmanager
+from sqlalchemy import text
+from datetime import datetime
 
 # Suppress asyncio event loop closure warnings for workers
 warnings.filterwarnings("ignore", message=".*Event loop is closed.*", category=RuntimeWarning)
 warnings.filterwarnings("ignore", message=".*coroutine.*was never awaited.*", category=RuntimeWarning)
 
-from app.etl.queue.queue_manager import QueueManager
+from app.etl.workers.queue_manager import QueueManager
 from app.core.database import get_database
 from app.core.logging_config import get_logger
 
@@ -155,3 +158,109 @@ class BaseWorker(ABC):
         """
         with self.database.get_read_session_context() as session:
             yield session
+
+    # ============ SHARED ETL COMMUNICATION UTILITIES ============
+
+    async def _send_worker_status(self, step: str, tenant_id: int, job_id: int, status: str, step_type: str = None):
+        """
+        Send WebSocket status update for ETL job step.
+
+        Args:
+            step: ETL step name (extraction, transform, embedding)
+            tenant_id: Tenant ID
+            job_id: Job ID
+            status: Status to send (running, finished, failed)
+            step_type: Optional step type for logging
+        """
+        try:
+            from app.core.http_client import get_http_client
+
+            http_client = get_http_client()
+            url = f"http://localhost:8000/api/v1/etl/job/{job_id}/status"
+
+            payload = {
+                "step": step,
+                "status": status,
+                "step_type": step_type
+            }
+
+            headers = {
+                "X-Internal-Auth": "service-to-service",
+                "X-Tenant-ID": str(tenant_id)
+            }
+
+            response = await http_client.post(url, json=payload, headers=headers)
+
+            if response.status_code == 200:
+                logger.info(f"✅ WebSocket status '{status}' sent for {step} step (job_id={job_id})")
+            else:
+                logger.warning(f"⚠️ Failed to send WebSocket status: {response.status_code}")
+
+        except Exception as e:
+            logger.error(f"Error sending WebSocket status: {e}")
+
+    def _update_job_status(self, job_id: int, status: str, step: str = None):
+        """
+        Update ETL job status in database.
+
+        Args:
+            job_id: Job ID
+            status: New status (READY, RUNNING, FINISHED, FAILED)
+            step: Optional step name for logging
+        """
+        try:
+            with self.get_db_session() as session:
+                # Update job status
+                query = text("""
+                    UPDATE etl_jobs
+                    SET status = :status, last_updated_at = :now
+                    WHERE id = :job_id
+                """)
+
+                session.execute(query, {
+                    'status': status,
+                    'job_id': job_id,
+                    'now': datetime.utcnow()
+                })
+
+                session.commit()
+
+                step_info = f" for {step}" if step else ""
+                logger.info(f"Updated job {job_id} status to {status}{step_info}")
+
+        except Exception as e:
+            logger.error(f"Failed to update job status: {e}")
+
+    def _update_worker_status(self, job_id: int, worker_type: str, status: str, step: str = None):
+        """
+        Update worker status in database for tracking.
+
+        Args:
+            job_id: Job ID
+            worker_type: Type of worker (extraction, transform, embedding)
+            status: Status (running, finished, failed)
+            step: Optional step name
+        """
+        try:
+            with self.get_db_session() as session:
+                # Update worker status in etl_jobs table
+                status_field = f"{worker_type}_status"
+                query = text(f"""
+                    UPDATE etl_jobs
+                    SET {status_field} = :status, last_updated_at = :now
+                    WHERE id = :job_id
+                """)
+
+                session.execute(query, {
+                    'status': status,
+                    'job_id': job_id,
+                    'now': datetime.utcnow()
+                })
+
+                session.commit()
+
+                step_info = f" for {step}" if step else ""
+                logger.info(f"Updated {worker_type} worker status to {status} for job {job_id}{step_info}")
+
+        except Exception as e:
+            logger.error(f"Failed to update worker status in database: {e}")

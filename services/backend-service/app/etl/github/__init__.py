@@ -1,0 +1,10 @@
+"""
+GitHub ETL Integration Module
+
+Complete GitHub integration including:
+- graphql_client.py: GitHubGraphQLClient for API communication
+- github_extraction_worker.py: Extraction worker
+- github_transform_worker.py: Transform worker
+- github_embedding_worker.py: Embedding worker (if needed)
+"""
+
