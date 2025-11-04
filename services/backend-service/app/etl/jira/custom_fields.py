@@ -687,7 +687,7 @@ async def queue_custom_fields_for_processing(
     This approach handles large payloads efficiently and provides audit trail.
     """
     try:
-        from app.etl.queue.queue_manager import QueueManager
+        from app.etl.workers.queue_manager import QueueManager
         from datetime import datetime, timezone
         from sqlalchemy import text
         import json
@@ -783,7 +783,7 @@ async def queue_special_fields_for_processing(
         field_search_response: Response from /rest/api/3/field/search API
     """
     try:
-        from app.etl.queue.queue_manager import QueueManager
+        from app.etl.workers.queue_manager import QueueManager
         from sqlalchemy import text
         import json
         from app.core.database import get_database
