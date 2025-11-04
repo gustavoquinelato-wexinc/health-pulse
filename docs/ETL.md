@@ -61,7 +61,10 @@ The ETL system uses a modern, queue-based architecture with complete Extract →
 
 #### ✅ **Complete Extract → Transform → Load Separation**
 - **Extract Workers**: Pure data extraction from APIs to raw storage
-- **Transform Workers**: Data cleaning, normalization, and custom field mapping
+- **Transform Workers**: Router + specialized handlers for data cleaning, normalization, and custom field mapping
+  - **TransformWorker**: Queue consumer and router (routes to provider-specific handlers)
+  - **JiraTransformHandler**: Jira-specific data processing (custom fields, statuses, issues, dev status)
+  - **GitHubTransformHandler**: GitHub-specific data processing (repositories, PRs, nested entities)
 - **Load Workers**: Optimized bulk loading to final tables
 - **Vector Workers**: Embedding generation and vector database operations
 
@@ -70,6 +73,40 @@ The ETL system uses a modern, queue-based architecture with complete Extract →
 - **Project-Specific Discovery**: Automatic field discovery per Jira project
 - **Optimized Storage**: 20 dedicated columns + unlimited JSON overflow
 - **Performance Optimized**: Indexed JSON queries for overflow fields
+
+#### ✅ **Provider-Centric Code Organization**
+The ETL codebase is organized by provider with clear separation of concerns:
+
+```
+services/backend-service/app/etl/
+├── workers/                           # Generic worker infrastructure
+│   ├── base_worker.py                # Base class for all workers
+│   ├── queue_manager.py              # RabbitMQ queue management
+│   ├── bulk_operations.py            # Bulk database operations
+│   ├── worker_manager.py             # Worker lifecycle management
+│   ├── extraction_worker_router.py   # Routes extraction messages to providers
+│   ├── transform_worker_router.py    # Routes transform messages to providers
+│   └── embedding_worker_router.py    # Generic embedding worker (provider-agnostic)
+│
+├── jira/                              # Jira-specific integration
+│   ├── client.py                     # Jira API client
+│   ├── custom_fields.py              # Custom fields discovery & mapping
+│   ├── jira_extraction_worker.py     # Jira extraction logic
+│   ├── jira_transform_worker.py      # Jira transform logic
+│   └── jira_embedding_worker.py      # Jira mapping tables embedding API
+│
+└── github/                            # GitHub-specific integration
+    ├── graphql_client.py             # GitHub GraphQL client
+    ├── github_extraction_worker.py   # GitHub extraction logic
+    └── github_transform_worker.py    # GitHub transform logic
+```
+
+**Architecture Benefits:**
+- **Separation of Concerns**: Generic router vs. provider-specific logic
+- **Maintainability**: Each provider's code in one dedicated folder
+- **Scalability**: Easy to add new providers (e.g., GitLab, Azure DevOps)
+- **Consistency**: All providers follow the same worker pattern
+- **Clarity**: Clear file organization makes navigation intuitive
 
 ## 🔄 Job Orchestration System
 
@@ -606,6 +643,40 @@ Extraction creates one raw_data_id per logical unit. For specific examples, see:
 - Extraction → Transform: `first_item`, `last_item`, `last_job_item`
 - Transform → Embedding: `first_item`, `last_item`, `last_job_item`
 - **EXCEPTION**: Transform may recalculate `first_item` and `last_item` when queuing multiple entities to embedding
+
+### Transform Worker Architecture
+
+#### Router Pattern (TransformWorker)
+
+**TransformWorker** acts as the queue consumer and router:
+1. Consumes messages from tier-based transform queues
+2. Routes messages to provider-specific handlers based on message type prefix:
+   - `jira_*` messages → **JiraTransformHandler**
+   - `github_*` messages → **GitHubTransformHandler**
+3. Handles WebSocket status updates for first_item and last_item
+4. Manages job status updates in database
+
+#### Handler Pattern (JiraTransformHandler, GitHubTransformHandler)
+
+**Specialized Handlers** process provider-specific logic:
+- **JiraTransformHandler**: Processes all Jira message types
+  - `jira_custom_fields` → `_process_jira_custom_fields()`
+  - `jira_special_fields` → `_process_jira_special_fields()`
+  - `jira_projects_and_issue_types` → `_process_jira_project_search()`
+  - `jira_statuses_and_project_relationships` → `_process_jira_statuses_and_project_relationships()`
+  - `jira_issues_with_changelogs` → `_process_jira_single_issue_changelog()`
+  - `jira_dev_status` → `_process_jira_dev_status()`
+
+- **GitHubTransformHandler**: Processes all GitHub message types
+  - `github_repositories` → `_process_github_repositories()`
+  - `github_prs` / `github_prs_commits_reviews_comments` → `_process_github_prs()`
+  - `github_prs_nested` → `_process_github_prs_nested()`
+
+Both handlers inherit from **BaseWorker** to access shared utilities:
+- `_send_worker_status()` - WebSocket status updates
+- `_update_job_status()` - Database job status updates
+- `_update_worker_status()` - Worker status tracking
+- Database session management
 
 ### Transform Worker Rules
 
