@@ -547,6 +547,7 @@ async def run_job_now(
 
         # Use atomic update with WHERE clause to prevent race conditions
         # 🔑 Set both overall status to RUNNING and token for this execution
+        # Also clear error_message when transitioning to RUNNING
         update_query = text("""
             UPDATE etl_jobs
             SET status = jsonb_set(
@@ -555,7 +556,8 @@ async def run_job_now(
                   to_jsonb(CAST(:token AS text))
                 ),
                 last_run_started_at = :now,
-                last_updated_at = :now
+                last_updated_at = :now,
+                error_message = NULL
             WHERE id = :job_id AND tenant_id = :tenant_id AND status->>'overall' != 'RUNNING'
         """)
 
