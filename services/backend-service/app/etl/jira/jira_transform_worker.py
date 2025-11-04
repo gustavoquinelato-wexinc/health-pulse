@@ -19,7 +19,6 @@ from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 from sqlalchemy import text
 
-from app.etl.workers.base_worker import BaseWorker
 from app.etl.workers.bulk_operations import BulkOperations
 from app.models.unified_models import Project, Wit, CustomField
 from app.core.logging_config import get_logger
@@ -28,21 +27,17 @@ from app.core.database import get_database, get_write_session
 logger = get_logger(__name__)
 
 
-class JiraTransformHandler(BaseWorker):
+class JiraTransformHandler:
     """
     Handler for processing Jira-specific ETL data.
-    
-    Inherits from BaseWorker to access shared utilities like:
-    - _send_worker_status()
-    - _update_job_status()
-    - _update_worker_status()
-    - Database session management
+
+    This is a specialized handler (not a queue consumer) that processes
+    Jira-specific transformation logic. It's called from TransformWorker
+    which is the actual queue consumer and router.
     """
 
     def __init__(self):
         """Initialize Jira transform handler."""
-        # Don't call super().__init__() as we're not a queue consumer
-        # We're called from TransformWorker which is the queue consumer
         logger.info("Initialized JiraTransformHandler")
 
     def process_jira_message(self, message_type: str, raw_data_id: int, tenant_id: int, 
