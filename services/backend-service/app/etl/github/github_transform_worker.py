@@ -12,6 +12,7 @@ import json
 from typing import Dict, Any, List, Optional
 from datetime import datetime, timezone
 from sqlalchemy import text
+from contextlib import contextmanager
 
 from app.etl.workers.bulk_operations import BulkOperations
 from app.core.logging_config import get_logger
@@ -31,7 +32,35 @@ class GitHubTransformHandler:
 
     def __init__(self):
         """Initialize GitHub transform handler."""
+        self.database = get_database()
         logger.info("Initialized GitHubTransformHandler")
+
+    @contextmanager
+    def get_db_session(self):
+        """
+        Get a database session with automatic cleanup.
+
+        Usage:
+            with self.get_db_session() as session:
+                # Use session for writes
+
+        Note: This uses write session context. For read-only operations,
+        consider using get_db_read_session() instead.
+        """
+        with self.database.get_write_session_context() as session:
+            yield session
+
+    @contextmanager
+    def get_db_read_session(self):
+        """
+        Get a read-only database session with automatic cleanup.
+
+        Usage:
+            with self.get_db_read_session() as session:
+                # Use session for reads only
+        """
+        with self.database.get_read_session_context() as session:
+            yield session
 
     def process_github_message(self, message_type: str, raw_data_id: int, tenant_id: int, 
                               integration_id: int, job_id: int = None, message: Dict[str, Any] = None) -> bool:
