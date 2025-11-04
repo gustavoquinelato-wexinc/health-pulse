@@ -592,25 +592,17 @@ async def run_job_now(
                 # Send WebSocket notification with the updated status
                 job_websocket_manager = get_job_websocket_manager()
 
-                # Create async task to send WebSocket update
-                async def send_ws_update():
+                # Send WebSocket update directly (we're already in an async context)
+                try:
                     await job_websocket_manager.send_job_status_update(
                         tenant_id=tenant_id,
                         job_id=job_id,
                         status_json=job_status
                     )
-
-                # Run the async function
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    loop.run_until_complete(send_ws_update())
                     logger.info(f"✅ WebSocket update sent for job {job_id} - status changed to RUNNING")
-                finally:
-                    loop.close()
-        except Exception as e:
-            logger.warning(f"⚠️ Failed to send WebSocket update for job {job_id}: {e}")
-            # Don't fail the request if WebSocket update fails - job is still queued
+                except Exception as ws_error:
+                    logger.warning(f"⚠️ Failed to send WebSocket update for job {job_id}: {ws_error}")
+                    # Don't fail the request if WebSocket update fails - job is still queued
 
         # Queue job for extraction instead of executing directly
         if job_name.lower() == 'jira':
