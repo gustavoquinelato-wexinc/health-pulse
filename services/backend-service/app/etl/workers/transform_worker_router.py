@@ -114,7 +114,7 @@ class TransformWorker(BaseWorker):
         self.github_handler = GitHubTransformHandler()
         logger.info(f"Initialized TransformWorker #{worker_number} for tier queue: {queue_name}")
 
-    def process_message(self, message: Dict[str, Any]) -> bool:
+    async def process_message(self, message: Dict[str, Any]) -> bool:
         """
         Process a transform message based on its type.
 

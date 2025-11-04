@@ -34,7 +34,7 @@ class GitHubExtractionWorker:
         """Initialize GitHub extraction worker."""
         logger.info("Initialized GitHubExtractionWorker")
 
-    def process_github_extraction(self, message_type: str, message: Dict[str, Any]) -> bool:
+    async def process_github_extraction(self, message_type: str, message: Dict[str, Any]) -> bool:
         """
         Route GitHub extraction message to appropriate processor.
 
@@ -47,21 +47,11 @@ class GitHubExtractionWorker:
         """
         try:
             if message_type == 'github_repositories':
-                # Run async method in event loop
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    return loop.run_until_complete(self._extract_github_repositories(message))
-                finally:
-                    loop.close()
+                logger.info(f"🚀 [GITHUB] Processing github_repositories extraction")
+                return await self._extract_github_repositories(message)
             elif message_type == 'github_prs_commits_reviews_comments':
-                # Run async method in event loop
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    return loop.run_until_complete(self._extract_github_prs(message))
-                finally:
-                    loop.close()
+                logger.info(f"🚀 [GITHUB] Processing github_prs_commits_reviews_comments extraction")
+                return await self._extract_github_prs(message)
             else:
                 logger.warning(f"Unknown GitHub extraction type: {message_type}")
                 return False

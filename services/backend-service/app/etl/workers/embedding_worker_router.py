@@ -114,7 +114,7 @@ class EmbeddingWorker(BaseWorker):
         except Exception as e:
             logger.error(f"Error completing ETL job: {e}")
 
-    def process_message(self, message: Dict[str, Any]) -> bool:
+    async def process_message(self, message: Dict[str, Any]) -> bool:
         """
         Process a single embedding message from the queue.
 

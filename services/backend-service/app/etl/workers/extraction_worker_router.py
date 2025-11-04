@@ -45,7 +45,7 @@ class ExtractionWorker(BaseWorker):
         self.tenant_ids = tenant_ids
         logger.info(f"✅ Initialized ExtractionWorker router (queue: {queue_name}, worker: {worker_number})")
 
-    def process_message(self, message: Dict[str, Any]) -> bool:
+    async def process_message(self, message: Dict[str, Any]) -> bool:
         """
         Process extraction message by routing to appropriate provider worker.
 
@@ -79,12 +79,12 @@ class ExtractionWorker(BaseWorker):
                 logger.info(f"📋 [DEBUG] Routing to JiraExtractionWorker for {extraction_type}")
                 from app.etl.jira.jira_extraction_worker import JiraExtractionWorker
                 jira_worker = JiraExtractionWorker()
-                result = jira_worker.process_jira_extraction(extraction_type, message)
+                result = await jira_worker.process_jira_extraction(extraction_type, message)
             elif extraction_type.startswith('github_'):
                 logger.info(f"📋 [DEBUG] Routing to GitHubExtractionWorker for {extraction_type}")
                 from app.etl.github.github_extraction_worker import GitHubExtractionWorker
                 github_worker = GitHubExtractionWorker()
-                result = github_worker.process_github_extraction(extraction_type, message)
+                result = await github_worker.process_github_extraction(extraction_type, message)
             else:
                 logger.warning(f"❓ [DEBUG] Unknown extraction type: {extraction_type}")
                 result = False

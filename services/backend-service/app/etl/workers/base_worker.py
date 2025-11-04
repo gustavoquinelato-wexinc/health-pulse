@@ -51,13 +51,13 @@ class BaseWorker(ABC):
         logger.info(f"Initialized {self.__class__.__name__} for queue: {queue_name}")
     
     @abstractmethod
-    def process_message(self, message: Dict[str, Any]) -> bool:
+    async def process_message(self, message: Dict[str, Any]) -> bool:
         """
         Process a single message from the queue.
-        
+
         Args:
             message: Message data from queue
-            
+
         Returns:
             bool: True if processing succeeded, False otherwise
         """
@@ -111,22 +111,22 @@ class BaseWorker(ABC):
     def _handle_message(self, message: Dict[str, Any]):
         """
         Internal message handler with error handling and acknowledgment.
-        
+
         Args:
             message: Message data from queue
         """
         try:
             logger.debug(f"Processing message: {message}")
-            
-            # Process the message
-            success = self.process_message(message)
+
+            # Process the message asynchronously
+            success = asyncio.run(self.process_message(message))
 
             if success:
                 logger.debug(f"Message processed successfully: {message.get('type', 'unknown')}")
             else:
                 # Reduce log noise - entity may have been queued before commit
                 logger.debug(f"Message processing failed (entity may not exist yet): {message.get('type', 'unknown')}")
-                
+
         except Exception as e:
             logger.error(f"Error processing message in {self.__class__.__name__}: {e}")
             logger.error(f"Message data: {message}")

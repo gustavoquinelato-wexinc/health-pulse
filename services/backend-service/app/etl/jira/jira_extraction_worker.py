@@ -38,7 +38,7 @@ class JiraExtractionWorker:
         """Initialize Jira extraction worker."""
         logger.info("Initialized JiraExtractionWorker")
 
-    def process_jira_extraction(self, message_type: str, message: Dict[str, Any]) -> bool:
+    async def process_jira_extraction(self, message_type: str, message: Dict[str, Any]) -> bool:
         """
         Route Jira extraction message to appropriate processor.
 
@@ -51,20 +51,19 @@ class JiraExtractionWorker:
         """
         try:
             if message_type == 'jira_dev_status':
+                logger.info(f"🚀 [JIRA] Processing jira_dev_status extraction")
                 return self._fetch_jira_dev_status(message)
             elif message_type == 'jira_projects_and_issue_types':
-                # Run async method in event loop
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    return loop.run_until_complete(self._extract_jira_projects_and_issue_types(message))
-                finally:
-                    loop.close()
+                logger.info(f"🚀 [JIRA] Processing jira_projects_and_issue_types extraction")
+                return await self._extract_jira_projects_and_issue_types(message)
             elif message_type == 'jira_statuses_and_relationships':
+                logger.info(f"🚀 [JIRA] Processing jira_statuses_and_relationships extraction")
                 return self._extract_jira_statuses_and_relationships(message)
             elif message_type == 'jira_issues_with_changelogs':
+                logger.info(f"🚀 [JIRA] Processing jira_issues_with_changelogs extraction")
                 return self._extract_jira_issues_with_changelogs(message)
             elif message_type == 'jira_custom_fields':
+                logger.info(f"🚀 [JIRA] Processing jira_custom_fields extraction")
                 return self._extract_jira_custom_fields(message)
             else:
                 logger.warning(f"Unknown Jira extraction type: {message_type}")
