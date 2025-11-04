@@ -823,7 +823,7 @@ async def _queue_jira_extraction_job(tenant_id: int, integration_id: int, job_id
         bool: True if queued successfully
     """
     try:
-        from app.etl.queue.queue_manager import QueueManager
+        from app.etl.workers.queue_manager import QueueManager
         from sqlalchemy import text
         from app.core.database import get_database
         import json
@@ -903,7 +903,7 @@ async def _queue_github_extraction_job(tenant_id: int, integration_id: int, job_
         bool: True if queued successfully
     """
     try:
-        from app.etl.queue.queue_manager import QueueManager
+        from app.etl.workers.queue_manager import QueueManager
         from sqlalchemy import text
         from app.core.database import get_database
         from app.models.unified_models import EtlJob
@@ -1095,7 +1095,7 @@ async def _queue_github_nested_extraction(
         bool: True if queued successfully
     """
     try:
-        from app.etl.queue.queue_manager import QueueManager
+        from app.etl.workers.queue_manager import QueueManager
 
         queue_manager = QueueManager()
 
@@ -1475,7 +1475,7 @@ async def check_remaining_messages(
         JSON with has_remaining_messages boolean
     """
     try:
-        from app.etl.queue.queue_manager import QueueManager
+        from app.etl.workers.queue_manager import QueueManager
 
         # Validate job exists and belongs to tenant
         query = text("""
