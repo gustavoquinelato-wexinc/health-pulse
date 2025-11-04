@@ -408,7 +408,7 @@ async def sync_custom_fields(
         logger.info(f"Starting custom fields sync for integration {integration_id} with projects: {project_keys}")
 
         # Perform custom fields discovery using Jira createmeta API
-        from app.etl.jira_client import JiraAPIClient, extract_custom_fields_from_createmeta
+        from app.etl.jira.client import JiraAPIClient, extract_custom_fields_from_createmeta
         from datetime import datetime, timezone
 
         try:
