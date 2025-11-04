@@ -200,6 +200,7 @@ class QueueManager:
         last_job_item: bool = False,
         last_repo: bool = False,
         last_pr: bool = False,
+        last_pr_last_nested: bool = False,  # 🔑 For nested extraction: true ONLY for last nested type of last PR
         token: str = None  # 🔑 Job execution token
 
     ) -> bool:
@@ -220,6 +221,7 @@ class QueueManager:
             last_job_item: True if this item should trigger job completion
             last_repo: True if this is the last repository (GitHub only)
             last_pr: True if this is the last PR of the last repository (GitHub only)
+            last_pr_last_nested: For nested extraction only - true ONLY for last nested type of last PR (GitHub only)
             token: Job execution token for tracking messages through pipeline
 
         Returns:
@@ -242,7 +244,7 @@ class QueueManager:
             'raw_data_id': raw_data_id,
             # GitHub-specific boundary flags
             'last_repo': last_repo,
-            'last_pr': last_pr
+            'last_pr': last_pr_last_nested if last_pr_last_nested else last_pr  # 🔑 Use last_pr_last_nested if provided
         }
 
         # Get tenant tier and route to tier-based queue
@@ -266,6 +268,7 @@ class QueueManager:
         last_job_item: bool = False,
         last_repo: bool = False,
         last_pr: bool = False,
+        last_pr_last_nested: bool = False,  # 🔑 For nested extraction: true ONLY for last nested type of last PR
         token: str = None  # 🔑 Job execution token
     ) -> bool:
         """
@@ -285,6 +288,7 @@ class QueueManager:
             last_job_item: True if this item should trigger job completion
             last_repo: True if this is the last repository (GitHub only)
             last_pr: True if this is the last PR of the last repository (GitHub only)
+            last_pr_last_nested: For nested extraction only - true ONLY for last nested type of last PR (GitHub only)
             token: Job execution token for tracking messages through the pipeline
 
         Returns:
@@ -295,7 +299,7 @@ class QueueManager:
             'integration_id': integration_id,
             'type': extraction_type,
             'last_repo': last_repo,
-            'last_pr': last_pr,
+            'last_pr': last_pr_last_nested if last_pr_last_nested else last_pr,  # 🔑 Use last_pr_last_nested if provided, otherwise last_pr
             **extraction_data  # Merge additional data (issue_id, issue_key, etc.)
         }
 
