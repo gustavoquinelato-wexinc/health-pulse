@@ -589,10 +589,14 @@ class JiraTransformHandler:
             Number of relationships created
         """
         try:
+            logger.info(f"🔍 DEBUG: _create_project_wit_relationships_for_search called with {len(project_wit_relationships)} relationships")
+
             if not project_wit_relationships:
+                logger.info("No project-wit relationships to create")
                 return 0
 
             # Get mapping of external_id -> internal_id for projects
+            logger.info("🔍 DEBUG: Querying projects mapping...")
             projects_query = text("""
                 SELECT external_id, id
                 FROM projects
@@ -603,8 +607,10 @@ class JiraTransformHandler:
                 'tenant_id': tenant_id
             }).fetchall()
             projects_lookup = {row[0]: row[1] for row in projects_result}
+            logger.info(f"🔍 DEBUG: Found {len(projects_lookup)} projects")
 
             # Get mapping of external_id -> internal_id for WITs
+            logger.info("🔍 DEBUG: Querying WITs mapping...")
             wits_query = text("""
                 SELECT external_id, id
                 FROM wits
@@ -615,11 +621,15 @@ class JiraTransformHandler:
                 'tenant_id': tenant_id
             }).fetchall()
             wits_lookup = {row[0]: row[1] for row in wits_result}
+            logger.info(f"🔍 DEBUG: Found {len(wits_lookup)} WITs")
 
             # Get existing relationships
+            logger.info("🔍 DEBUG: Getting existing relationships...")
             existing_relationships = self._get_existing_project_wit_relationships(session, tenant_id)
+            logger.info(f"🔍 DEBUG: Found {len(existing_relationships)} existing relationships")
 
             # Build relationships to insert
+            logger.info("🔍 DEBUG: Building relationships to insert...")
             relationships_to_insert = []
             for project_external_id, wit_external_id in project_wit_relationships:
                 project_id = projects_lookup.get(project_external_id)
@@ -637,18 +647,22 @@ class JiraTransformHandler:
                 if (project_id, wit_id) not in existing_relationships:
                     relationships_to_insert.append((project_id, wit_id))
 
+            logger.info(f"🔍 DEBUG: Built {len(relationships_to_insert)} relationships to insert")
+
             if not relationships_to_insert:
                 logger.info("No new project-wit relationships to create")
                 return 0
 
             # Bulk insert relationships
+            logger.info(f"🔍 DEBUG: Starting bulk insert of {len(relationships_to_insert)} relationships...")
             BulkOperations.bulk_insert_relationships(session, 'projects_wits', relationships_to_insert)
+            logger.info(f"🔍 DEBUG: Bulk insert completed")
 
             logger.info(f"Created {len(relationships_to_insert)} project-wit relationships")
             return len(relationships_to_insert)
 
         except Exception as e:
-            logger.error(f"Error creating project-wit relationships: {e}")
+            logger.error(f"Error creating project-wit relationships: {e}", exc_info=True)
             raise
 
     def _process_project_data(
