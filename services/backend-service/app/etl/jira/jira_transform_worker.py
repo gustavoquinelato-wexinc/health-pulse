@@ -632,20 +632,27 @@ class JiraTransformHandler:
             logger.info("🔍 DEBUG: Building relationships to insert...")
             relationships_to_insert = []
             for project_external_id, wit_external_id in project_wit_relationships:
-                project_id = projects_lookup.get(project_external_id)
-                wit_id = wits_lookup.get(wit_external_id)
+                # Convert to strings for database lookup (external_id is VARCHAR in DB)
+                project_external_id_str = str(project_external_id)
+                wit_external_id_str = str(wit_external_id)
+
+                logger.info(f"🔍 DEBUG: Looking up project {project_external_id_str} and wit {wit_external_id_str}")
+
+                project_id = projects_lookup.get(project_external_id_str)
+                wit_id = wits_lookup.get(wit_external_id_str)
 
                 if not project_id:
-                    logger.warning(f"Project with external_id {project_external_id} not found")
+                    logger.warning(f"Project with external_id {project_external_id_str} not found in lookup")
                     continue
 
                 if not wit_id:
-                    logger.warning(f"WIT with external_id {wit_external_id} not found")
+                    logger.warning(f"WIT with external_id {wit_external_id_str} not found in lookup")
                     continue
 
                 # Check if relationship already exists
                 if (project_id, wit_id) not in existing_relationships:
                     relationships_to_insert.append((project_id, wit_id))
+                    logger.info(f"🔍 DEBUG: Added relationship to insert: project_id={project_id}, wit_id={wit_id}")
 
             logger.info(f"🔍 DEBUG: Built {len(relationships_to_insert)} relationships to insert")
 
