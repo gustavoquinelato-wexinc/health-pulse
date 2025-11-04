@@ -177,9 +177,9 @@ def setup_logging(force_reconfigure=False):
         backupCount=5,
         encoding='utf-8'
     )
-    # Log INFO+ to file for debugging ETL jobs
-    # This allows ETL job logs to be captured in the file
-    file_handler.setLevel(logging.INFO)
+    # Log DEBUG+ to file when DEBUG=true, otherwise INFO+
+    # This allows detailed debugging in development and ETL job logs in production
+    file_handler.setLevel(logging.DEBUG if DEBUG else logging.INFO)
     file_handler.setFormatter(formatter)
 
     # Add filter to allow important ETL job messages to file
