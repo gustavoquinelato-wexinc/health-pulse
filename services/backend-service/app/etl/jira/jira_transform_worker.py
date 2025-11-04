@@ -575,6 +575,82 @@ class JiraTransformHandler:
         result = session.execute(query, {'tenant_id': tenant_id}).fetchall()
         return {(row[0], row[1]) for row in result}
 
+    def _create_project_wit_relationships_for_search(self, session, project_wit_relationships: List[tuple], integration_id: int, tenant_id: int) -> int:
+        """
+        Create project-wit relationships from external IDs.
+
+        Args:
+            session: Database session
+            project_wit_relationships: List of (project_external_id, wit_external_id) tuples
+            integration_id: Integration ID
+            tenant_id: Tenant ID
+
+        Returns:
+            Number of relationships created
+        """
+        try:
+            if not project_wit_relationships:
+                return 0
+
+            # Get mapping of external_id -> internal_id for projects
+            projects_query = text("""
+                SELECT external_id, id
+                FROM projects
+                WHERE integration_id = :integration_id AND tenant_id = :tenant_id AND active = true
+            """)
+            projects_result = session.execute(projects_query, {
+                'integration_id': integration_id,
+                'tenant_id': tenant_id
+            }).fetchall()
+            projects_lookup = {row[0]: row[1] for row in projects_result}
+
+            # Get mapping of external_id -> internal_id for WITs
+            wits_query = text("""
+                SELECT external_id, id
+                FROM wits
+                WHERE integration_id = :integration_id AND tenant_id = :tenant_id AND active = true
+            """)
+            wits_result = session.execute(wits_query, {
+                'integration_id': integration_id,
+                'tenant_id': tenant_id
+            }).fetchall()
+            wits_lookup = {row[0]: row[1] for row in wits_result}
+
+            # Get existing relationships
+            existing_relationships = self._get_existing_project_wit_relationships(session, tenant_id)
+
+            # Build relationships to insert
+            relationships_to_insert = []
+            for project_external_id, wit_external_id in project_wit_relationships:
+                project_id = projects_lookup.get(project_external_id)
+                wit_id = wits_lookup.get(wit_external_id)
+
+                if not project_id:
+                    logger.warning(f"Project with external_id {project_external_id} not found")
+                    continue
+
+                if not wit_id:
+                    logger.warning(f"WIT with external_id {wit_external_id} not found")
+                    continue
+
+                # Check if relationship already exists
+                if (project_id, wit_id) not in existing_relationships:
+                    relationships_to_insert.append((project_id, wit_id))
+
+            if not relationships_to_insert:
+                logger.info("No new project-wit relationships to create")
+                return 0
+
+            # Bulk insert relationships
+            BulkOperations.bulk_insert_relationships(session, 'projects_wits', relationships_to_insert)
+
+            logger.info(f"Created {len(relationships_to_insert)} project-wit relationships")
+            return len(relationships_to_insert)
+
+        except Exception as e:
+            logger.error(f"Error creating project-wit relationships: {e}")
+            raise
+
     def _process_project_data(
         self,
         project_data: Dict[str, Any],
