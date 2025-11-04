@@ -75,18 +75,28 @@ class ExtractionWorker(BaseWorker):
 
             # Route to appropriate extraction handler based on provider
             result = False
-            if extraction_type.startswith('jira_'):
-                logger.info(f"📋 [DEBUG] Routing to JiraExtractionWorker for {extraction_type}")
-                from app.etl.jira.jira_extraction_worker import JiraExtractionWorker
-                jira_worker = JiraExtractionWorker()
-                result = await jira_worker.process_jira_extraction(extraction_type, message)
-            elif extraction_type.startswith('github_'):
-                logger.info(f"📋 [DEBUG] Routing to GitHubExtractionWorker for {extraction_type}")
-                from app.etl.github.github_extraction_worker import GitHubExtractionWorker
-                github_worker = GitHubExtractionWorker()
-                result = await github_worker.process_github_extraction(extraction_type, message)
-            else:
-                logger.warning(f"❓ [DEBUG] Unknown extraction type: {extraction_type}")
+            try:
+                if extraction_type.startswith('jira_'):
+                    logger.info(f"📋 [DEBUG] Routing to JiraExtractionWorker for {extraction_type}")
+                    from app.etl.jira.jira_extraction_worker import JiraExtractionWorker
+                    jira_worker = JiraExtractionWorker()
+                    logger.info(f"📋 [DEBUG] Calling jira_worker.process_jira_extraction")
+                    result = await jira_worker.process_jira_extraction(extraction_type, message)
+                    logger.info(f"📋 [DEBUG] jira_worker.process_jira_extraction returned: {result}")
+                elif extraction_type.startswith('github_'):
+                    logger.info(f"📋 [DEBUG] Routing to GitHubExtractionWorker for {extraction_type}")
+                    from app.etl.github.github_extraction_worker import GitHubExtractionWorker
+                    github_worker = GitHubExtractionWorker()
+                    logger.info(f"📋 [DEBUG] Calling github_worker.process_github_extraction")
+                    result = await github_worker.process_github_extraction(extraction_type, message)
+                    logger.info(f"📋 [DEBUG] github_worker.process_github_extraction returned: {result}")
+                else:
+                    logger.warning(f"❓ [DEBUG] Unknown extraction type: {extraction_type}")
+                    result = False
+            except Exception as route_error:
+                logger.error(f"💥 [EXTRACTION] Error during routing: {route_error}")
+                import traceback
+                logger.error(f"💥 [EXTRACTION] Routing error traceback: {traceback.format_exc()}")
                 result = False
 
             if result:
