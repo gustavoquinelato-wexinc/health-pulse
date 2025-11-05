@@ -102,7 +102,7 @@ class GitHubExtractionWorker:
                 integration_id=integration_id,
                 tenant_id=tenant_id,
                 job_id=job_id,
-                last_sync_date=None,
+                old_last_sync_date=None,
                 token=token
             )
 
