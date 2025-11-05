@@ -595,7 +595,7 @@ class GitHubExtractionWorker:
                     old_last_sync_date=message.get('old_last_sync_date'),  # Forward from message
                     new_last_sync_date=message.get('new_last_sync_date'),  # 🔑 Forward from message
                     last_repo=message.get('last_repo', False),  # 🔑 Forward flag from message
-                    last_pr_last_nested=message.get('last_pr', False),  # 🔑 Forward last_pr as last_pr_last_nested
+                    last_pr_last_nested=message.get('last_pr_last_nested', False),  # 🔑 Forward last_pr_last_nested from message
                     token=token  # 🔑 Include token in message
                 )
             else:
@@ -785,7 +785,6 @@ class GitHubExtractionWorker:
                         last_item=True,
                         last_job_item=True,  # 🔑 Signal job completion
                         last_repo=last_repo,
-                        last_pr=False,
                         token=token  # 🔑 Include token in message
                     )
                     logger.info(f"✅ Completion message queued to transform")
@@ -927,7 +926,6 @@ class GitHubExtractionWorker:
                     last_item=is_last_item,  # 🔑 True only when all conditions met
                     last_job_item=is_last_job_item,  # 🔑 True only when all conditions met
                     last_repo=last_repo,
-                    last_pr=pr_last_pr,  # 🔑 Calculated per-PR
                     token=token  # 🔑 Include token in message
                 )
 
