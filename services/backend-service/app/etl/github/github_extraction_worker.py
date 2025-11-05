@@ -139,7 +139,6 @@ class GitHubExtractionWorker:
             repo_name = message.get('repo_name')
             pr_cursor = message.get('pr_cursor')
             first_item = message.get('first_item', False)
-            last_item = message.get('last_item', False)
             old_last_sync_date = message.get('old_last_sync_date')
             new_last_sync_date = message.get('new_last_sync_date')
             last_repo = message.get('last_repo', False)
@@ -155,7 +154,6 @@ class GitHubExtractionWorker:
                 owner=owner,
                 repo_name=repo_name,
                 first_item=first_item,
-                last_item=last_item,
                 old_last_sync_date=old_last_sync_date,
                 new_last_sync_date=new_last_sync_date,
                 last_repo=last_repo,
