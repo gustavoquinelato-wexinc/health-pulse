@@ -21,8 +21,11 @@ DEBUG = settings.DEBUG
 # Global flag to track if logging has been set up
 _logging_configured = False
 
-# 🔧 TOGGLE: Set to True to disable log filters and see ALL debug logs
-DISABLE_LOG_FILTERS = False  # Set to True to see all DEBUG logs, False to use keyword filtering
+# 🔧 LOGGING CONFIGURATION TOGGLES
+# Set the log level you want to see (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+LOG_LEVEL = logging.DEBUG  # Change this to control log verbosity
+# Set to True to disable log filters and see ALL logs at the configured level
+DISABLE_LOG_FILTERS = False  # Set to True to see all logs, False to use keyword filtering
 
 
 class TokenMaskingFilter(logging.Filter):
@@ -123,9 +126,9 @@ def setup_logging(force_reconfigure=False):
     """
     Clean, minimal logging setup for Backend Service.
 
-    Rules:
-    - DEBUG: Console only (development debugging)
-    - INFO+: Console + File (important events)
+    Configuration:
+    - LOG_LEVEL: Set at top of file (DEBUG, INFO, WARNING, ERROR, CRITICAL)
+    - DISABLE_LOG_FILTERS: Set to True to see all logs, False for keyword filtering
     - File rotation: 10MB max, 5 backups
     - Silence noisy third-party libraries
     """
@@ -145,9 +148,9 @@ def setup_logging(force_reconfigure=False):
         datefmt='%Y-%m-%d %H:%M:%S'
     )
 
-    # Console handler - only show WARNING+ to reduce noise, but allow ETL job logs
+    # Console handler
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(logging.DEBUG if DEBUG else logging.WARNING)
+    console_handler.setLevel(LOG_LEVEL)  # Use configured log level
     console_handler.setFormatter(formatter)
 
     # Add filter to allow important ETL job messages through (unless disabled)
@@ -182,9 +185,7 @@ def setup_logging(force_reconfigure=False):
         backupCount=5,
         encoding='utf-8'
     )
-    # Log DEBUG+ to file when DEBUG=true, otherwise INFO+
-    # This allows detailed debugging in development and ETL job logs in production
-    file_handler.setLevel(logging.DEBUG if DEBUG else logging.INFO)
+    file_handler.setLevel(LOG_LEVEL)  # Use configured log level
     file_handler.setFormatter(formatter)
 
     # Add filter to allow important ETL job messages to file (unless disabled)
@@ -211,7 +212,7 @@ def setup_logging(force_reconfigure=False):
     root_logger.addHandler(file_handler)
 
     # Set root logger level
-    root_logger.setLevel(logging.DEBUG if DEBUG else logging.INFO)
+    root_logger.setLevel(LOG_LEVEL)  # Use configured log level
 
     # Apply token masking filter to all handlers (especially Uvicorn access logs)
     token_filter = TokenMaskingFilter()
