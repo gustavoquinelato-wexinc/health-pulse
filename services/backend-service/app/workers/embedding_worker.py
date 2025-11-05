@@ -353,9 +353,23 @@ class EmbeddingWorker(BaseWorker):
             loop = asyncio.new_event_loop()
             asyncio.set_event_loop(loop)
             try:
-                return loop.run_until_complete(self._process_embedding_message(message))
+                result = loop.run_until_complete(self._process_embedding_message(message))
+
+                # Properly shutdown async resources before closing loop
+                # This gives pending tasks (like HTTP connection cleanup) time to complete
+                pending = asyncio.all_tasks(loop)
+                if pending:
+                    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+
+                return result
             finally:
-                loop.close()
+                # Shutdown async generators and close the loop
+                try:
+                    loop.run_until_complete(loop.shutdown_asyncgens())
+                except Exception:
+                    pass
+                finally:
+                    loop.close()
         except Exception as e:
             logger.error(f"❌ EMBEDDING WORKER: Error in sync wrapper: {e}")
             return False

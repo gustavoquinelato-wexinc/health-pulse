@@ -118,8 +118,26 @@ class BaseWorker(ABC):
         try:
             logger.debug(f"Processing message: {message}")
 
-            # Process the message asynchronously
-            success = asyncio.run(self.process_message(message))
+            # Process the message asynchronously with proper event loop cleanup
+            loop = asyncio.new_event_loop()
+            asyncio.set_event_loop(loop)
+            try:
+                success = loop.run_until_complete(self.process_message(message))
+
+                # Properly shutdown async resources before closing loop
+                # This gives pending tasks (like HTTP connection cleanup) time to complete
+                pending = asyncio.all_tasks(loop)
+                if pending:
+                    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+
+            finally:
+                # Shutdown async generators and close the loop
+                try:
+                    loop.run_until_complete(loop.shutdown_asyncgens())
+                except Exception:
+                    pass
+                finally:
+                    loop.close()
 
             if success:
                 logger.debug(f"Message processed successfully: {message.get('type', 'unknown')}")
@@ -173,28 +191,30 @@ class BaseWorker(ABC):
             step_type: Optional step type for logging
         """
         try:
-            from app.core.http_client import get_http_client
+            from sqlalchemy import text
+            from app.core.database import get_database
 
-            http_client = get_http_client()
-            url = f"http://localhost:8000/api/v1/etl/job/{job_id}/status"
+            # Update database status first
+            database = get_database()
+            with database.get_read_session_context() as session:
+                result = session.execute(
+                    text('SELECT status FROM etl_jobs WHERE id = :job_id'),
+                    {'job_id': job_id}
+                ).fetchone()
 
-            payload = {
-                "step": step,
-                "status": status,
-                "step_type": step_type
-            }
+                if result:
+                    job_status = result[0]  # This is the JSON status structure
 
-            headers = {
-                "X-Internal-Auth": "service-to-service",
-                "X-Tenant-ID": str(tenant_id)
-            }
+                    # Send WebSocket notification with the same JSON structure the UI reads on refresh
+                    from app.api.websocket_routes import get_job_websocket_manager
 
-            response = await http_client.post(url, json=payload, headers=headers)
-
-            if response.status_code == 200:
-                logger.info(f"✅ WebSocket status '{status}' sent for {step} step (job_id={job_id})")
-            else:
-                logger.warning(f"⚠️ Failed to send WebSocket status: {response.status_code}")
+                    job_websocket_manager = get_job_websocket_manager()
+                    await job_websocket_manager.send_job_status_update(
+                        tenant_id=tenant_id,
+                        job_id=job_id,
+                        status_json=job_status
+                    )
+                    logger.info(f"✅ WebSocket status '{status}' sent for {step} step (job_id={job_id})")
 
         except Exception as e:
             logger.error(f"Error sending WebSocket status: {e}")
