@@ -566,7 +566,7 @@ class GitHubExtractionWorker:
             if message.get('type') == 'github_nested_extraction_recovery':
                 # NESTED RECOVERY: Resume from rate limit checkpoint
                 logger.info(f"⏭️ [ROUTER] Routing to extract_nested_recovery (PR {message.get('pr_id')})")
-                result = await extract_nested_recovery(
+                result = await self.extract_nested_recovery(
                     tenant_id=tenant_id,
                     integration_id=integration_id,  # 🔑 For service-to-service auth
                     job_id=job_id,
@@ -582,7 +582,7 @@ class GitHubExtractionWorker:
             elif message.get('nested_type'):
                 # NESTED CONTINUATION: Extract next page of nested data
                 logger.info(f"🔀 [ROUTER] Routing to extract_nested_pagination (nested_type={message.get('nested_type')})")
-                result = await extract_nested_pagination(
+                result = await self.extract_nested_pagination(
                     tenant_id=tenant_id,
                     integration_id=integration_id,  # 🔑 For service-to-service auth
                     job_id=job_id,
@@ -602,7 +602,7 @@ class GitHubExtractionWorker:
                 # FRESH OR NEXT PR PAGE
                 is_fresh = message.get('pr_cursor') is None
                 logger.info(f"🔀 [ROUTER] Routing to extract_github_prs_commits_reviews_comments ({'fresh' if is_fresh else 'next'} page)")
-                result = await extract_github_prs_commits_reviews_comments(
+                result = await self.extract_github_prs_commits_reviews_comments(
                     tenant_id=tenant_id,
                     integration_id=integration_id,  # 🔑 For service-to-service auth
                     job_id=job_id,
