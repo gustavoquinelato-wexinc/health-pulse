@@ -21,6 +21,9 @@ DEBUG = settings.DEBUG
 # Global flag to track if logging has been set up
 _logging_configured = False
 
+# 🔧 TOGGLE: Set to True to disable log filters and see ALL debug logs
+DISABLE_LOG_FILTERS = False  # Set to True to see all DEBUG logs, False to use keyword filtering
+
 
 class TokenMaskingFilter(logging.Filter):
     """Filter to mask JWT tokens in log messages (especially Uvicorn access logs)."""
@@ -147,24 +150,26 @@ def setup_logging(force_reconfigure=False):
     console_handler.setLevel(logging.DEBUG if DEBUG else logging.WARNING)
     console_handler.setFormatter(formatter)
 
-    # Add filter to allow important ETL job messages through
-    def console_filter(record):
-        message = record.getMessage()
-        # Always show WARNING+ messages
-        if record.levelno >= logging.WARNING:
-            return True
-        # Allow ETL job start/finish messages and worker debug messages
-        if any(keyword in message for keyword in [
-            "🚀 ETL JOB STARTED:", "🏁 ETL JOB FINISHED:", "💥 ETL JOB FAILED:",
-            "Job scheduler started successfully", "Backend Service started successfully",
-            "[WORKER-DEBUG]", "[DEBUG]", "🚀 Starting PREMIUM WORKER POOLS", "✅ ETL workers started",
-            "📨", "🔍", "📋", "✅ Jira extraction job queued", "❌ Failed to publish", "DEBOGA",
-            "🔐"  # Authentication debug logs
-        ]):
-            return True
-        return False
+    # Add filter to allow important ETL job messages through (unless disabled)
+    if not DISABLE_LOG_FILTERS:
+        def console_filter(record):
+            message = record.getMessage()
+            # Always show WARNING+ messages
+            if record.levelno >= logging.WARNING:
+                return True
+            # Allow ETL job start/finish messages and worker debug messages
+            if any(keyword in message for keyword in [
+                "🚀 ETL JOB STARTED:", "🏁 ETL JOB FINISHED:", "💥 ETL JOB FAILED:",
+                "Job scheduler started successfully", "Backend Service started successfully",
+                "[WORKER-DEBUG]", "[DEBUG]", "🚀 Starting PREMIUM WORKER POOLS", "✅ ETL workers started",
+                "📨", "🔍", "📋", "✅ Jira extraction job queued", "❌ Failed to publish", "DEBOGA",
+                "🔐"  # Authentication debug logs
+            ]):
+                return True
+            return False
 
-    console_handler.addFilter(console_filter)
+        console_handler.addFilter(console_filter)
+
     root_logger.addHandler(console_handler)
 
     # File handler with rotation
@@ -182,25 +187,27 @@ def setup_logging(force_reconfigure=False):
     file_handler.setLevel(logging.DEBUG if DEBUG else logging.INFO)
     file_handler.setFormatter(formatter)
 
-    # Add filter to allow important ETL job messages to file
-    def file_filter(record):
-        message = record.getMessage()
-        # Always show WARNING+ messages
-        if record.levelno >= logging.WARNING:
-            return True
-        # Allow INFO level ETL job messages and worker debug messages
-        if record.levelno >= logging.INFO and any(keyword in message for keyword in [
-            "🚀 ETL JOB STARTED:", "🏁 ETL JOB FINISHED:", "💥 ETL JOB FAILED:",
-            "✅ JOB STARTED:", "📊 JOB STATUS CHECK:", "🔵 MANUAL TRIGGER:", "🟢 AUTO TRIGGER:",
-            "Job scheduler started successfully", "Backend Service started successfully",
-            "MANUAL TRIGGER:", "AUTO TRIGGER:",
-            "[WORKER-DEBUG]", "[DEBUG]", "🚀 Starting PREMIUM WORKER POOLS", "✅ ETL workers started",
-            "📨", "🔍", "📋", "✅ Jira extraction job queued", "❌ Failed to publish"
-        ]):
-            return True
-        return False
+    # Add filter to allow important ETL job messages to file (unless disabled)
+    if not DISABLE_LOG_FILTERS:
+        def file_filter(record):
+            message = record.getMessage()
+            # Always show WARNING+ messages
+            if record.levelno >= logging.WARNING:
+                return True
+            # Allow INFO level ETL job messages and worker debug messages
+            if record.levelno >= logging.INFO and any(keyword in message for keyword in [
+                "🚀 ETL JOB STARTED:", "🏁 ETL JOB FINISHED:", "💥 ETL JOB FAILED:",
+                "✅ JOB STARTED:", "📊 JOB STATUS CHECK:", "🔵 MANUAL TRIGGER:", "🟢 AUTO TRIGGER:",
+                "Job scheduler started successfully", "Backend Service started successfully",
+                "MANUAL TRIGGER:", "AUTO TRIGGER:",
+                "[WORKER-DEBUG]", "[DEBUG]", "🚀 Starting PREMIUM WORKER POOLS", "✅ ETL workers started",
+                "📨", "🔍", "📋", "✅ Jira extraction job queued", "❌ Failed to publish"
+            ]):
+                return True
+            return False
 
-    file_handler.addFilter(file_filter)
+        file_handler.addFilter(file_filter)
+
     root_logger.addHandler(file_handler)
 
     # Set root logger level
