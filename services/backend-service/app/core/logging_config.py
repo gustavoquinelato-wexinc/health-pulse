@@ -16,7 +16,6 @@ from app.core.config import get_settings
 # Service configuration
 SERVICE_NAME = "backend-service"
 settings = get_settings()
-DEBUG = settings.DEBUG
 
 # Global flag to track if logging has been set up
 _logging_configured = False
@@ -258,8 +257,8 @@ def _silence_third_party_loggers():
     # Background jobs
     logging.getLogger("apscheduler").setLevel(logging.INFO)
 
-    # Only show uvicorn startup in production
-    if not DEBUG:
+    # Uvicorn logger - keep at WARNING unless LOG_LEVEL is DEBUG
+    if LOG_LEVEL > logging.DEBUG:
         logging.getLogger("uvicorn").setLevel(logging.WARNING)
 
 
