@@ -53,6 +53,7 @@ class ExtractionWorker(BaseWorker):
             message: Extraction message with structure:
                 {
                     'type': 'jira_dev_status' | 'jira_projects_and_issue_types' | 'github_repositories' | etc,
+                    'provider': 'jira' | 'github',
                     'tenant_id': int,
                     'integration_id': int,
                     'job_id': int,
@@ -68,36 +69,54 @@ class ExtractionWorker(BaseWorker):
         """
         try:
             extraction_type = message.get('type')
+            provider = message.get('provider')
             tenant_id = message.get('tenant_id')
             job_id = message.get('job_id')
+            first_item = message.get('first_item', False)
 
-            logger.info(f"📋 [EXTRACTION] Processing {extraction_type} for tenant {tenant_id}, job {job_id}")
+            logger.info(f"📋 [EXTRACTION] Processing {extraction_type} (provider: {provider}) for tenant {tenant_id}, job {job_id}")
+
+            # 🔔 Send WebSocket status update when first_item=true (extraction worker starting)
+            if job_id and first_item:
+                logger.info(f"🚀 [EXTRACTION] Sending WebSocket status update: extraction worker running for {extraction_type}")
+                try:
+                    await self._send_worker_status("extraction", tenant_id, job_id, "running", extraction_type)
+                    logger.info(f"✅ [EXTRACTION] WebSocket status update completed for {extraction_type}")
+                except Exception as ws_error:
+                    logger.error(f"❌ [EXTRACTION] Error sending WebSocket status: {ws_error}")
 
             # Route to appropriate extraction handler based on provider
+            # Note: Provider-specific workers now handle their own "finished" status updates
+            # Router only sends "running" status when first_item=true
+            # 🔑 Pass status_manager to provider workers for dependency injection
             result = False
             try:
-                if extraction_type.startswith('jira_'):
+                if provider == 'jira':
                     logger.info(f"📋 [DEBUG] Routing to JiraExtractionWorker for {extraction_type}")
                     from app.etl.jira.jira_extraction_worker import JiraExtractionWorker
-                    jira_worker = JiraExtractionWorker()
+                    jira_worker = JiraExtractionWorker(status_manager=self.status_manager)
                     logger.info(f"📋 [DEBUG] Calling jira_worker.process_jira_extraction")
                     result = await jira_worker.process_jira_extraction(extraction_type, message)
                     logger.info(f"📋 [DEBUG] jira_worker.process_jira_extraction returned: {result}")
-                elif extraction_type.startswith('github_'):
+                elif provider == 'github':
                     logger.info(f"📋 [DEBUG] Routing to GitHubExtractionWorker for {extraction_type}")
                     from app.etl.github.github_extraction_worker import GitHubExtractionWorker
-                    github_worker = GitHubExtractionWorker()
+                    github_worker = GitHubExtractionWorker(status_manager=self.status_manager)
                     logger.info(f"📋 [DEBUG] Calling github_worker.process_github_extraction")
                     result = await github_worker.process_github_extraction(extraction_type, message)
                     logger.info(f"📋 [DEBUG] github_worker.process_github_extraction returned: {result}")
                 else:
-                    logger.warning(f"❓ [DEBUG] Unknown extraction type: {extraction_type}")
+                    logger.warning(f"❓ [DEBUG] Unknown provider: {provider} for extraction type: {extraction_type}")
                     result = False
             except Exception as route_error:
                 logger.error(f"💥 [EXTRACTION] Error during routing: {route_error}")
                 import traceback
                 logger.error(f"💥 [EXTRACTION] Routing error traceback: {traceback.format_exc()}")
                 result = False
+
+            # � NOTE: "finished" status is now sent by provider-specific workers
+            # This allows each worker to handle its own completion logic
+            # (e.g., github_repositories finishes after LOOP 1 + LOOP 2, even though incoming message has last_item=False)
 
             if result:
                 logger.info(f"✅ [EXTRACTION] Successfully processed {extraction_type}")

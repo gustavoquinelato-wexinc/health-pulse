@@ -110,8 +110,9 @@ class TransformWorker(BaseWorker):
         """
         super().__init__(queue_name)
         self.worker_number = worker_number
-        self.jira_handler = JiraTransformHandler()
-        self.github_handler = GitHubTransformHandler()
+        # 🔑 Pass status_manager to handlers via dependency injection
+        self.jira_handler = JiraTransformHandler(status_manager=self.status_manager)
+        self.github_handler = GitHubTransformHandler(status_manager=self.status_manager)
         logger.info(f"Initialized TransformWorker #{worker_number} for tier queue: {queue_name}")
 
     async def process_message(self, message: Dict[str, Any]) -> bool:
@@ -138,16 +139,11 @@ class TransformWorker(BaseWorker):
             logger.info(f"🔍 [DEBUG] Checking WebSocket conditions: job_id={job_id}, first_item={first_item}")
             if job_id and first_item:
                 logger.info(f"🚀 [DEBUG] Sending WebSocket status update: transform worker running for {message_type}")
-                import asyncio
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
                 try:
-                    loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "running", message_type))
+                    await self._send_worker_status("transform", tenant_id, job_id, "running", message_type)
                     logger.info(f"✅ [DEBUG] WebSocket status update completed for {message_type}")
                 except Exception as ws_error:
                     logger.error(f"❌ [DEBUG] Error sending WebSocket status: {ws_error}")
-                finally:
-                    loop.close()
             else:
                 logger.info(f"❌ [DEBUG] WebSocket conditions not met: job_id={job_id}, first_item={first_item}")
 
@@ -158,16 +154,11 @@ class TransformWorker(BaseWorker):
 
                 # Send WebSocket status: transform worker finished (on last_item)
                 if last_item and job_id:
-                    import asyncio
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
                     try:
-                        loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "finished", message_type))
+                        await self._send_worker_status("transform", tenant_id, job_id, "finished", message_type)
                         logger.info(f"✅ Transform worker marked as finished for {message_type} (completion message)")
                     except Exception as e:
                         logger.error(f"❌ Error sending finished status for {message_type}: {e}")
-                    finally:
-                        loop.close()
 
                 # Handle different completion message types
                 if message_type == 'jira_dev_status':
@@ -258,32 +249,40 @@ class TransformWorker(BaseWorker):
 
             # Send WebSocket status: transform worker starting (on first_item)
             if job_id and first_item:
-                import asyncio
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
                 try:
-                    loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "running", message_type))
-                finally:
-                    loop.close()
+                    await self._send_worker_status("transform", tenant_id, job_id, "running", message_type)
+                except Exception as e:
+                    logger.error(f"❌ Error sending WebSocket status: {e}")
 
-            # Update job status to RUNNING (if job_id provided)
-            if job_id:
-                self._update_job_status(job_id, message_type, "running", f"Transforming {message_type}")
+            # Note: Job status is updated via WebSocket status updates above
+            # No need to update database directly here
 
             # Route to appropriate handler based on provider
+            result = False
             if message_type.startswith('jira_'):
                 # Route all Jira messages to JiraTransformHandler
-                return self.jira_handler.process_jira_message(
+                result = self.jira_handler.process_jira_message(
                     message_type, raw_data_id, tenant_id, integration_id, job_id, message
                 )
             elif message_type.startswith('github_'):
                 # Route all GitHub messages to GitHubTransformHandler
-                return self.github_handler.process_github_message(
+                result = self.github_handler.process_github_message(
                     message_type, raw_data_id, tenant_id, integration_id, job_id, message
                 )
             else:
                 logger.warning(f"Unknown message type: {message_type}")
-                return False
+                result = False
+
+            # 🔔 Send WebSocket status update when last_item=true (transform worker finished)
+            if job_id and last_item and result:
+                logger.info(f"🏁 [TRANSFORM] Sending WebSocket status update: transform worker finished for {message_type}")
+                try:
+                    await self._send_worker_status("transform", tenant_id, job_id, "finished", message_type)
+                    logger.info(f"✅ [TRANSFORM] WebSocket finished status sent for {message_type}")
+                except Exception as ws_error:
+                    logger.error(f"❌ [TRANSFORM] Error sending WebSocket finished status: {ws_error}")
+
+            return result
 
         except Exception as e:
             logger.error(f"Error processing transform message: {e}")

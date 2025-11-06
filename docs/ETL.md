@@ -81,6 +81,7 @@ The ETL codebase is organized by provider with clear separation of concerns:
 services/backend-service/app/etl/
 ├── workers/                           # Generic worker infrastructure
 │   ├── base_worker.py                # Base class for all workers
+│   ├── worker_status_manager.py      # Reusable status update component
 │   ├── queue_manager.py              # RabbitMQ queue management
 │   ├── bulk_operations.py            # Bulk database operations
 │   ├── worker_manager.py             # Worker lifecycle management
@@ -107,6 +108,16 @@ services/backend-service/app/etl/
 - **Scalability**: Easy to add new providers (e.g., GitLab, Azure DevOps)
 - **Consistency**: All providers follow the same worker pattern
 - **Clarity**: Clear file organization makes navigation intuitive
+
+**WorkerStatusManager Pattern:**
+- **Composition over Inheritance**: Reusable component for status updates
+- **Dependency Injection**: Routers inject `status_manager` into provider-specific workers/handlers
+- **No Code Duplication**: Single source of truth for WebSocket status updates
+- **Flexible**: Any worker can use WorkerStatusManager without inheritance
+- **Usage**:
+  - `BaseWorker` creates `WorkerStatusManager` instance in `__init__`
+  - Routers pass `self.status_manager` to provider workers/handlers
+  - Workers/handlers call `self.status_manager.send_worker_status()` to send updates
 
 ## 🔄 Job Orchestration System
 
@@ -644,6 +655,42 @@ Extraction creates one raw_data_id per logical unit. For specific examples, see:
 - Transform → Embedding: `first_item`, `last_item`, `last_job_item`
 - **EXCEPTION**: Transform may recalculate `first_item` and `last_item` when queuing multiple entities to embedding
 
+### Extraction Worker Architecture
+
+#### Router Pattern (ExtractionWorkerRouter)
+
+**ExtractionWorkerRouter** acts as the queue consumer and router:
+1. Consumes messages from tier-based extraction queues
+2. Routes messages to provider-specific workers based on `provider` field:
+   - `provider: 'jira'` → **JiraExtractionWorker**
+   - `provider: 'github'` → **GitHubExtractionWorker**
+3. Sends "running" status when `first_item=True` (via router)
+4. Provider-specific workers send "finished" status when extraction completes
+
+#### Worker Pattern (JiraExtractionWorker, GitHubExtractionWorker)
+
+**Specialized Workers** handle provider-specific extraction logic:
+- **JiraExtractionWorker**: Processes all Jira extraction types
+  - `jira_projects_and_issue_types` → Extracts projects and issue types, sends "finished" status
+  - `jira_statuses_and_relationships` → Extracts statuses, sends "finished" status
+  - `jira_issues_with_changelogs` → Extracts issues, sends "finished" status
+  - `jira_dev_status` → Extracts dev status per issue, sends "finished" when `last_item=True`
+
+- **GitHubExtractionWorker**: Processes all GitHub extraction types
+  - `github_repositories` → Extracts all repos, sends "finished" after LOOP 1 + LOOP 2
+  - `github_prs_commits_reviews_comments` → Extracts PRs with nested data, sends "finished" on final page
+
+Both workers receive **WorkerStatusManager** via dependency injection:
+- `status_manager` - Injected by ExtractionWorkerRouter for sending WebSocket status updates
+- Workers use `self.status_manager.send_worker_status()` to send "finished" status
+- Each worker knows when its extraction is complete and sends status accordingly
+
+**Architecture Pattern:**
+- **Composition over Inheritance**: Workers don't inherit from BaseWorker
+- **Dependency Injection**: Router injects `status_manager` into workers
+- **WorkerStatusManager**: Reusable component for status updates without inheritance
+- **Provider-Specific Completion Logic**: Each worker controls when to send "finished" status
+
 ### Transform Worker Architecture
 
 #### Router Pattern (TransformWorker)
@@ -672,11 +719,15 @@ Extraction creates one raw_data_id per logical unit. For specific examples, see:
   - `github_prs` / `github_prs_commits_reviews_comments` → `_process_github_prs()`
   - `github_prs_nested` → `_process_github_prs_nested()`
 
-Both handlers inherit from **BaseWorker** to access shared utilities:
-- `_send_worker_status()` - WebSocket status updates
-- `_update_job_status()` - Database job status updates
-- `_update_worker_status()` - Worker status tracking
-- Database session management
+Both handlers receive **WorkerStatusManager** via dependency injection:
+- `status_manager` - Injected by TransformWorkerRouter for sending WebSocket status updates
+- Handlers use `self.status_manager.send_worker_status()` to send status updates
+- Database session management via `get_db_session()` and `get_db_read_session()`
+
+**Architecture Pattern:**
+- **Composition over Inheritance**: Handlers don't inherit from BaseWorker
+- **Dependency Injection**: Router injects `status_manager` into handlers
+- **WorkerStatusManager**: Reusable component for status updates without inheritance
 
 ### Transform Worker Rules
 

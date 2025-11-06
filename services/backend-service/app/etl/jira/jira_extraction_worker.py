@@ -20,7 +20,7 @@ from app.core.logging_config import get_logger
 from app.core.database import get_database
 from app.models.unified_models import Integration
 from app.etl.workers.queue_manager import QueueManager
-from app.etl.jira.client import JiraAPIClient
+from app.etl.jira.jira_client import JiraAPIClient
 from sqlalchemy import text
 
 logger = get_logger(__name__)
@@ -32,11 +32,38 @@ class JiraExtractionWorker:
 
     Note: This is NOT a queue consumer itself. It's called from ExtractionWorkerRouter
     which is the actual queue consumer. This class contains provider-specific logic.
+
+    Uses dependency injection to receive WorkerStatusManager for sending status updates.
     """
 
-    def __init__(self):
-        """Initialize Jira extraction worker."""
+    def __init__(self, status_manager=None):
+        """
+        Initialize Jira extraction worker.
+
+        Args:
+            status_manager: WorkerStatusManager instance for sending status updates (injected by router)
+        """
+        self.database = get_database()
+        self.status_manager = status_manager  # 🔑 Dependency injection
         logger.info("Initialized JiraExtractionWorker")
+
+    async def _send_worker_status(self, step: str, tenant_id: int, job_id: int, status: str, step_type: str = None):
+        """
+        Send WebSocket status update for ETL job step.
+
+        Delegates to the injected WorkerStatusManager.
+
+        Args:
+            step: ETL step name (extraction, transform, embedding)
+            tenant_id: Tenant ID
+            job_id: Job ID
+            status: Status to send (running, finished, failed)
+            step_type: Optional step type for logging
+        """
+        if self.status_manager:
+            await self.status_manager.send_worker_status(step, tenant_id, job_id, status, step_type)
+        else:
+            logger.warning(f"⚠️ No status_manager available, skipping status update for job {job_id}")
 
     async def process_jira_extraction(self, message_type: str, message: Dict[str, Any]) -> bool:
         """
@@ -157,6 +184,14 @@ class JiraExtractionWorker:
                     )
                     logger.info(f"🎯 [COMPLETION] Transform completion message published: {success}")
 
+                    # 🔑 Send "finished" status for extraction worker
+                    logger.info(f"🏁 [JIRA] Sending extraction worker finished status for jira_dev_status (no dev_status data)")
+                    try:
+                        await self._send_worker_status("extraction", tenant_id, job_id, "finished", "jira_dev_status")
+                        logger.info(f"✅ [JIRA] Extraction worker finished status sent for jira_dev_status")
+                    except Exception as ws_error:
+                        logger.error(f"❌ [JIRA] Error sending extraction finished status: {ws_error}")
+
                 return True  # Not an error, just no data
 
             # Check if dev_status has actual PR data (not just empty arrays)
@@ -190,6 +225,14 @@ class JiraExtractionWorker:
                         token=message.get('token')
                     )
                     logger.info(f"🎯 [COMPLETION] Transform completion message published: {success}")
+
+                    # 🔑 Send "finished" status for extraction worker
+                    logger.info(f"🏁 [JIRA] Sending extraction worker finished status for jira_dev_status (no PR data)")
+                    try:
+                        await self._send_worker_status("extraction", tenant_id, job_id, "finished", "jira_dev_status")
+                        logger.info(f"✅ [JIRA] Extraction worker finished status sent for jira_dev_status")
+                    except Exception as ws_error:
+                        logger.error(f"❌ [JIRA] Error sending extraction finished status: {ws_error}")
 
                 return True  # Not an error, just no useful data
 
@@ -247,6 +290,16 @@ class JiraExtractionWorker:
 
             if success:
                 logger.info(f"✅ Fetched and queued dev_status for issue {issue_key}")
+
+                # 🔑 Send "finished" status for extraction worker when last_item=True
+                if last_item:
+                    logger.info(f"🏁 [JIRA] Sending extraction worker finished status for jira_dev_status (last_item=True)")
+                    try:
+                        await self._send_worker_status("extraction", tenant_id, job_id, "finished", "jira_dev_status")
+                        logger.info(f"✅ [JIRA] Extraction worker finished status sent for jira_dev_status")
+                    except Exception as ws_error:
+                        logger.error(f"❌ [JIRA] Error sending extraction finished status: {ws_error}")
+
                 return True
             else:
                 logger.error(f"Failed to queue dev_status for transformation (raw_data_id={raw_data_id})")
@@ -299,6 +352,14 @@ class JiraExtractionWorker:
 
                 # Note: _extract_projects_and_issue_types already queues to transform internally
                 # No need to queue again here - avoid duplicate queuing
+
+                # 🔑 Send "finished" status for extraction worker
+                logger.info(f"🏁 [JIRA] Sending extraction worker finished status for jira_projects_and_issue_types")
+                try:
+                    await self._send_worker_status("extraction", tenant_id, job_id, "finished", "jira_projects_and_issue_types")
+                    logger.info(f"✅ [JIRA] Extraction worker finished status sent for jira_projects_and_issue_types")
+                except Exception as ws_error:
+                    logger.error(f"❌ [JIRA] Error sending extraction finished status: {ws_error}")
 
                 # Queue next step: statuses and relationships
                 logger.info(f"🔄 [DEBUG] Step 1 completed, queuing next step: jira_statuses_and_relationships")
@@ -356,6 +417,14 @@ class JiraExtractionWorker:
             if result.get('success'):
                 logger.info(f"✅ [DEBUG] Statuses and relationships extraction completed for tenant {tenant_id}")
 
+                # 🔑 Send "finished" status for extraction worker
+                logger.info(f"🏁 [JIRA] Sending extraction worker finished status for jira_statuses_and_relationships")
+                try:
+                    await self._send_worker_status("extraction", tenant_id, job_id, "finished", "jira_statuses_and_relationships")
+                    logger.info(f"✅ [JIRA] Extraction worker finished status sent for jira_statuses_and_relationships")
+                except Exception as ws_error:
+                    logger.error(f"❌ [JIRA] Error sending extraction finished status: {ws_error}")
+
                 # Queue next step: issues with changelogs
                 logger.info(f"🔄 [DEBUG] Step 2 completed, queuing next step: jira_issues_with_changelogs")
                 self._queue_next_extraction_step(tenant_id, integration_id, job_id, 'jira_issues_with_changelogs')
@@ -409,6 +478,15 @@ class JiraExtractionWorker:
             if result.get('success'):
                 logger.info(f"✅ [DEBUG] Issues extraction completed for tenant {tenant_id}")
                 logger.info(f"📊 [DEBUG] Processed {result.get('issues_count', 0)} issues, {len(result.get('issues_with_code_changes', []))} with code changes")
+
+                # 🔑 Send "finished" status for extraction worker
+                logger.info(f"🏁 [JIRA] Sending extraction worker finished status for jira_issues_with_changelogs")
+                try:
+                    await self._send_worker_status("extraction", tenant_id, job_id, "finished", "jira_issues_with_changelogs")
+                    logger.info(f"✅ [JIRA] Extraction worker finished status sent for jira_issues_with_changelogs")
+                except Exception as ws_error:
+                    logger.error(f"❌ [JIRA] Error sending extraction finished status: {ws_error}")
+
                 return True
             else:
                 logger.error(f"❌ [DEBUG] Issues extraction failed: {result.get('error')}")

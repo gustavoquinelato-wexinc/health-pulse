@@ -88,7 +88,7 @@ class QueueManager:
         
         try:
             connection = pika.BlockingConnection(parameters)
-            logger.debug(f"RabbitMQ connection established: {self.host}:{self.port}")
+            #logger.debug(f"RabbitMQ connection established: {self.host}:{self.port}")
             return connection
         except Exception as e:
             logger.error(f"Failed to connect to RabbitMQ: {e}")

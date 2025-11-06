@@ -88,8 +88,9 @@ class Settings(BaseSettings):
     CACHE_TTL_SECONDS: int = 3600
 
     # Service Communication URLs
-    ETL_SERVICE_URL: str = "http://localhost:8000"
-    FRONTEND_URL: str = "http://localhost:5173"
+    BACKEND_SERVICE_URL: str = "http://localhost:3001"  # Backend service
+    FRONTEND_URL: str = "http://localhost:3000"  # Main frontend app
+    FRONTEND_ETL_URL: str = "http://localhost:3333"  # ETL frontend app
     AUTH_SERVICE_URL: str = "http://localhost:4000"
     ETL_INTERNAL_SECRET: str = "dev-internal-secret-change"
 

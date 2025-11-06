@@ -21,16 +21,18 @@ class GitHubRateLimitException(Exception):
 class GitHubGraphQLClient:
     """Client for GitHub GraphQL API interactions with cursor-based pagination."""
     
-    def __init__(self, token: str, db_session=None):
+    def __init__(self, token: str, db_session=None, batch_size: int = 50):
         """
         Initialize GitHub GraphQL client.
 
         Args:
             token: GitHub personal access token
             db_session: Optional database session for connection heartbeat
+            batch_size: Number of items to fetch per page (default: 50)
         """
         self.token = token
         self.db_session = db_session
+        self.batch_size = batch_size
         self.graphql_url = "https://api.github.com/graphql"
         self.rate_limit_remaining = 5000
         self.rate_limit_reset = None
@@ -70,7 +72,10 @@ class GitHubGraphQLClient:
             'query': query,
             'variables': variables or {}
         }
-        
+
+        # 🐛 DEBUG: Log the variables being sent
+        logger.info(f"🔍 [GRAPHQL] Variables being sent: {variables}")
+
         for attempt in range(max_retries):
             try:
                 if self.is_rate_limited():
@@ -149,7 +154,7 @@ class GitHubGraphQLClient:
             resetAt
           }}
           repository(owner: $owner, name: $repoName) {{
-            pullRequests(first: 10, after: $prCursor, orderBy: {{field: UPDATED_AT, direction: DESC}}) {{
+            pullRequests(first: {self.batch_size}, after: $prCursor, orderBy: {{field: UPDATED_AT, direction: DESC}}) {{
               pageInfo {{
                 endCursor
                 hasNextPage
@@ -166,7 +171,7 @@ class GitHubGraphQLClient:
                 author {{
                   login
                 }}
-                commits(first: 10) {{
+                commits(first: {self.batch_size}) {{
                   pageInfo {{
                     endCursor
                     hasNextPage
@@ -183,7 +188,7 @@ class GitHubGraphQLClient:
                     }}
                   }}
                 }}
-                reviews(first: 10) {{
+                reviews(first: {self.batch_size}) {{
                   pageInfo {{
                     endCursor
                     hasNextPage
@@ -197,7 +202,7 @@ class GitHubGraphQLClient:
                     createdAt
                   }}
                 }}
-                comments(first: 10) {{
+                comments(first: {self.batch_size}) {{
                   pageInfo {{
                     endCursor
                     hasNextPage
@@ -211,7 +216,7 @@ class GitHubGraphQLClient:
                     createdAt
                   }}
                 }}
-                reviewThreads(first: 10) {{
+                reviewThreads(first: {self.batch_size}) {{
                   pageInfo {{
                     endCursor
                     hasNextPage
@@ -233,41 +238,45 @@ class GitHubGraphQLClient:
             'prCursor': pr_cursor
         }
 
+        # 🐛 DEBUG: Log the actual query being sent
+        logger.info(f"🔍 [GRAPHQL QUERY] batch_size={self.batch_size}")
+        logger.info(f"🔍 [GRAPHQL QUERY] First 200 chars of query: {query[:200]}")
+
         return self._make_graphql_request(query, variables)
 
     async def get_more_commits_for_pr(self, pr_node_id: str, commit_cursor: str = None) -> Optional[Dict[str, Any]]:
         """Fetch additional commits for a specific pull request."""
-        query = """
+        query = f"""
         query getMoreCommitsForPr(
-          $prNodeId: ID!, 
+          $prNodeId: ID!,
           $commitCursor: String
-        ) {
-          rateLimit {
+        ) {{
+          rateLimit {{
             remaining
             resetAt
-          }
-          node(id: $prNodeId) {
-            ... on PullRequest {
-              commits(first: 100, after: $commitCursor) {
-                pageInfo {
+          }}
+          node(id: $prNodeId) {{
+            ... on PullRequest {{
+              commits(first: {self.batch_size}, after: $commitCursor) {{
+                pageInfo {{
                   endCursor
                   hasNextPage
-                }
-                nodes {
-                  commit {
+                }}
+                nodes {{
+                  commit {{
                     oid
                     message
-                    author {
+                    author {{
                       name
                       email
                       date
-                    }
-                  }
-                }
-              }
-            }
-          }
-        }
+                    }}
+                  }}
+                }}
+              }}
+            }}
+          }}
+        }}
         """
         
         variables = {
@@ -279,34 +288,34 @@ class GitHubGraphQLClient:
 
     async def get_more_reviews_for_pr(self, pr_node_id: str, review_cursor: str = None) -> Optional[Dict[str, Any]]:
         """Fetch additional reviews for a specific pull request."""
-        query = """
+        query = f"""
         query getMoreReviewsForPr(
-          $prNodeId: ID!, 
+          $prNodeId: ID!,
           $reviewCursor: String
-        ) {
-          rateLimit {
+        ) {{
+          rateLimit {{
             remaining
             resetAt
-          }
-          node(id: $prNodeId) {
-            ... on PullRequest {
-              reviews(first: 100, after: $reviewCursor) {
-                pageInfo {
+          }}
+          node(id: $prNodeId) {{
+            ... on PullRequest {{
+              reviews(first: {self.batch_size}, after: $reviewCursor) {{
+                pageInfo {{
                   endCursor
                   hasNextPage
-                }
-                nodes {
+                }}
+                nodes {{
                   id
                   state
-                  author {
+                  author {{
                     login
-                  }
+                  }}
                   createdAt
-                }
-              }
-            }
-          }
-        }
+                }}
+              }}
+            }}
+          }}
+        }}
         """
         
         variables = {
@@ -318,34 +327,34 @@ class GitHubGraphQLClient:
 
     async def get_more_comments_for_pr(self, pr_node_id: str, comment_cursor: str = None) -> Optional[Dict[str, Any]]:
         """Fetch additional comments for a specific pull request."""
-        query = """
+        query = f"""
         query getMoreCommentsForPr(
-          $prNodeId: ID!, 
+          $prNodeId: ID!,
           $commentCursor: String
-        ) {
-          rateLimit {
+        ) {{
+          rateLimit {{
             remaining
             resetAt
-          }
-          node(id: $prNodeId) {
-            ... on PullRequest {
-              comments(first: 100, after: $commentCursor) {
-                pageInfo {
+          }}
+          node(id: $prNodeId) {{
+            ... on PullRequest {{
+              comments(first: {self.batch_size}, after: $commentCursor) {{
+                pageInfo {{
                   endCursor
                   hasNextPage
-                }
-                nodes {
+                }}
+                nodes {{
                   id
                   body
-                  author {
+                  author {{
                     login
-                  }
+                  }}
                   createdAt
-                }
-              }
-            }
-          }
-        }
+                }}
+              }}
+            }}
+          }}
+        }}
         """
         
         variables = {
@@ -357,32 +366,32 @@ class GitHubGraphQLClient:
 
     async def get_more_review_threads_for_pr(self, pr_node_id: str, thread_cursor: str = None) -> Optional[Dict[str, Any]]:
         """Fetch additional review threads for a specific pull request."""
-        query = """
+        query = f"""
         query getMoreReviewThreadsForPr(
-          $prNodeId: ID!, 
+          $prNodeId: ID!,
           $threadCursor: String
-        ) {
-          rateLimit {
+        ) {{
+          rateLimit {{
             remaining
             resetAt
-          }
-          node(id: $prNodeId) {
-            ... on PullRequest {
-              reviewThreads(first: 100, after: $threadCursor) {
-                pageInfo {
+          }}
+          node(id: $prNodeId) {{
+            ... on PullRequest {{
+              reviewThreads(first: {self.batch_size}, after: $threadCursor) {{
+                pageInfo {{
                   endCursor
                   hasNextPage
-                }
-                nodes {
+                }}
+                nodes {{
                   id
                   isResolved
-                }
-              }
-            }
-          }
-        }
+                }}
+              }}
+            }}
+          }}
+        }}
         """
-        
+
         variables = {
             'prNodeId': pr_node_id,
             'threadCursor': thread_cursor

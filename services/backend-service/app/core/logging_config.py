@@ -22,9 +22,9 @@ _logging_configured = False
 
 # 🔧 LOGGING CONFIGURATION TOGGLES
 # Set the log level you want to see (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-LOG_LEVEL = logging.DEBUG  # Change this to control log verbosity
+LOG_LEVEL = logging.INFO  # Change this to control log verbosity
 # Set to True to disable log filters and see ALL logs at the configured level
-DISABLE_LOG_FILTERS = False  # Set to True to see all logs, False to use keyword filtering
+DISABLE_LOG_FILTERS = True  # Set to True to see all logs, False to use keyword filtering
 
 
 class TokenMaskingFilter(logging.Filter):

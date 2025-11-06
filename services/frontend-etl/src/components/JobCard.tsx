@@ -398,10 +398,11 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
                     nextCountdown = 300  // 4th+ check: 300s (5 minutes)
                   }
 
-                  setResetCountdown(nextCountdown)
+                  // 🔑 Update refs BEFORE setting countdown to ensure effect uses correct values
                   resetAttemptsRef.current += 1
-                  countdownStartTimeRef.current = Date.now()  // 🔑 Reset start time for new countdown
-                  initialCountdownRef.current = nextCountdown  // 🔑 Track new countdown duration
+                  countdownStartTimeRef.current = Date.now()  // Reset start time for new countdown
+                  initialCountdownRef.current = nextCountdown  // Track new countdown duration
+                  setResetCountdown(nextCountdown)
                   return
                 }
               } catch (error) {
@@ -456,32 +457,39 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
               setIsJobRunning(false)  // 🔑 Ensure Run Now button is re-enabled
             } else {
               // Steps are still running, schedule another reset attempt with exponential backoff
-              resetAttemptsRef.current += 1
               // Backoff: 30s → 60s → 180s → 300s (and keep 300s for all subsequent attempts)
               let nextDelay: number
-              if (resetAttemptsRef.current === 1) {
+              if (resetAttemptsRef.current === 0) {
                 nextDelay = 60
-              } else if (resetAttemptsRef.current === 2) {
+              } else if (resetAttemptsRef.current === 1) {
                 nextDelay = 180
               } else {
                 nextDelay = 300  // Final tier: keep retrying every 5 minutes
               }
 
+              // 🔑 Update refs BEFORE setting countdown to ensure effect uses correct values
+              resetAttemptsRef.current += 1
+              countdownStartTimeRef.current = Date.now()  // Reset start time for new countdown
+              initialCountdownRef.current = nextDelay  // Track new countdown duration
               setResetCountdown(nextDelay)
               setFinishedTransitionTimer(null)
             }
           }
         } catch (error) {
           // Silently handle error - retry with exponential backoff
-          resetAttemptsRef.current += 1
           let nextDelay: number
-          if (resetAttemptsRef.current === 1) {
+          if (resetAttemptsRef.current === 0) {
             nextDelay = 60
-          } else if (resetAttemptsRef.current === 2) {
+          } else if (resetAttemptsRef.current === 1) {
             nextDelay = 180
           } else {
             nextDelay = 300
           }
+
+          // 🔑 Update refs BEFORE setting countdown to ensure effect uses correct values
+          resetAttemptsRef.current += 1
+          countdownStartTimeRef.current = Date.now()  // Reset start time for new countdown
+          initialCountdownRef.current = nextDelay  // Track new countdown duration
           setResetCountdown(nextDelay)
         } finally {
           // Clear the resetting flag after a short delay to allow UI to update

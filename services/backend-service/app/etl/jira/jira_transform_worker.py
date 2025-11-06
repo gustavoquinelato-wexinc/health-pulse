@@ -35,11 +35,19 @@ class JiraTransformHandler:
     This is a specialized handler (not a queue consumer) that processes
     Jira-specific transformation logic. It's called from TransformWorker
     which is the actual queue consumer and router.
+
+    Uses dependency injection to receive WorkerStatusManager for sending status updates.
     """
 
-    def __init__(self):
-        """Initialize Jira transform handler."""
+    def __init__(self, status_manager=None):
+        """
+        Initialize Jira transform handler.
+
+        Args:
+            status_manager: WorkerStatusManager instance for sending status updates (injected by router)
+        """
         self.database = get_database()
+        self.status_manager = status_manager  # 🔑 Dependency injection
         logger.info("Initialized JiraTransformHandler")
 
     @contextmanager

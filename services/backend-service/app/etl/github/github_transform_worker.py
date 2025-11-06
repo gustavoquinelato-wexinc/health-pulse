@@ -17,6 +17,8 @@ from contextlib import contextmanager
 from app.etl.workers.bulk_operations import BulkOperations
 from app.core.logging_config import get_logger
 from app.core.database import get_database, get_write_session
+from app.etl.workers.queue_manager import QueueManager
+
 
 logger = get_logger(__name__)
 
@@ -28,11 +30,20 @@ class GitHubTransformHandler:
     This is a specialized handler (not a queue consumer) that processes
     GitHub-specific transformation logic. It's called from TransformWorker
     which is the actual queue consumer and router.
+
+    Uses dependency injection to receive WorkerStatusManager for sending status updates.
     """
 
-    def __init__(self):
-        """Initialize GitHub transform handler."""
+    def __init__(self, status_manager=None):
+        """
+        Initialize GitHub transform handler.
+
+        Args:
+            status_manager: WorkerStatusManager instance for sending status updates (injected by router)
+        """
         self.database = get_database()
+        self.queue_manager = QueueManager()
+        self.status_manager = status_manager  # 🔑 Dependency injection
         logger.info("Initialized GitHubTransformHandler")
 
     @contextmanager
@@ -62,11 +73,14 @@ class GitHubTransformHandler:
         with self.database.get_read_session_context() as session:
             yield session
 
-    def process_github_message(self, message_type: str, raw_data_id: int, tenant_id: int, 
+    # Note: WebSocket status updates are handled by TransformWorkerRouter
+    # This handler doesn't need to send status updates directly
+
+    def process_github_message(self, message_type: str, raw_data_id: int, tenant_id: int,
                               integration_id: int, job_id: int = None, message: Dict[str, Any] = None) -> bool:
         """
         Route GitHub message to appropriate processor.
-        
+
         Args:
             message_type: Type of GitHub message
             raw_data_id: ID of raw extraction data
@@ -74,7 +88,7 @@ class GitHubTransformHandler:
             integration_id: Integration ID
             job_id: ETL job ID
             message: Full message dict
-            
+
         Returns:
             bool: True if processing succeeded
         """
@@ -88,7 +102,7 @@ class GitHubTransformHandler:
             else:
                 logger.warning(f"Unknown GitHub message type: {message_type}")
                 return False
-                
+
         except Exception as e:
             logger.error(f"Error processing GitHub message type {message_type}: {e}")
             import traceback
@@ -130,15 +144,7 @@ class GitHubTransformHandler:
 
             logger.info(f"🚀 [GITHUB] Processing repositories batch for tenant {tenant_id}, integration {integration_id}, raw_data_id={raw_data_id}")
 
-            # Send WebSocket status: transform worker starting (on first_item)
-            if job_id and first_item:
-                import asyncio
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "running", "github_repositories"))
-                finally:
-                    loop.close()
+            # Note: WebSocket status is sent by TransformWorkerRouter, not here
 
             # Fetch raw batch data
             from app.core.database import get_database
@@ -335,15 +341,7 @@ class GitHubTransformHandler:
 
             logger.info(f"Processed {len(repos_to_queue)} repositories - marked raw_data_id={raw_data_id} as completed")
 
-            # Send WebSocket status: transform worker finished (on last_item)
-            if job_id and last_item:
-                import asyncio
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "finished", "github_repositories"))
-                finally:
-                    loop.close()
+            # Note: WebSocket status is sent by TransformWorkerRouter, not here
 
             # 🔑 NOTE: Step 2 extraction queuing is handled by Extraction worker (Step 1)
             # Transform worker only processes and inserts data, does NOT queue next extraction steps
@@ -382,16 +380,7 @@ class GitHubTransformHandler:
             True if processing succeeded, False otherwise
         """
         try:
-            # ✅ Send transform worker "running" status when first_item=True
-            if message and message.get('first_item') and job_id:
-                import asyncio
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "running", "github_prs"))
-                    logger.info(f"✅ Transform worker marked as running for github_prs")
-                finally:
-                    loop.close()
+            # Note: WebSocket status is sent by TransformWorkerRouter, not here
 
             from app.core.database import get_database
             database = get_database()
@@ -409,7 +398,7 @@ class GitHubTransformHandler:
 
                 import json
                 raw_json = json.loads(result[0]) if isinstance(result[0], str) else result[0]
-                raw_data_external_id = result[1]  # 🔑 Repository external_id from raw_extraction_data
+                raw_data_external_id = result[1]  # 🔑 PR external_id from raw_extraction_data (not used for repo lookup)
                 pr_id = raw_json.get('pr_id')
 
                 # 🔑 Check if this is a nested pagination message (Type 2)
@@ -458,9 +447,9 @@ class GitHubTransformHandler:
                 # Use full_name if available, otherwise construct from owner/repo_name
                 lookup_full_name = full_name or f"{owner}/{repo_name}"
 
-                # Query repository by full_name
+                # Query repository by full_name (get both id and external_id)
                 repo_lookup_query = text("""
-                    SELECT id FROM repositories
+                    SELECT id, external_id FROM repositories
                     WHERE full_name = :full_name AND tenant_id = :tenant_id
                 """)
                 repo_result = db.execute(repo_lookup_query, {
@@ -473,10 +462,11 @@ class GitHubTransformHandler:
                     return False
 
                 repository_id = repo_result[0]
-                logger.info(f"✅ Looked up repository_id={repository_id} for {lookup_full_name}")
+                repo_external_id = repo_result[1]  # 🔑 Get repository's external_id (not PR's!)
+                logger.info(f"✅ Looked up repository_id={repository_id}, external_id={repo_external_id} for {lookup_full_name}")
 
                 # Insert PR data
-                pr_db_id = self._insert_pr(db, pr_data, tenant_id, integration_id, repository_id, raw_data_external_id)
+                pr_db_id = self._insert_pr(db, pr_data, tenant_id, integration_id, repository_id, repo_external_id)
                 if not pr_db_id:
                     logger.error(f"Failed to insert PR {pr_id}")
                     return False
@@ -540,16 +530,7 @@ class GitHubTransformHandler:
                 """)
                 db.execute(update_query, {'raw_data_id': raw_data_id})
 
-                # ✅ Send transform worker "finished" status when last_item=True
-                if message and message.get('last_item') and job_id:
-                    import asyncio
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    try:
-                        loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "finished", "github_prs"))
-                        logger.info(f"✅ Transform worker marked as finished for github_prs")
-                    finally:
-                        loop.close()
+                # Note: WebSocket status is sent by TransformWorkerRouter, not here
 
                 db.commit()
                 logger.info(f"✅ [GITHUB] Processed PR data and marked raw_data_id={raw_data_id} as completed")
@@ -574,16 +555,7 @@ class GitHubTransformHandler:
                         token=token  # 🔑 Forward token to embedding
                     )
 
-                    # ✅ Send transform worker "finished" status when last_item=True
-                    if last_item_flag and job_id:
-                        import asyncio
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        try:
-                            loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "finished", "github_prs_commits_reviews_comments"))
-                            logger.info(f"✅ Transform worker marked as finished for github_prs_commits_reviews_comments")
-                        finally:
-                            loop.close()
+                    # Note: WebSocket status is sent by TransformWorkerRouter, not here
 
                 return True
 
@@ -1124,7 +1096,7 @@ class GitHubTransformHandler:
                     job_id=job_id,
                     integration_id=integration_id,
                     provider=provider,
-                    old_last_sync_date=old_last_sync_date,  # 🔑 Used for filtering (old_last_sync_date)
+                    last_sync_date=old_last_sync_date,  # 🔑 Used for filtering (old_last_sync_date)
                     new_last_sync_date=new_last_sync_date,  # 🔑 Used for job completion (extraction end date)
                     first_item=entity_first_item,  # Only first entity has first_item=true
                     last_item=entity_last_item,  # Only last entity has last_item=true
@@ -1140,3 +1112,99 @@ class GitHubTransformHandler:
             import traceback
             logger.error(f"Traceback: {traceback.format_exc()}")
 
+
+    def _parse_datetime(self, value: Optional[str]) -> Optional[datetime]:
+        """Parse ISO8601 datetime strings from GitHub (handles trailing 'Z')."""
+        if not value:
+            return None
+        try:
+            if isinstance(value, str):
+                # Normalize 'Z' to '+00:00' for fromisoformat
+                return datetime.fromisoformat(value.replace('Z', '+00:00')).astimezone(timezone.utc)
+            return value
+        except Exception:
+            return None
+
+    def _calculate_pr_metrics(
+        self,
+        pr_data: Dict[str, Any],
+        pr_commits: List[Dict[str, Any]],
+        pr_reviews: List[Dict[str, Any]],
+        pr_comments: List[Dict[str, Any]],
+        pr_review_threads: List[Dict[str, Any]]
+    ) -> Dict[str, Any]:
+        """
+        Compute PR metrics using available GraphQL payloads.
+        Returns a dict with all expected metric fields present.
+        """
+        # Basic PR fields if present on PR node
+        additions = pr_data.get('additions', 0) if isinstance(pr_data, dict) else 0
+        deletions = pr_data.get('deletions', 0) if isinstance(pr_data, dict) else 0
+        changed_files = pr_data.get('changedFiles', 0) if isinstance(pr_data, dict) else 0
+        source = pr_data.get('headRefName') or pr_data.get('headRef', {}).get('name')
+        destination = pr_data.get('baseRefName') or pr_data.get('baseRef', {}).get('name')
+
+        # Commits
+        commit_count = 0
+        commit_dates: List[datetime] = []
+        if pr_commits:
+            for c in pr_commits:
+                try:
+                    commit_count += 1
+                    authored = c.get('commit', {}).get('author', {}).get('date')
+                    committed = c.get('commit', {}).get('committer', {}).get('date')
+                    dt = self._parse_datetime(committed or authored)
+                    if dt:
+                        commit_dates.append(dt)
+                except Exception:
+                    continue
+
+        # Reviews
+        reviewers_set = set()
+        first_review_at = None
+        changes_requested_cycles = 0
+        if pr_reviews:
+            for r in pr_reviews:
+                author_login = (r.get('author') or {}).get('login') if isinstance(r, dict) else None
+                if author_login:
+                    reviewers_set.add(author_login)
+                submitted_at = r.get('submittedAt') if isinstance(r, dict) else None
+                dt = self._parse_datetime(submitted_at)
+                if dt:
+                    if first_review_at is None or dt < first_review_at:
+                        first_review_at = dt
+                state = r.get('state') if isinstance(r, dict) else None
+                if state == 'CHANGES_REQUESTED':
+                    changes_requested_cycles += 1
+
+        # Comments
+        discussion_comment_count = len(pr_comments) if pr_comments else 0
+        review_comment_count = 0
+        if pr_review_threads:
+            for t in pr_review_threads:
+                try:
+                    review_comment_count += len(((t.get('comments') or {}).get('nodes')) or [])
+                except Exception:
+                    continue
+
+        # Rework commits (commits after first review)
+        rework_commit_count = 0
+        if first_review_at and commit_dates:
+            for dt in commit_dates:
+                if dt and dt > first_review_at:
+                    rework_commit_count += 1
+
+        return {
+            'source': source,
+            'destination': destination,
+            'commit_count': commit_count,
+            'additions': additions,
+            'deletions': deletions,
+            'changed_files': changed_files,
+            'reviewers': len(reviewers_set),
+            'first_review_at': first_review_at,
+            'rework_commit_count': rework_commit_count,
+            'review_cycles': changes_requested_cycles,
+            'discussion_comment_count': discussion_comment_count,
+            'review_comment_count': review_comment_count,
+        }

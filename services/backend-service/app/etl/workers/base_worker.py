@@ -19,6 +19,7 @@ warnings.filterwarnings("ignore", message=".*Event loop is closed.*", category=R
 warnings.filterwarnings("ignore", message=".*coroutine.*was never awaited.*", category=RuntimeWarning)
 
 from app.etl.workers.queue_manager import QueueManager
+from app.etl.workers.worker_status_manager import WorkerStatusManager
 from app.core.database import get_database
 from app.core.logging_config import get_logger
 
@@ -28,26 +29,28 @@ logger = get_logger(__name__)
 class BaseWorker(ABC):
     """
     Base class for all queue workers.
-    
+
     Provides common functionality:
     - RabbitMQ connection management
     - Database session management
     - Error handling and message acknowledgment
     - Graceful shutdown handling
+    - Worker status updates via WorkerStatusManager
     """
-    
+
     def __init__(self, queue_name: str):
         """
         Initialize base worker.
-        
+
         Args:
             queue_name: Name of the queue to consume from
         """
         self.queue_name = queue_name
         self.queue_manager = QueueManager()
         self.database = get_database()
+        self.status_manager = WorkerStatusManager()  # 🔑 Composition instead of inheritance
         self.running = False
-        
+
         logger.info(f"Initialized {self.__class__.__name__} for queue: {queue_name}")
     
     @abstractmethod
@@ -183,6 +186,8 @@ class BaseWorker(ABC):
         """
         Send WebSocket status update for ETL job step.
 
+        Delegates to WorkerStatusManager for the actual implementation.
+
         Args:
             step: ETL step name (extraction, transform, embedding)
             tenant_id: Tenant ID
@@ -190,34 +195,7 @@ class BaseWorker(ABC):
             status: Status to send (running, finished, failed)
             step_type: Optional step type for logging
         """
-        try:
-            from sqlalchemy import text
-            from app.core.database import get_database
-
-            # Update database status first
-            database = get_database()
-            with database.get_read_session_context() as session:
-                result = session.execute(
-                    text('SELECT status FROM etl_jobs WHERE id = :job_id'),
-                    {'job_id': job_id}
-                ).fetchone()
-
-                if result:
-                    job_status = result[0]  # This is the JSON status structure
-
-                    # Send WebSocket notification with the same JSON structure the UI reads on refresh
-                    from app.api.websocket_routes import get_job_websocket_manager
-
-                    job_websocket_manager = get_job_websocket_manager()
-                    await job_websocket_manager.send_job_status_update(
-                        tenant_id=tenant_id,
-                        job_id=job_id,
-                        status_json=job_status
-                    )
-                    logger.info(f"✅ WebSocket status '{status}' sent for {step} step (job_id={job_id})")
-
-        except Exception as e:
-            logger.error(f"Error sending WebSocket status: {e}")
+        await self.status_manager.send_worker_status(step, tenant_id, job_id, status, step_type)
 
     def _update_job_status(self, job_id: int, status: str, step: str = None):
         """

@@ -159,17 +159,23 @@ class EmbeddingWorker(BaseWorker):
             if job_id and first_item:
                 step_name = step_type or 'embedding'
                 logger.debug(f"🔄 EMBEDDING WORKER: Starting step {step_name} for job {job_id}")
-                # Send status update using sync helper to avoid event loop conflicts
-                self._send_worker_status_sync(
-                    worker_type="embedding",
+                # Send status update using async method
+                await self._send_worker_status(
+                    step="embedding",
                     tenant_id=tenant_id,
                     job_id=job_id,
                     status="running",
-                    step=step_name
+                    step_type=step_name
                 )
 
-            # Process the embedding message asynchronously
-            result = self._process_embedding_message_sync_helper(message)
+            # Handle job completion messages first
+            if table_name and external_id is None and last_job_item:
+                logger.info(f"🎯 [JOB COMPLETION] Completing ETL job {job_id} from completion message (table={table_name})")
+                self._complete_etl_job(job_id, tenant_id, new_last_sync_date)
+                result = True
+            else:
+                # Process the embedding message asynchronously
+                result = await self._process_embedding_message_async(message)
 
             # 🔑 Send WebSocket status: embedding worker finished on last_item=true
             # This applies to ALL messages (ETL step or individual entity)
@@ -180,23 +186,23 @@ class EmbeddingWorker(BaseWorker):
                 step_name = step_type or 'embedding'
                 if result:
                     logger.debug(f"✅ EMBEDDING WORKER: Finished step {step_name} for job {job_id}")
-                    # Send status update using sync helper to avoid event loop conflicts
-                    self._send_worker_status_sync(
-                        worker_type="embedding",
+                    # Send status update using async method
+                    await self._send_worker_status(
+                        step="embedding",
                         tenant_id=tenant_id,
                         job_id=job_id,
                         status="finished",
-                        step=step_name
+                        step_type=step_name
                     )
                 else:
                     logger.debug(f"❌ EMBEDDING WORKER: Failed step {step_name} for job {job_id}")
-                    # Send status update using sync helper to avoid event loop conflicts
-                    self._send_worker_status_sync(
-                        worker_type="embedding",
+                    # Send status update using async method
+                    await self._send_worker_status(
+                        step="embedding",
                         tenant_id=tenant_id,
                         job_id=job_id,
                         status="failed",
-                        step=step_name
+                        step_type=step_name
                     )
 
             # Handle job completion when:
@@ -248,29 +254,7 @@ class EmbeddingWorker(BaseWorker):
             logger.error(f"❌ EMBEDDING WORKER: Failed to initialize hybrid provider: {e}")
             raise
 
-    def _process_embedding_message_sync(self, message: Dict[str, Any]) -> bool:
-        """
-        Synchronous wrapper for embedding message processing.
-
-        Args:
-            message: Message data from queue
-
-        Returns:
-            bool: True if successful, False otherwise
-        """
-        import asyncio
-
-        try:
-            # Run the async embedding process
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                return loop.run_until_complete(self._process_embedding_message(message))
-            finally:
-                loop.close()
-        except Exception as e:
-            logger.error(f"❌ EMBEDDING WORKER: Error in sync wrapper: {e}")
-            return False
+    # Note: Removed _process_embedding_message_sync - all processing is now async
 
 
     async def _process_embedding_message_async(self, message: Dict[str, Any]) -> bool:
@@ -351,69 +335,8 @@ class EmbeddingWorker(BaseWorker):
             logger.error(f"❌ EMBEDDING WORKER: Full traceback: {traceback.format_exc()}")
             return False
 
-    def _process_embedding_message_sync_helper(self, message: Dict[str, Any]) -> bool:
-        """
-        Synchronous helper for embedding message processing.
-        Handles job completion logic and delegates async work to the async method.
-        """
-        try:
-            tenant_id = message.get('tenant_id')
-            job_id = message.get('job_id')
-            table_name = message.get('table_name')
-            external_id = message.get('external_id')
-            last_job_item = message.get('last_job_item', False)
-
-            # 🎯 DEBUG: Log all completion-related fields
-            logger.info(f"🎯 [COMPLETION CHECK] table_name={table_name}, external_id={external_id}, last_job_item={last_job_item}")
-
-            # Handle completion messages with job completion logic
-            if table_name and external_id is None and last_job_item:
-                logger.info(f"🎯 [JOB COMPLETION] Completing ETL job {job_id} from completion message (table={table_name})")
-                self._complete_etl_job(job_id, tenant_id, message.get('last_sync_date'))
-                return True
-            else:
-                # 🎯 DEBUG: Log why completion wasn't triggered
-                if table_name is None:
-                    logger.debug(f"🎯 [COMPLETION CHECK] Skipping: table_name is None")
-                if external_id is not None:
-                    logger.debug(f"🎯 [COMPLETION CHECK] Skipping: external_id is not None ({external_id})")
-                if not last_job_item:
-                    logger.debug(f"🎯 [COMPLETION CHECK] Skipping: last_job_item is False")
-
-            # For all other messages, delegate to the async processing method
-            import asyncio
-            loop = asyncio.new_event_loop()
-            asyncio.set_event_loop(loop)
-            try:
-                return loop.run_until_complete(self._process_embedding_message_async(message))
-            finally:
-                loop.close()
-
-        except Exception as e:
-            logger.error(f"❌ EMBEDDING WORKER: Error in sync helper: {e}")
-            import traceback
-            logger.error(f"❌ EMBEDDING WORKER: Full traceback: {traceback.format_exc()}")
-            return False
-
-    async def _process_embedding_message(self, message: Dict[str, Any]) -> bool:
-        """
-        Main embedding message processor with job completion handling.
-
-        Args:
-            message: Message containing tenant_id, entity_type, entity_id, etc.
-
-        Returns:
-            bool: True if processed successfully, False otherwise
-        """
-        try:
-            # Delegate to the sync helper method which handles both completion and async processing
-            return self._process_embedding_message_sync_helper(message)
-
-        except Exception as e:
-            logger.error(f"❌ EMBEDDING WORKER: Error processing message: {e}")
-            import traceback
-            logger.error(f"❌ EMBEDDING WORKER: Full traceback: {traceback.format_exc()}")
-            return False
+    # Note: Job completion logic moved to process_message() method
+    # Sync helper removed - all processing is now async
 
     async def _process_entity_type_bulk(self, tenant_id: int, entity_type: str) -> bool:
         """Process all entities of a specific type for bulk embedding."""

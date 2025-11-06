@@ -11,7 +11,7 @@ from .integrations import router as integrations_router
 from .qdrant import router as qdrant_router
 from .raw_data import router as raw_data_router
 from .jobs import router as jobs_router
-from .jira.custom_fields import router as custom_fields_router
+from .jira.jira_custom_fields import router as custom_fields_router
 from .jira.jira_embedding_worker import router as jira_embedding_router
 from .projects import router as projects_router
 
