@@ -644,7 +644,8 @@ class IndividualJobTimer:
                 'tenant_id': self.tenant_id,
                 'integration_id': integration_id,
                 'job_id': self.job_id,
-                'type': 'jira_projects_and_issue_types'
+                'type': 'jira_projects_and_issue_types',  # 🔑 Use 'type' field for extraction worker router
+                'provider': 'jira'  # 🔑 Add provider field for routing
             }
 
             # Get tenant tier and route to tier-based extraction queue

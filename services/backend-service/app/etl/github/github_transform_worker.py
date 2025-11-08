@@ -31,18 +31,19 @@ class GitHubTransformHandler:
     GitHub-specific transformation logic. It's called from TransformWorker
     which is the actual queue consumer and router.
 
-    Uses dependency injection to receive WorkerStatusManager for sending status updates.
+    Uses dependency injection to receive WorkerStatusManager and QueueManager.
     """
 
-    def __init__(self, status_manager=None):
+    def __init__(self, status_manager=None, queue_manager=None):
         """
         Initialize GitHub transform handler.
 
         Args:
             status_manager: WorkerStatusManager instance for sending status updates (injected by router)
+            queue_manager: QueueManager instance for publishing to queues (injected by router)
         """
         self.database = get_database()
-        self.queue_manager = QueueManager()
+        self.queue_manager = queue_manager or QueueManager()  # 🔑 Dependency injection with fallback
         self.status_manager = status_manager  # 🔑 Dependency injection
         logger.info("Initialized GitHubTransformHandler")
 

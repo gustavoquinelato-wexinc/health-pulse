@@ -835,11 +835,14 @@ async def _queue_jira_extraction_job(tenant_id: int, integration_id: int, job_id
 
         logger.info(f"✅ Job {job_id} status updated to QUEUED")
 
-        # 🔑 Fetch the job token from the job status
+        # 🔑 Fetch the job token and last_sync_date from the database
         database = get_database()
+        job_token = None
+        old_last_sync_date = None
+
         with database.get_read_session_context() as session:
             query = text("""
-                SELECT status
+                SELECT status, last_sync_date
                 FROM etl_jobs
                 WHERE id = :job_id AND tenant_id = :tenant_id
             """)
@@ -850,8 +853,18 @@ async def _queue_jira_extraction_job(tenant_id: int, integration_id: int, job_id
                 if isinstance(status, str):
                     status = json.loads(status)
                 job_token = status.get('token')  # 🔑 Get token from status JSON
-            else:
-                job_token = None
+
+                # 🔑 Get last_sync_date for incremental sync
+                last_sync_date = result[1]
+                if last_sync_date:
+                    # Convert datetime to string format (YYYY-MM-DD)
+                    if isinstance(last_sync_date, str):
+                        old_last_sync_date = last_sync_date.split(' ')[0]  # Take date part only
+                    else:
+                        old_last_sync_date = last_sync_date.strftime('%Y-%m-%d')
+                    logger.info(f"📅 Using last_sync_date from database: {old_last_sync_date}")
+                else:
+                    logger.info(f"📅 No last_sync_date found in database, extraction will use 2-year default")
 
         # Queue the first extraction step: projects and issue types
         queue_manager = QueueManager()
@@ -860,8 +873,10 @@ async def _queue_jira_extraction_job(tenant_id: int, integration_id: int, job_id
             'tenant_id': tenant_id,
             'integration_id': integration_id,
             'job_id': job_id,
-            'extraction_type': 'jira_projects_and_issue_types',
-            'token': job_token  # 🔑 Include token in message
+            'type': 'jira_projects_and_issue_types',  # 🔑 Use 'type' field for extraction worker router
+            'provider': 'jira',  # 🔑 Add provider field for routing
+            'token': job_token,  # 🔑 Include token in message
+            'old_last_sync_date': old_last_sync_date  # 🔑 Pass last_sync_date for incremental sync
         }
 
         # Get tenant tier and route to tier-based extraction queue
@@ -966,11 +981,14 @@ async def _queue_github_extraction_job(tenant_id: int, integration_id: int, job_
         # Normal start (no recovery checkpoint)
         logger.info(f"🚀 Starting fresh GitHub extraction for job {job_id}")
 
-        # 🔑 Fetch the job token from the job status
+        # 🔑 Fetch the job token and last_sync_date from the database
         database = get_database()
+        job_token = None
+        old_last_sync_date = None
+
         with database.get_read_session_context() as session:
             query = text("""
-                SELECT status
+                SELECT status, last_sync_date
                 FROM etl_jobs
                 WHERE id = :job_id AND tenant_id = :tenant_id
             """)
@@ -981,8 +999,18 @@ async def _queue_github_extraction_job(tenant_id: int, integration_id: int, job_
                 if isinstance(status, str):
                     status = json.loads(status)
                 job_token = status.get('token')  # 🔑 Get token from status JSON
-            else:
-                job_token = None
+
+                # 🔑 Get last_sync_date for incremental sync
+                last_sync_date = result[1]
+                if last_sync_date:
+                    # Convert datetime to string format (YYYY-MM-DD)
+                    if isinstance(last_sync_date, str):
+                        old_last_sync_date = last_sync_date.split(' ')[0]  # Take date part only
+                    else:
+                        old_last_sync_date = last_sync_date.strftime('%Y-%m-%d')
+                    logger.info(f"📅 Using last_sync_date from database: {old_last_sync_date}")
+                else:
+                    logger.info(f"📅 No last_sync_date found in database, extraction will use 2-year default")
 
         # Queue the first extraction step: github_repositories
         queue_manager = QueueManager()
@@ -995,8 +1023,8 @@ async def _queue_github_extraction_job(tenant_id: int, integration_id: int, job_
             'provider': 'github',
             'first_item': True,  # First step of 2-step job
             'last_item': False,   # Not the last step - PR extraction comes next
-            'token': job_token  # 🔑 Include token in message
-            # 🔑 last_sync_date is fetched from database by extraction worker
+            'token': job_token,  # 🔑 Include token in message
+            'old_last_sync_date': old_last_sync_date  # 🔑 Pass last_sync_date for incremental sync
         }
 
         # Get tenant tier and route to tier-based extraction queue

@@ -131,15 +131,21 @@ class GitHubExtractionWorker:
             integration_id = message.get('integration_id')
             job_id = message.get('job_id')
             token = message.get('token')
+            old_last_sync_date = message.get('old_last_sync_date')  # 🔑 Get from message (already fetched in jobs.py)
 
             logger.info(f"🚀 [GITHUB] Starting repositories extraction for tenant {tenant_id}, integration {integration_id}")
+
+            if old_last_sync_date:
+                logger.info(f"📅 [GITHUB] Using old_last_sync_date from message: {old_last_sync_date}")
+            else:
+                logger.info(f"📅 [GITHUB] No old_last_sync_date in message, will use 2-year default")
 
             # Call the actual extraction method
             result = await self.extract_github_repositories(
                 integration_id=integration_id,
                 tenant_id=tenant_id,
                 job_id=job_id,
-                old_last_sync_date=None,
+                old_last_sync_date=old_last_sync_date,
                 token=token
             )
 
@@ -843,17 +849,6 @@ class GitHubExtractionWorker:
                 pr_page = await github_client.get_pull_requests_with_details(
                     owner, repo_name, pr_cursor
                 )
-
-                # 🐛 DEBUG: Save the GraphQL response to a JSON file
-                import os
-                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-                cursor_suffix = pr_cursor[:20] if pr_cursor else "initial"
-                log_dir = os.path.join(os.path.dirname(__file__), '..', '..', 'logs')
-                os.makedirs(log_dir, exist_ok=True)
-                response_file = os.path.join(log_dir, f'github_prs_response_{timestamp}_{cursor_suffix}.json')
-                with open(response_file, 'w', encoding='utf-8') as f:
-                    json.dump(pr_page, f, indent=2, ensure_ascii=False)
-                logger.info(f"🐛 DEBUG: Saved GraphQL response to {response_file}")
 
             except GitHubRateLimitException as e:
                 logger.warning(f"⚠️ Rate limit hit during PR extraction: {e}")

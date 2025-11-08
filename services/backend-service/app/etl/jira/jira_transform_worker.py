@@ -36,18 +36,20 @@ class JiraTransformHandler:
     Jira-specific transformation logic. It's called from TransformWorker
     which is the actual queue consumer and router.
 
-    Uses dependency injection to receive WorkerStatusManager for sending status updates.
+    Uses dependency injection to receive WorkerStatusManager and QueueManager.
     """
 
-    def __init__(self, status_manager=None):
+    def __init__(self, status_manager=None, queue_manager=None):
         """
         Initialize Jira transform handler.
 
         Args:
             status_manager: WorkerStatusManager instance for sending status updates (injected by router)
+            queue_manager: QueueManager instance for publishing to queues (injected by router)
         """
         self.database = get_database()
         self.status_manager = status_manager  # 🔑 Dependency injection
+        self.queue_manager = queue_manager    # 🔑 Dependency injection
         logger.info("Initialized JiraTransformHandler")
 
     @contextmanager
@@ -77,7 +79,32 @@ class JiraTransformHandler:
         with self.database.get_read_session_context() as session:
             yield session
 
-    def process_jira_message(self, message_type: str, raw_data_id: int, tenant_id: int, 
+    async def _send_worker_status(self, worker_type: str, tenant_id: int, job_id: int,
+                                   status: str, step_name: str = None, error_message: str = None):
+        """
+        Send worker status update using injected status manager.
+
+        Args:
+            worker_type: Type of worker (e.g., 'transform')
+            tenant_id: Tenant ID
+            job_id: Job ID
+            status: Status to send (e.g., 'running', 'finished', 'failed')
+            step_name: Optional step name
+            error_message: Optional error message for failed status
+        """
+        if self.status_manager:
+            await self.status_manager.send_worker_status(
+                worker_type=worker_type,
+                tenant_id=tenant_id,
+                job_id=job_id,
+                status=status,
+                step_name=step_name,
+                error_message=error_message
+            )
+        else:
+            logger.warning(f"Status manager not available - cannot send {status} status for {step_name}")
+
+    def process_jira_message(self, message_type: str, raw_data_id: int, tenant_id: int,
                             integration_id: int, job_id: int = None, message: Dict[str, Any] = None) -> bool:
         """
         Route Jira message to appropriate processor.
@@ -118,6 +145,142 @@ class JiraTransformHandler:
 
     # ============ JIRA PROCESSING METHODS ============
     # All Jira-specific processing methods extracted from transform_worker.py
+
+    def _process_jira_project_search(self, raw_data_id: int, tenant_id: int, integration_id: int, job_id: int = None, message: Dict[str, Any] = None) -> bool:
+        """
+        Process Jira projects and issue types from raw_extraction_data.
+
+        This method:
+        1. Retrieves raw project data from raw_extraction_data table
+        2. Processes projects and issue types
+        3. Saves to projects and wits tables
+        4. Creates project-wit relationships
+        5. Queues entities for embedding
+
+        Args:
+            raw_data_id: ID of the raw data record
+            tenant_id: Tenant ID
+            integration_id: Integration ID
+            job_id: ETL job ID
+            message: Full message dict with flags
+
+        Returns:
+            bool: True if processing succeeded
+        """
+        try:
+            # Extract message flags
+            first_item = message.get('first_item', False) if message else False
+            last_item = message.get('last_item', False) if message else False
+            last_job_item = message.get('last_job_item', False) if message else False
+            provider = message.get('provider', 'jira') if message else 'jira'
+            new_last_sync_date = message.get('new_last_sync_date') if message else None
+            token = message.get('token') if message else None
+
+            logger.info(f"🔄 Processing jira_projects_and_issue_types (raw_data_id={raw_data_id}, first={first_item}, last={last_item})")
+
+            database = get_database()
+
+            # Fetch raw data
+            with database.get_read_session_context() as db:
+                query = text("""
+                    SELECT raw_data
+                    FROM raw_extraction_data
+                    WHERE id = :raw_data_id
+                """)
+                result = db.execute(query, {'raw_data_id': raw_data_id}).fetchone()
+
+                if not result or not result[0]:
+                    logger.error(f"No raw data found for raw_data_id={raw_data_id}")
+                    return False
+
+                projects_data = result[0]  # This is already a list from JSONB
+
+            if not isinstance(projects_data, list):
+                logger.error(f"Expected list of projects, got {type(projects_data)}")
+                return False
+
+            logger.info(f"📊 Found {len(projects_data)} projects to process")
+
+            # Process projects and issue types
+            with database.get_write_session_context() as db:
+                # Get existing data
+                existing_projects = self._get_existing_projects(db, tenant_id, integration_id)
+                existing_wits = self._get_existing_wits(db, tenant_id, integration_id)
+                existing_relationships = self._get_existing_project_wit_relationships(db, tenant_id)
+
+                # Accumulators for bulk operations
+                projects_to_insert = []
+                projects_to_update = []
+                wits_to_insert = []
+                wits_to_update = []
+                project_wit_relationships = []
+
+                # Process each project
+                for project_data in projects_data:
+                    result = self._process_project_data(
+                        project_data, tenant_id, integration_id,
+                        existing_projects, existing_wits, {},  # No custom fields for project search
+                        existing_relationships, {}  # No global custom fields
+                    )
+
+                    projects_to_insert.extend(result.get('projects_to_insert', []))
+                    projects_to_update.extend(result.get('projects_to_update', []))
+                    wits_to_insert.extend(result.get('wits_to_insert', []))
+                    wits_to_update.extend(result.get('wits_to_update', []))
+                    project_wit_relationships.extend(result.get('project_wit_relationships', []))
+
+                # Perform bulk operations
+                self._perform_bulk_operations(
+                    db, projects_to_insert, projects_to_update,
+                    wits_to_insert, wits_to_update,
+                    [], [],  # No custom fields for project search
+                    project_wit_relationships
+                )
+
+                # Note: project-wit relationships are handled by _perform_bulk_operations
+
+                db.commit()
+                logger.info(f"✅ Committed projects and issue types to database")
+
+            # Queue entities for embedding (after commit)
+            # Queue projects
+            if projects_to_insert or projects_to_update:
+                all_projects = projects_to_insert + projects_to_update
+                self._queue_entities_for_embedding(
+                    tenant_id, 'projects', all_projects, job_id,
+                    message_type='jira_projects_and_issue_types',
+                    integration_id=integration_id,
+                    provider=provider,
+                    new_last_sync_date=new_last_sync_date,
+                    first_item=first_item,
+                    last_item=False,  # Not last yet, still have WITs to queue
+                    last_job_item=False,
+                    token=token
+                )
+
+            # Queue WITs
+            if wits_to_insert or wits_to_update:
+                all_wits = wits_to_insert + wits_to_update
+                self._queue_entities_for_embedding(
+                    tenant_id, 'wits', all_wits, job_id,
+                    message_type='jira_projects_and_issue_types',
+                    integration_id=integration_id,
+                    provider=provider,
+                    new_last_sync_date=new_last_sync_date,
+                    first_item=False,  # Projects were first
+                    last_item=last_item,  # Use the last_item flag from message
+                    last_job_item=last_job_item,
+                    token=token
+                )
+
+            logger.info(f"✅ Successfully processed jira_projects_and_issue_types")
+            return True
+
+        except Exception as e:
+            logger.error(f"Error processing jira_projects_and_issue_types: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            return False
 
 
 
@@ -1055,16 +1218,8 @@ class JiraTransformHandler:
         4. Returns success status
         """
         try:
-            # ✅ Send transform worker "running" status when first_item=True
-            if message and message.get('first_item') and job_id:
-                import asyncio
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "running", "jira_statuses_and_relationships"))
-                    logger.info(f"✅ Transform worker marked as running for jira_statuses_and_relationships")
-                finally:
-                    loop.close()
+            # NOTE: Status updates are handled by TransformWorker router (lines 138-148, 276-283)
+            # Do NOT send status updates from handler to avoid event loop conflicts
 
             with self.get_db_session() as db:
                 # Load raw data
@@ -1141,7 +1296,7 @@ class JiraTransformHandler:
                 # Queue statuses for embedding AFTER commit
                 # Get message info for forwarding
                 provider = message.get('provider') if message else 'jira'
-                old_last_sync_date = message.get('old_last_sync_date') if message else None
+                new_last_sync_date = message.get('new_last_sync_date') if message else None
 
                 # 🎯 NEW LOGIC: Only queue to embedding when last_item=True
                 # This ensures we process all projects first, then query all distinct statuses once
@@ -1175,7 +1330,7 @@ class JiraTransformHandler:
 
                     # Get message info for forwarding
                     provider = message.get('provider') if message else 'jira'
-                    old_last_sync_date = message.get('old_last_sync_date') if message else None
+                    new_last_sync_date = message.get('new_last_sync_date') if message else None
                     last_job_item = message.get('last_job_item', False)
 
                     # Queue each distinct status with proper first_item/last_item flags
@@ -1190,7 +1345,7 @@ class JiraTransformHandler:
                             message_type='jira_statuses_and_relationships',
                             integration_id=integration_id,
                             provider=provider,
-                            old_last_sync_date=old_last_sync_date,
+                            new_last_sync_date=new_last_sync_date,
                             first_item=is_first,
                             last_item=is_last,
                             last_job_item=last_job_item,
@@ -1198,17 +1353,7 @@ class JiraTransformHandler:
                         )
 
                     logger.info(f"🎯 [STATUSES] Queued {len(status_external_ids)} distinct statuses for embedding")
-
-                    # ✅ Send transform worker "finished" status when last_item=True
-                    if job_id:
-                        import asyncio
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        try:
-                            loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "finished", "jira_statuses_and_relationships"))
-                            logger.info(f"✅ Transform worker marked as finished for jira_statuses_and_relationships")
-                        finally:
-                            loop.close()
+                    # NOTE: "finished" status is sent by TransformWorker router (line 276-283)
                 else:
                     logger.info(f"🎯 [STATUSES] Not last item (first_item={message.get('first_item') if message else False}, last_item={message.get('last_item') if message else False}) - skipping embedding queue")
 
@@ -1459,7 +1604,7 @@ class JiraTransformHandler:
         job_id: int = None,
         last_item: bool = False,
         provider: str = None,
-        old_last_sync_date: str = None,
+        new_last_sync_date: str = None,
         message_type: str = None,
         integration_id: int = None,
         first_item: bool = False,
@@ -1479,15 +1624,18 @@ class JiraTransformHandler:
             logger.info(f"[COMPLETION] Sending job completion message to embedding queue (no {table_name} entities)")
 
             # Send completion message to embedding queue with external_id=None
-            queue_manager = QueueManager()
-            success = queue_manager.publish_embedding_job(
+            if not self.queue_manager:
+                logger.error("QueueManager not available - cannot send completion message")
+                return
+
+            success = self.queue_manager.publish_embedding_job(
                 tenant_id=tenant_id,
                 table_name=table_name,
                 external_id=None,  # 🔧 None signals completion message
                 job_id=job_id,
                 integration_id=integration_id,
                 provider=provider,
-                old_last_sync_date=old_last_sync_date,
+                new_last_sync_date=new_last_sync_date,
                 first_item=first_item,
                 last_item=last_item,
                 last_job_item=last_job_item,  # 🎯 Signal job completion
@@ -1506,15 +1654,18 @@ class JiraTransformHandler:
             # 🎯 COMPLETION CHAIN: If entities is empty but we have last_item=True, publish completion message
             if last_item:
                 logger.info(f"🎯 [COMPLETION] Publishing completion message to embedding queue for {table_name}")
-                queue_manager = QueueManager()
-                success = queue_manager.publish_embedding_job(
+                if not self.queue_manager:
+                    logger.error("QueueManager not available - cannot send completion message")
+                    return
+
+                success = self.queue_manager.publish_embedding_job(
                     tenant_id=tenant_id,
                     table_name=table_name,
                     external_id=None,  # 🔑 Key: None signals completion message
                     job_id=job_id,
                     integration_id=integration_id,
                     provider=provider,
-                    old_last_sync_date=old_last_sync_date,
+                    new_last_sync_date=new_last_sync_date,
                     first_item=first_item,    # ✅ Preserved
                     last_item=last_item,      # ✅ Preserved (True)
                     last_job_item=last_job_item,  # ✅ Preserved
@@ -1528,7 +1679,10 @@ class JiraTransformHandler:
 
         try:
             logger.info(f"Attempting to queue {len(entities)} {table_name} entities for embedding")
-            queue_manager = QueueManager()
+            if not self.queue_manager:
+                logger.error("QueueManager not available - cannot queue entities for embedding")
+                return
+
             queued_count = 0
 
             # Update step status to running when queuing for embedding
@@ -1569,14 +1723,14 @@ class JiraTransformHandler:
                     continue
 
                 # Publish embedding message with standardized structure
-                success = queue_manager.publish_embedding_job(
+                success = self.queue_manager.publish_embedding_job(
                     tenant_id=tenant_id,
                     table_name=table_name,
                     external_id=str(external_id),
                     job_id=job_id,
                     integration_id=integration_id,
                     provider=provider,
-                    old_last_sync_date=old_last_sync_date,
+                    new_last_sync_date=new_last_sync_date,
                     first_item=first_item and (queued_count == 0),  # Use passed first_item flag
                     last_item=last_item and (queued_count == len(entities) - 1),  # Use passed last_item flag
                     last_job_item=last_job_item,  # Forward last_job_item flag from incoming message
@@ -1602,7 +1756,7 @@ class JiraTransformHandler:
         job_id: int,
         message_type: str,
         provider: str,
-        old_last_sync_date: str,
+        new_last_sync_date: str,
         last_job_item: bool,
         token: str = None  # 🔑 Job execution token
     ):
@@ -1657,7 +1811,7 @@ class JiraTransformHandler:
                     message_type=message_type,
                     integration_id=integration_id,
                     provider=provider,
-                    old_last_sync_date=old_last_sync_date,
+                    new_last_sync_date=new_last_sync_date,
                     first_item=is_first,
                     last_item=is_last,
                     last_job_item=last_job_item,
@@ -1677,7 +1831,7 @@ class JiraTransformHandler:
                     message_type=message_type,
                     integration_id=integration_id,
                     provider=provider,
-                    old_last_sync_date=old_last_sync_date,
+                    new_last_sync_date=new_last_sync_date,
                     first_item=is_first,
                     last_item=is_last,
                     last_job_item=last_job_item,
@@ -1899,16 +2053,8 @@ class JiraTransformHandler:
 
             logger.debug(f"Processing single jira_single_issue_changelog for raw_data_id={raw_data_id}")
 
-            # ✅ Send transform worker "running" status when first_item=True
-            if message and message.get('first_item') and job_id:
-                import asyncio
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "running", "jira_issues_with_changelogs"))
-                    logger.info(f"✅ Transform worker marked as running for jira_issues_with_changelogs")
-                finally:
-                    loop.close()
+            # NOTE: Status updates are handled by TransformWorker router (lines 138-148, 276-283)
+            # Do NOT send status updates from handler to avoid event loop conflicts
 
             with self.get_db_session() as db:
                 # Load raw data (single issue)
@@ -1957,16 +2103,7 @@ class JiraTransformHandler:
                 db.execute(update_query, {'raw_data_id': raw_data_id})
                 db.commit()
 
-                # ✅ Send transform worker "finished" status when last_item=True
-                if message and message.get('last_item') and job_id:
-                    import asyncio
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    try:
-                        loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "finished", "jira_issues_with_changelogs"))
-                        logger.info(f"✅ Transform worker marked as finished for jira_issues_with_changelogs")
-                    finally:
-                        loop.close()
+                # NOTE: "finished" status is sent by TransformWorker router (line 276-283)
 
                 logger.debug(f"Processed issue {issue.get('key')} with {changelogs_processed} changelogs - marked raw_data_id={raw_data_id} as completed")
                 return True
@@ -2385,7 +2522,7 @@ class JiraTransformHandler:
         last_item = message.get('last_item', False) if message else False
         last_job_item = message.get('last_job_item', False) if message else False
         provider = message.get('provider') if message else 'jira'
-        old_last_sync_date = message.get('old_last_sync_date') if message else None
+        new_last_sync_date = message.get('new_last_sync_date') if message else None
 
         # Bulk insert new issues
         if issues_to_insert:
@@ -2395,7 +2532,7 @@ class JiraTransformHandler:
             # Queue for embedding - forward first_item/last_item/last_job_item flags from incoming message
             self._queue_entities_for_embedding(tenant_id, 'work_items', issues_to_insert, job_id,
                                              message_type='jira_issues_with_changelogs', integration_id=integration_id,
-                                             provider=provider, old_last_sync_date=old_last_sync_date,
+                                             provider=provider, new_last_sync_date=new_last_sync_date,
                                              first_item=first_item, last_item=last_item, last_job_item=last_job_item)
 
         # Bulk update existing issues
@@ -2411,7 +2548,7 @@ class JiraTransformHandler:
             # Queue for embedding - forward first_item/last_item/last_job_item flags from incoming message
             self._queue_entities_for_embedding(tenant_id, 'work_items', issues_to_update, job_id,
                                              message_type='jira_issues_with_changelogs', integration_id=integration_id,
-                                             provider=provider, old_last_sync_date=old_last_sync_date,
+                                             provider=provider, new_last_sync_date=new_last_sync_date,
                                              first_item=first_item, last_item=last_item, last_job_item=last_job_item,
                                              token=token)  # 🔑 Include token in message
 
@@ -2565,12 +2702,12 @@ class JiraTransformHandler:
             last_item = message.get('last_item', False) if message else False
             last_job_item = message.get('last_job_item', False) if message else False
             provider = message.get('provider') if message else 'jira'
-            old_last_sync_date = message.get('old_last_sync_date') if message else None
+            new_last_sync_date = message.get('new_last_sync_date') if message else None
 
             # Queue for embedding - forward first_item/last_item/last_job_item flags from incoming message
             self._queue_entities_for_embedding(tenant_id, 'changelogs', changelogs_to_insert, job_id,
                                              message_type='jira_issues_with_changelogs', integration_id=integration_id,
-                                             provider=provider, old_last_sync_date=old_last_sync_date,
+                                             provider=provider, new_last_sync_date=new_last_sync_date,
                                              first_item=first_item, last_item=last_item, last_job_item=last_job_item)
 
         # Calculate and update enhanced workflow metrics from in-memory changelog data
@@ -2811,33 +2948,14 @@ class JiraTransformHandler:
             last_job_item = message.get('last_job_item', False) if message else False
 
             logger.info(f"🎯 [DEV_STATUS] Processing jira_dev_status for raw_data_id={raw_data_id} (first={first_item}, last={last_item}, job_end={last_job_item})")
-
-            # ✅ Send transform worker "running" status when first_item=True
-            if message and message.get('first_item') and job_id:
-                import asyncio
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "running", "jira_dev_status"))
-                    logger.info(f"✅ Transform worker marked as running for jira_dev_status (first_item=True)")
-                finally:
-                    loop.close()
+            # NOTE: Status updates are handled by TransformWorker router (lines 138-148, 276-283)
 
             with self.get_db_session() as db:
                 # Load raw data
                 raw_data = self._get_raw_data(db, raw_data_id)
                 if not raw_data:
                     logger.error(f"Raw data {raw_data_id} not found")
-                    # ✅ Send transform worker "finished" status when last_item=True even if raw data not found
-                    if message and message.get('last_item') and job_id:
-                        import asyncio
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        try:
-                            loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "finished", "jira_dev_status"))
-                            logger.info(f"✅ Transform worker marked as finished for jira_dev_status (raw data not found)")
-                        finally:
-                            loop.close()
+                    # NOTE: "finished" status is sent by TransformWorker router (line 276-283)
                     return False
 
                 # Extract dev_status data - handle single issue format from extraction worker
@@ -2888,17 +3006,7 @@ class JiraTransformHandler:
                 logger.info(f"Processed {pr_links_processed} PR links from dev_status - marked raw_data_id={raw_data_id} as completed")
 
                 # Note: first_item/last_item flags are now properly forwarded through _process_dev_status_data
-
-                # ✅ Send transform worker "finished" status when last_item=True
-                if message and message.get('last_item') and job_id:
-                    import asyncio
-                    loop = asyncio.new_event_loop()
-                    asyncio.set_event_loop(loop)
-                    try:
-                        loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "finished", "jira_dev_status"))
-                        logger.info(f"✅ Transform worker marked as finished for jira_dev_status")
-                    finally:
-                        loop.close()
+                # NOTE: "finished" status is sent by TransformWorker router (line 276-283)
 
                 return True
 
@@ -2927,16 +3035,8 @@ class JiraTransformHandler:
             except Exception as update_error:
                 logger.error(f"Failed to mark raw_data as failed: {update_error}")
 
-            # ✅ Send transform worker "failed" status when last_item=True even on exception
-            if message and message.get('last_item') and job_id:
-                import asyncio
-                loop = asyncio.new_event_loop()
-                asyncio.set_event_loop(loop)
-                try:
-                    loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "failed", "jira_dev_status", error_message=str(e)))
-                    logger.info(f"✅ Transform worker marked as failed for jira_dev_status (exception)")
-                finally:
-                    loop.close()
+            # NOTE: "failed" status would be sent by TransformWorker router if needed
+            # For now, just return False to indicate failure
 
             return False
 
@@ -3023,14 +3123,14 @@ class JiraTransformHandler:
             last_item = message.get('last_item', False) if message else False
             last_job_item = message.get('last_job_item', False) if message else False
             provider = message.get('provider') if message else 'jira'
-            old_last_sync_date = message.get('old_last_sync_date') if message else None
+            new_last_sync_date = message.get('new_last_sync_date') if message else None
             token = message.get('token') if message else None  # 🔑 Extract token from message
 
             # Queue for embedding - forward first_item/last_item/last_job_item flags from incoming message
             if inserted_links:
                 self._queue_entities_for_embedding(tenant_id, 'work_items_prs_links', inserted_links, job_id,
                                                  message_type='jira_dev_status', integration_id=integration_id,
-                                                 provider=provider, old_last_sync_date=old_last_sync_date,
+                                                 provider=provider, new_last_sync_date=new_last_sync_date,
                                                  first_item=first_item, last_item=last_item, last_job_item=last_job_item,
                                                  token=token)  # 🔑 Forward token to embedding
 

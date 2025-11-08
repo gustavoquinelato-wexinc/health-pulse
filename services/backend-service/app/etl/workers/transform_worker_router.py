@@ -110,9 +110,15 @@ class TransformWorker(BaseWorker):
         """
         super().__init__(queue_name)
         self.worker_number = worker_number
-        # 🔑 Pass status_manager to handlers via dependency injection
-        self.jira_handler = JiraTransformHandler(status_manager=self.status_manager)
-        self.github_handler = GitHubTransformHandler(status_manager=self.status_manager)
+        # 🔑 Pass status_manager and queue_manager to handlers via dependency injection
+        self.jira_handler = JiraTransformHandler(
+            status_manager=self.status_manager,
+            queue_manager=self.queue_manager
+        )
+        self.github_handler = GitHubTransformHandler(
+            status_manager=self.status_manager,
+            queue_manager=self.queue_manager
+        )
         logger.info(f"Initialized TransformWorker #{worker_number} for tier queue: {queue_name}")
 
     async def process_message(self, message: Dict[str, Any]) -> bool:

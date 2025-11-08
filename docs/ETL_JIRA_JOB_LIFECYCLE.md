@@ -73,9 +73,10 @@ Jira has 4 sequential steps:
     - If `last_sync_date` is null: No date filter (fetch all issues)
   - **Batch size**: From `integration.settings.sync_config.batch_size` (e.g., 100)
   - **Rate limit**: From `integration.settings.sync_config.rate_limit` (e.g., 10 requests/minute)
-- **Identifies issues with code changes**: During extraction, checks if each issue has the development field (e.g., `customfield_10000`) populated
-  - If development field exists → Issue has code changes → Add to `issues_with_code_changes` list
-  - If development field is empty → Issue has no code changes → Skip for dev_status extraction
+- **Identifies issues with code changes**: During extraction, queries `custom_fields_mapping` table to get the configured development field external_id
+  - Queries: `SELECT cf.external_id FROM custom_fields_mapping cfm JOIN custom_fields cf ON cf.id = cfm.development_field_id WHERE cfm.tenant_id = :tenant_id AND cfm.integration_id = :integration_id`
+  - If development field is mapped and issue has value in that field → Issue has code changes → Add to `issues_with_code_changes` list
+  - If development field is not mapped or field is empty → Issue has no code changes → Skip for dev_status extraction
 - Stores each issue in raw_extraction_data with type: `jira_issues_with_changelogs`
 - Queues MULTIPLE messages to transform queue with:
   - `type: 'jira_issues_with_changelogs'`
