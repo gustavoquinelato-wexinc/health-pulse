@@ -118,12 +118,26 @@ export default function HomePage() {
     if (!user) return
 
     try {
-      // First, set the job status to RUNNING and clear next_run in the frontend
+      // 🔑 VALIDATION: Check current database status before allowing run
+      const job = jobs.find(j => j.id === jobId)
+      if (!job) return
+
+      // Only allow running if status is READY or FAILED
+      if (job.status !== 'READY' && job.status !== 'FAILED') {
+        showError(
+          'Cannot Run Job',
+          `Job status is ${job.status}. Only jobs with status READY or FAILED can be run.`
+        )
+        return
+      }
+
+      // 🔑 CRITICAL: Disable button IMMEDIATELY to prevent multiple clicks
+      // This is the FIRST action taken to ensure no race conditions
       setJobs(prevJobs =>
-        prevJobs.map(job =>
-          job.id === jobId
-            ? { ...job, status: 'RUNNING', next_run: undefined, current_step: 'Starting...' }
-            : job
+        prevJobs.map(j =>
+          j.id === jobId
+            ? { ...j, status: 'RUNNING', next_run: undefined, current_step: 'Starting...' }
+            : j
         )
       )
 
@@ -136,6 +150,15 @@ export default function HomePage() {
       )
 
     } catch (err: any) {
+      // 🔑 On error, revert the job status back to READY so user can retry
+      setJobs(prevJobs =>
+        prevJobs.map(job =>
+          job.id === jobId
+            ? { ...job, status: 'READY' }
+            : job
+        )
+      )
+
       // Show error toast (no console.error - toast is enough)
       showError(
         'Failed to run job',

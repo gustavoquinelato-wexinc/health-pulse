@@ -12,7 +12,7 @@ from pydantic import BaseModel, Field
 
 from app.core.database import get_db_session
 from app.models.unified_models import Tenant
-from app.etl.queue.queue_manager import get_queue_manager
+from app.etl.workers.queue_manager import get_queue_manager
 
 import logging
 

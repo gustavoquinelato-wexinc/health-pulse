@@ -184,6 +184,12 @@ READY → PENDING → RUNNING → FINISHED
 
 ## 📁 File Management Standards
 
+### Documentation Files
+- **NEVER create documentation files proactively** - Only create when explicitly requested by user
+- **No unsolicited .md files**: Do not create README.md, architecture docs, guides, or any documentation unless user asks
+- **User-driven only**: Documentation creation is a user decision, not an AI initiative
+- **Scope violation**: Creating documentation without request is considered scope creep
+
 ### Test Files
 - **Delete After Validation**: Always remove test scripts after execution unless explicitly asked to keep
 - **Clean Workspace**: Remove temporary files and maintain clean repository
