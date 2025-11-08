@@ -521,6 +521,7 @@ def apply(connection):
                 "schedule_interval_minutes": 60,  # 1 hour
                 "status": {
                     "overall": "READY",
+                    "token": None,  # 🔑 Execution token - generated when job starts running
                     "steps": {
                         "jira_projects_and_issue_types": {
                             "order": 1,
@@ -560,6 +561,7 @@ def apply(connection):
                 "schedule_interval_minutes": 60,  # 1 hour
                 "status": {
                     "overall": "READY",
+                    "token": None,  # 🔑 Execution token - generated when job starts running
                     "steps": {
                         "github_repositories": {
                             "order": 1,
@@ -568,23 +570,9 @@ def apply(connection):
                             "transform": "idle",
                             "embedding": "idle"
                         },
-                        "github_pull_requests": {
+                        "github_prs_commits_reviews_comments": {
                             "order": 2,
-                            "display_name": "Pull Requests",
-                            "extraction": "idle",
-                            "transform": "idle",
-                            "embedding": "idle"
-                        },
-                        "github_commits": {
-                            "order": 3,
-                            "display_name": "Commits",
-                            "extraction": "idle",
-                            "transform": "idle",
-                            "embedding": "idle"
-                        },
-                        "github_reviews": {
-                            "order": 4,
-                            "display_name": "Reviews",
+                            "display_name": "PRs, Commits, Reviews & Comments",
                             "extraction": "idle",
                             "transform": "idle",
                             "embedding": "idle"
@@ -599,6 +587,7 @@ def apply(connection):
                 "schedule_interval_minutes": 1440,  # 24 hours
                 "status": {
                     "overall": "READY",
+                    "token": None,  # 🔑 Execution token - generated when job starts running
                     "steps": {
                         "wex_fabric_data": {
                             "order": 1,
@@ -617,6 +606,7 @@ def apply(connection):
                 "schedule_interval_minutes": 720,  # 12 hours
                 "status": {
                     "overall": "READY",
+                    "token": None,  # 🔑 Execution token - generated when job starts running
                     "steps": {
                         "wex_ad_users": {
                             "order": 1,

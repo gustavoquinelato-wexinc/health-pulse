@@ -30,9 +30,12 @@ graph TB
     %% Queue Workers
     subgraph "Background Workers"
         EW[Extract Worker]
-        TW[Transform Worker]
-        LW[Load Worker]
+        TW["Transform Worker<br/>(Router)"]
+        JH["JiraTransformHandler"]
+        GH["GitHubTransformHandler"]
         VW[Vector Worker]
+        TW --> JH
+        TW --> GH
     end
     
     %% Connections
@@ -105,9 +108,12 @@ graph LR
     %% Workers
     subgraph "Background Workers"
         EW[Extract Worker<br/>• API Calls<br/>• Rate Limiting<br/>• Raw Storage]
-        TW[Transform Worker<br/>• Data Cleaning<br/>• Custom Fields<br/>• Validation]
-        LW[Load Worker<br/>• Bulk Insert<br/>• Relationships<br/>• Optimization]
+        TW["Transform Worker<br/>• Router<br/>• Queue Consumer<br/>• Status Updates"]
+        JH["JiraTransformHandler<br/>• Custom Fields<br/>• Statuses<br/>• Issues & Changelogs"]
+        GH["GitHubTransformHandler<br/>• Repositories<br/>• PRs & Nested<br/>• Commits & Reviews"]
         VW[Vector Worker<br/>• Embeddings<br/>• Qdrant Storage<br/>• Semantic Index]
+        TW --> JH
+        TW --> GH
     end
     
     %% Storage
@@ -320,7 +326,7 @@ graph TD
     %% ETL Processing (Internal to Backend)
     subgraph "ETL Processing (Internal)"
         ETL_API[ETL API Endpoints<br/>/app/etl/*<br/>• Custom Fields<br/>• Jobs<br/>• Integrations]
-        ETL_WORKERS[ETL Workers<br/>• Transform Worker<br/>• Extract Worker<br/>• Load Worker]
+        ETL_WORKERS["ETL Workers<br/>• Extract Worker<br/>• Transform Worker (Router)<br/>• JiraTransformHandler<br/>• GitHubTransformHandler<br/>• Vector Worker"]
     end
 
     %% Data Layer

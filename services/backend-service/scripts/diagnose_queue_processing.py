@@ -20,8 +20,8 @@ from datetime import datetime
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))
 
 from app.core.database import get_database
-from app.etl.queue.queue_manager import QueueManager
-from app.workers.worker_manager import get_worker_manager
+from app.etl.workers.queue_manager import QueueManager
+from app.etl.workers.worker_manager import get_worker_manager
 from sqlalchemy import text
 
 

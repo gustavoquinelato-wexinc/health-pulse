@@ -227,7 +227,7 @@ async def lifespan(_: FastAPI):
         logger.info("🔍 [DEBUG] About to start ETL workers...")
         try:
             logger.info("🔍 [DEBUG] Importing worker_manager...")
-            from app.workers.worker_manager import get_worker_manager
+            from app.etl.workers.worker_manager import get_worker_manager
             logger.info("🔍 [DEBUG] Getting worker manager instance...")
             worker_manager = get_worker_manager()
             logger.info("🔍 [DEBUG] Calling start_all_workers()...")

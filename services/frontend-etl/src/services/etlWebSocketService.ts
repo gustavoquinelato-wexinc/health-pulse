@@ -23,6 +23,7 @@ export interface JobProgress {
   transform: WorkerStatus
   embedding: WorkerStatus
   isActive: boolean
+  overall?: 'READY' | 'RUNNING' | 'FINISHED' | 'FAILED'  // 🔑 Add overall status from database
   steps?: {
     [stepName: string]: StepStatus
   }
@@ -189,6 +190,7 @@ class ETLWebSocketService {
           timestamp: new Date().toISOString()
         },
         isActive: data.overall === 'RUNNING',
+        overall: data.overall,  // 🔑 Pass the overall status directly from database
         steps: stepsData
       }
 
@@ -225,6 +227,7 @@ class ETLWebSocketService {
       transform: { status: 'idle' },
       embedding: { status: 'idle' },
       isActive: false,
+      overall: 'READY',  // 🔑 Initialize with READY status
       steps: {}  // Initialize with empty steps object
     })
 
@@ -353,6 +356,7 @@ class ETLWebSocketService {
         transform: this.getWorkerStatusFromSteps(dbStatus.steps, 'transform'),
         embedding: this.getWorkerStatusFromSteps(dbStatus.steps, 'embedding'),
         isActive: dbStatus.overall === 'RUNNING',
+        overall: dbStatus.overall,  // 🔑 Pass the overall status directly from database
         steps: stepsData  // Include the steps data for UI step indicators
       }
 
@@ -368,25 +372,47 @@ class ETLWebSocketService {
 
   /**
    * Extract worker status from database steps structure
+   *
+   * 🔑 CRITICAL FIX: Check if ALL steps are finished, not just the first one
+   * For multi-step jobs (like GitHub with 2 steps), we need to ensure:
+   * - If ANY step has the worker status as 'running', return 'running'
+   * - If ALL steps have the worker status as 'finished' (or idle), return 'finished'
+   * - Otherwise return 'idle'
    */
   private getWorkerStatusFromSteps(steps: any, workerType: 'extraction' | 'transform' | 'embedding'): WorkerStatus {
-    // Find any step that has this worker type status
+    let hasRunning = false
+    let hasFinished = false
+    let lastStepName = ''
+
+    // Check all steps to determine overall worker status
     for (const stepName in steps) {
       const step = steps[stepName]
       if (step && step[workerType]) {
         const status = step[workerType]
-        return {
-          status: status === 'running' ? 'running' : status === 'finished' ? 'finished' : 'idle',
-          step: stepName,
-          timestamp: new Date().toISOString()
+        lastStepName = stepName
+
+        if (status === 'running') {
+          hasRunning = true
+        } else if (status === 'finished') {
+          hasFinished = true
         }
       }
     }
 
-    // Default to idle if no status found
+    // Determine overall status:
+    // - If any step is running, return 'running'
+    // - If all steps are finished (or idle), return 'finished'
+    // - Otherwise return 'idle'
+    let overallStatus: 'running' | 'finished' | 'idle' = 'idle'
+    if (hasRunning) {
+      overallStatus = 'running'
+    } else if (hasFinished) {
+      overallStatus = 'finished'
+    }
+
     return {
-      status: 'idle',
-      step: '',
+      status: overallStatus,
+      step: lastStepName,
       timestamp: new Date().toISOString()
     }
   }

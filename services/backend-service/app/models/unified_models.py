@@ -580,9 +580,8 @@ class WorkItem(Base, IntegrationBaseEntity):
     # This provides better data integrity and simpler import logic
 
     # New relationships for development data
-    prs = relationship("Pr", back_populates="work_item")
     changelogs = relationship("Changelog", back_populates="work_item")
-    pr_links = relationship("WorkItemPrLink", back_populates="work_item")
+    pr_links = relationship("WorkItemPrLink", back_populates="work_item")  # Link to PRs via bridge table
 
 class Changelog(Base, IntegrationBaseEntity):
     """Work item status change history table"""
@@ -674,7 +673,6 @@ class Pr(Base, IntegrationBaseEntity):
     external_id = Column(String, quote=False, name="external_id")
     external_repo_id = Column(String, quote=False, name="external_repo_id")  # GitHub repository ID for linking
     repository_id = Column(Integer, ForeignKey('repositories.id'), nullable=False, quote=False, name="repository_id")
-    work_item_id = Column(Integer, ForeignKey('work_items.id'), nullable=True, quote=False, name="work_item_id")
     number = Column(Integer, quote=False, name="number")
     name = Column(String, quote=False, name="name")
     user_name = Column(String, quote=False, name="user_name")
@@ -685,12 +683,10 @@ class Pr(Base, IntegrationBaseEntity):
     destination = Column(String, quote=False, name="destination")
     reviewers = Column(Integer, quote=False, name="reviewers")
     status = Column(String, quote=False, name="status")
-    url = Column(String, quote=False, name="url")
     pr_created_at = Column(DateTime, quote=False, name="pr_created_at")
     pr_updated_at = Column(DateTime, quote=False, name="pr_updated_at")
     closed_at = Column(DateTime, quote=False, name="closed_at")
     merged_at = Column(DateTime, quote=False, name="merged_at")
-    merged_by = Column(String, quote=False, name="merged_by")
     commit_count = Column(Integer, quote=False, name="commit_count")
     additions = Column(Integer, quote=False, name="additions")
     deletions = Column(Integer, quote=False, name="deletions")
@@ -701,7 +697,6 @@ class Pr(Base, IntegrationBaseEntity):
 
     # Relationships
     repository = relationship("Repository", back_populates="prs")
-    work_item = relationship("WorkItem", back_populates="prs")
     tenant = relationship("Tenant", back_populates="prs")
     integration = relationship("Integration", back_populates="prs")
 
@@ -717,7 +712,7 @@ class PrReview(Base, IntegrationBaseEntity):
 
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
     external_id = Column(String, quote=False, name="external_id")  # GitHub review ID
-    pr_id = Column(Integer, ForeignKey('prs.id'), nullable=False, quote=False, name="pull_request_id")
+    pr_id = Column(Integer, ForeignKey('prs.id'), nullable=False, quote=False, name="pr_id")
     author_login = Column(String, quote=False, name="author_login")  # Reviewer's GitHub username
     state = Column(String, quote=False, name="state")  # APPROVED, CHANGES_REQUESTED, COMMENTED
     body = Column(Text, quote=False, name="body")  # Review comment text
@@ -735,7 +730,7 @@ class PrCommit(Base, IntegrationBaseEntity):
 
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
     external_id = Column(String, quote=False, name="external_id")  # SHA, the commit hash
-    pr_id = Column(Integer, ForeignKey('prs.id'), nullable=False, quote=False, name="pull_request_id")
+    pr_id = Column(Integer, ForeignKey('prs.id'), nullable=False, quote=False, name="pr_id")
     author_name = Column(String, quote=False, name="author_name")  # Commit author name
     author_email = Column(String, quote=False, name="author_email")  # Commit author email
     committer_name = Column(String, quote=False, name="committer_name")  # Committer name
@@ -756,7 +751,7 @@ class PrComment(Base, IntegrationBaseEntity):
 
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
     external_id = Column(String, quote=False, name="external_id")  # GitHub comment ID
-    pr_id = Column(Integer, ForeignKey('prs.id'), nullable=False, quote=False, name="pull_request_id")
+    pr_id = Column(Integer, ForeignKey('prs.id'), nullable=False, quote=False, name="pr_id")
     author_login = Column(String, quote=False, name="author_login")  # Comment author's GitHub username
     body = Column(Text, quote=False, name="body")  # Comment text
     comment_type = Column(String, quote=False, name="comment_type")  # 'issue' (main thread) or 'review' (line-specific)
@@ -902,6 +897,31 @@ class EtlJob(Base, IntegrationBaseEntity):
         # Calculate next retry time
         self.next_run = now + timedelta(minutes=self.retry_interval_minutes)
 
+    def set_rate_limit_reached(self, rate_limit_reset_at: Optional[str] = None):
+        """
+        Mark job as rate limit reached and set next run to rate limit reset time.
+
+        Args:
+            rate_limit_reset_at: ISO format timestamp when rate limit resets (from checkpoint)
+        """
+        from app.core.utils import DateTimeHelper
+        from datetime import timedelta
+
+        now = DateTimeHelper.now_default()
+        self.status = 'RATE_LIMIT_REACHED'
+        self.error_message = 'GitHub API rate limit reached - will resume automatically'
+
+        # Set next_run to rate limit reset time if provided, otherwise use fast retry interval
+        if rate_limit_reset_at:
+            try:
+                self.next_run = datetime.fromisoformat(rate_limit_reset_at)
+            except (ValueError, TypeError):
+                # Fallback to fast retry interval if parsing fails
+                self.next_run = now + timedelta(minutes=1)
+        else:
+            # Default to 1 minute retry (GitHub rate limit typically resets in 1 hour, but we check frequently)
+            self.next_run = now + timedelta(minutes=1)
+
     def calculate_next_run(self):
         """Calculate when this job should run next based on current state."""
         from app.core.utils import DateTimeHelper
@@ -912,6 +932,10 @@ class EtlJob(Base, IntegrationBaseEntity):
         if self.status == 'FAILED':
             # Use retry interval for failed jobs
             self.next_run = now + timedelta(minutes=self.retry_interval_minutes)
+        elif self.status == 'RATE_LIMIT_REACHED':
+            # Rate limit reached - next_run should already be set to rate_limit_reset_at
+            # This method is called if next_run needs recalculation
+            self.next_run = now + timedelta(minutes=1)  # Check again in 1 minute
         else:
             # Use normal schedule interval
             self.next_run = now + timedelta(minutes=self.schedule_interval_minutes)
