@@ -7,7 +7,7 @@ from typing import Optional, List
 from fastapi import APIRouter, Depends, Query, HTTPException, status
 from sqlalchemy.orm import Session
 from sqlalchemy import func, desc
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from app.core.database import get_read_session
 from app.core.logging_config import get_logger
@@ -223,7 +223,8 @@ async def get_ml_stats(
             )
         
         # Calculate date range
-        end_date = datetime.utcnow()
+        from app.core.utils import DateTimeHelper
+        end_date = DateTimeHelper.now_default()
         start_date = end_date - timedelta(days=days)
         
         # Get learning memory stats
@@ -332,11 +333,12 @@ async def get_ml_monitoring_health(
         # Determine overall health
         all_accessible = all(status["accessible"] for status in table_status.values())
         
+        from app.core.utils import DateTimeHelper
         return {
             "status": "healthy" if all_accessible else "degraded",
             "tables": table_status,
             "tenant_id": tenant_id,
-            "timestamp": datetime.utcnow()
+            "timestamp": DateTimeHelper.now_default()
         }
         
     except HTTPException:
