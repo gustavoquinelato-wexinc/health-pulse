@@ -1289,8 +1289,9 @@ async def update_color_schema_mode(
                 )
 
             # Update client's color schema mode
+            from app.core.utils import DateTimeHelper
             client.color_schema_mode = request.mode
-            client.last_updated_at = func.now()
+            client.last_updated_at = DateTimeHelper.now_default()
 
             session.commit()
 
@@ -1455,7 +1456,8 @@ async def update_unified_color_schema(
                     color_row.on_gradient_4_5 = calculated_variants.get('on_gradient_4_5')
                     color_row.on_gradient_5_1 = calculated_variants.get('on_gradient_5_1')
 
-                    color_row.last_updated_at = func.now()
+                    from app.core.utils import DateTimeHelper
+                    color_row.last_updated_at = DateTimeHelper.now_default()
 
             session.commit()
 
@@ -2123,13 +2125,16 @@ async def set_tenant_tier(
         manager = get_worker_manager()
 
         # Update tenant tier
+        from app.core.utils import DateTimeHelper
+        now = DateTimeHelper.now_default()
+
         with database.get_write_session_context() as session:
             update_query = text("""
                 UPDATE tenants
-                SET tier = :tier, last_updated_at = NOW()
+                SET tier = :tier, last_updated_at = :now
                 WHERE id = :tenant_id
             """)
-            session.execute(update_query, {'tenant_id': tenant_id, 'tier': new_tier})
+            session.execute(update_query, {'tenant_id': tenant_id, 'tier': new_tier, 'now': now})
             session.commit()
 
         # Get worker allocation for new tier

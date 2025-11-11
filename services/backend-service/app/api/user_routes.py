@@ -5,7 +5,6 @@ Handles user preferences and personal settings.
 
 from fastapi import APIRouter, HTTPException, Depends, status, File, UploadFile
 from pydantic import BaseModel
-from sqlalchemy import func
 from typing import Optional
 import httpx
 
@@ -145,8 +144,9 @@ async def update_user_theme_mode(
                 )
 
             # Update theme mode
+            from app.core.utils import DateTimeHelper
             db_user.theme_mode = request.mode
-            db_user.last_updated_at = func.now()
+            db_user.last_updated_at = DateTimeHelper.now_default()
 
             session.commit()
 
@@ -262,7 +262,8 @@ async def update_user_profile(
                     color_resolution_service.invalidate_caches(user_id=user.id)
                     logger.info(f"User {user.email} accessibility preference changed: {old_accessibility} -> {request.use_accessible_colors}")
 
-            db_user.last_updated_at = func.now()
+            from app.core.utils import DateTimeHelper
+            db_user.last_updated_at = DateTimeHelper.now_default()
             session.commit()
 
             logger.info(f"✅ User {user.email} profile updated successfully")
@@ -304,7 +305,9 @@ async def update_accessibility_preference(
 
             old_preference = db_user.use_accessible_colors
             db_user.use_accessible_colors = request.use_accessible_colors
-            db_user.last_updated_at = func.now()
+
+            from app.core.utils import DateTimeHelper
+            db_user.last_updated_at = DateTimeHelper.now_default()
 
             session.commit()
 
@@ -427,8 +430,9 @@ async def change_user_password(
                 )
 
             # Hash and update the new password
+            from app.core.utils import DateTimeHelper
             db_user.password_hash = auth_service._hash_password(request.new_password)
-            db_user.last_updated_at = func.now()
+            db_user.last_updated_at = DateTimeHelper.now_default()
             session.commit()
 
             logger.info(f"✅ Password changed successfully for user: {user.email}")
@@ -528,8 +532,9 @@ async def upload_profile_image(
                 f.write(file_content)
 
             # Update user record with profile image info
+            from app.core.utils import DateTimeHelper
             db_user.profile_image_filename = profile_filename
-            db_user.last_updated_at = func.now()
+            db_user.last_updated_at = DateTimeHelper.now_default()
             session.commit()
 
             logger.info(f"✅ Profile image uploaded for user: {user.email}")
