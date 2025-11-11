@@ -368,6 +368,26 @@ class JiraTransformHandler:
                     token=token
                 )
 
+            # 🎯 HANDLE NO UPDATES: If no projects and no WITs, send completion message to embedding
+            if not has_projects and not has_wits and last_item:
+                logger.info(f"🎯 [PROJECTS] No updates found - sending completion message to embedding")
+                self._queue_entities_for_embedding(
+                    tenant_id=tenant_id,
+                    table_name='projects',  # Use projects table as the step identifier
+                    entities=[],  # Empty list signals completion
+                    job_id=job_id,
+                    message_type='jira_projects_and_issue_types',
+                    integration_id=integration_id,
+                    provider=provider,
+                    old_last_sync_date=old_last_sync_date,
+                    new_last_sync_date=new_last_sync_date,
+                    first_item=first_item,  # Preserve first_item flag
+                    last_item=last_item,  # Preserve last_item flag
+                    last_job_item=last_job_item,  # Preserve last_job_item flag
+                    token=token
+                )
+                logger.debug(f"✅ [PROJECTS] Completion message sent to embedding (no data to process)")
+
             # ✅ Send WebSocket status update when last_item=True
             if last_item and job_id:
                 logger.info(f"🏁 [PROJECTS] Sending 'finished' status for transform step")
@@ -1437,29 +1457,50 @@ class JiraTransformHandler:
                     old_last_sync_date = message.get('old_last_sync_date') if message else None  # 🔑 From extraction worker
                     new_last_sync_date = message.get('new_last_sync_date') if message else None
                     last_job_item = message.get('last_job_item', False)
+                    first_item_flag = message.get('first_item', False)
                     token = message.get('token')  # 🔑 Extract token from message
 
-                    # Queue each distinct status with proper first_item/last_item flags
-                    for i, external_id in enumerate(status_external_ids):
-                        is_first = (i == 0)
-                        is_last = (i == len(status_external_ids) - 1)
-
+                    # 🎯 HANDLE NO STATUSES: If no statuses found, send completion message
+                    if not status_external_ids:
+                        logger.info(f"🎯 [STATUSES] No statuses found - sending completion message to embedding")
                         self._queue_entities_for_embedding(
-                            tenant_id, 'statuses',
-                            [{'external_id': external_id}],
-                            job_id,
+                            tenant_id=tenant_id,
+                            table_name='statuses',
+                            entities=[],  # Empty list signals completion
+                            job_id=job_id,
                             message_type='jira_statuses_and_relationships',
                             integration_id=integration_id,
                             provider=provider,
-                            old_last_sync_date=old_last_sync_date,  # 🔑 Forward old_last_sync_date
+                            old_last_sync_date=old_last_sync_date,
                             new_last_sync_date=new_last_sync_date,
-                            first_item=is_first,
-                            last_item=is_last,
-                            last_job_item=last_job_item,
-                            token=token  # 🔑 Include token in message
+                            first_item=first_item_flag,  # Preserve first_item flag
+                            last_item=True,  # This is the last (and only) message
+                            last_job_item=last_job_item,  # Preserve last_job_item flag
+                            token=token
                         )
+                        logger.debug(f"✅ [STATUSES] Completion message sent to embedding (no data to process)")
+                    else:
+                        # Queue each distinct status with proper first_item/last_item flags
+                        for i, external_id in enumerate(status_external_ids):
+                            is_first = (i == 0)
+                            is_last = (i == len(status_external_ids) - 1)
 
-                    logger.debug(f"🎯 [STATUSES] Queued {len(status_external_ids)} distinct statuses for embedding")
+                            self._queue_entities_for_embedding(
+                                tenant_id, 'statuses',
+                                [{'external_id': external_id}],
+                                job_id,
+                                message_type='jira_statuses_and_relationships',
+                                integration_id=integration_id,
+                                provider=provider,
+                                old_last_sync_date=old_last_sync_date,  # 🔑 Forward old_last_sync_date
+                                new_last_sync_date=new_last_sync_date,
+                                first_item=is_first,
+                                last_item=is_last,
+                                last_job_item=last_job_item,
+                                token=token  # 🔑 Include token in message
+                            )
+
+                        logger.debug(f"🎯 [STATUSES] Queued {len(status_external_ids)} distinct statuses for embedding")
 
                     # ✅ Send WebSocket status update immediately after queuing
                     # This updates database and sends WebSocket notification to UI
