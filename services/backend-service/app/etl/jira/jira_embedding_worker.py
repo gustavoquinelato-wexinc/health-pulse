@@ -1,123 +1,615 @@
 """
-Jira Embedding API
-Handles queueing Jira mapping records for embedding
+Jira Embedding Worker - Handles embedding generation for all Jira entity types.
+
+Processes embedding requests for:
+- Work Items (issues)
+- Projects
+- Work Item Types (WITs)
+- Statuses
+- Changelogs
+- Work Items-PRs Links
+- Mapping Tables (status_mappings, wits_mappings, wits_hierarchies, workflows)
+
+Architecture:
+- Fetches entities from database using external_id
+- Generates embeddings using HybridProviderManager
+- Stores vectors in Qdrant with proper tenant isolation
+- Updates qdrant_vectors bridge table
 """
 
-from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException
-from pydantic import BaseModel
+import asyncio
+from typing import Dict, Any, Optional
+from sqlalchemy import text
 
-from app.auth.auth_middleware import require_authentication
+from app.core.logging_config import get_logger
 from app.core.database import get_database
 from app.models.unified_models import (
-    User, WitHierarchy, WitMapping, StatusMapping, Workflow
+    WorkItem, Changelog, Project, Status, Wit,
+    WorkItemPrLink, WitHierarchy, WitMapping, StatusMapping, Workflow
 )
-from app.core.logging_config import get_logger
-from app.etl.workers.queue_manager import QueueManager
 
 logger = get_logger(__name__)
-router = APIRouter()
 
 
-class QueueTableRequest(BaseModel):
-    table_name: str
-
-
-class QueueTableResponse(BaseModel):
-    success: bool
-    queued_count: int
-    table_name: str
-    message: str
-
-
-@router.post("/embedding/queue-table", response_model=QueueTableResponse)
-async def queue_table_for_embedding(
-    request: QueueTableRequest,
-    user: User = Depends(require_authentication)
-):
+class JiraEmbeddingWorker:
     """
-    Queue all active records from a Jira mapping table for embedding.
-    Sends messages directly to embedding_queue_tenant_{id}.
+    Jira Embedding Worker - Processes embedding requests for all Jira entity types.
 
-    Supported tables:
-    - wits_hierarchies
-    - wits_mappings
-    - status_mappings (or statuses_mappings)
-    - workflows
+    Handles:
+    - Fetching Jira entities from database
+    - Generating embeddings using HybridProviderManager
+    - Storing vectors in Qdrant
+    - Updating qdrant_vectors bridge table
     """
-    try:
-        table_name = request.table_name
-        tenant_id = user.tenant_id
 
-        # Normalize table name (accept both status_mappings and statuses_mappings)
-        if table_name == 'status_mappings':
-            table_name = 'statuses_mappings'
+    def __init__(self, status_manager=None, queue_manager=None):
+        """
+        Initialize Jira embedding worker.
 
-        # Validate table name
-        valid_tables = ['wits_hierarchies', 'wits_mappings', 'statuses_mappings', 'workflows']
-        if table_name not in valid_tables:
-            raise HTTPException(
-                status_code=400,
-                detail=f"Invalid table name. Must be one of: {', '.join(valid_tables)}"
+        Args:
+            status_manager: WorkerStatusManager for sending status updates
+            queue_manager: QueueManager for publishing messages (if needed)
+        """
+        self.status_manager = status_manager
+        self.queue_manager = queue_manager
+        self.hybrid_provider = None
+        logger.debug("✅ Initialized JiraEmbeddingWorker")
+
+    async def process_jira_embedding(self, message: Dict[str, Any]) -> bool:
+        """
+        Process Jira embedding message.
+
+        Args:
+            message: Embedding message
+
+        Returns:
+            bool: True if processed successfully
+        """
+        try:
+            tenant_id = message.get('tenant_id')
+            step_type = message.get('type')
+            table_name = message.get('table_name')
+            external_id = message.get('external_id')
+
+            logger.debug(f"🔍 [JIRA EMBEDDING] Processing: table={table_name}, external_id={external_id}, step={step_type}")
+
+            # Handle mapping tables differently - bulk process entire table
+            if step_type == 'mappings':
+                if not all([tenant_id, table_name]):
+                    logger.error(f"❌ [JIRA EMBEDDING] Missing required fields for mappings message")
+                    return False
+
+                logger.info(f"🔄 [JIRA EMBEDDING] Processing entire {table_name} table for tenant {tenant_id}")
+                return await self._process_mapping_table(tenant_id, table_name)
+
+            # Handle completion messages - external_id=None signals completion
+            if table_name and external_id is None:
+                logger.info(f"🎯 [JIRA EMBEDDING] Received completion message for {table_name}")
+                return True
+
+            # Handle individual entity messages
+            if table_name and external_id:
+                if not tenant_id:
+                    logger.error(f"❌ [JIRA EMBEDDING] Missing tenant_id")
+                    return False
+
+                logger.info(f"🔍 [JIRA EMBEDDING] Fetching entity data for {table_name} ID {external_id}")
+                return await self._process_entity(tenant_id, table_name, external_id, message)
+
+            logger.warning(f"⚠️ [JIRA EMBEDDING] Unknown message format")
+            return False
+
+        except Exception as e:
+            logger.error(f"❌ [JIRA EMBEDDING] Error processing message: {e}")
+            import traceback
+            logger.error(f"❌ [JIRA EMBEDDING] Full traceback: {traceback.format_exc()}")
+            return False
+
+    async def _process_entity(self, tenant_id: int, entity_type: str, entity_id: str, message: Dict[str, Any]) -> bool:
+        """Process a single Jira entity for embedding."""
+        try:
+            # Initialize HybridProviderManager if not already done
+            if not self.hybrid_provider:
+                from app.ai.hybrid_provider_manager import HybridProviderManager
+                self.hybrid_provider = HybridProviderManager()
+
+            if not self.hybrid_provider.providers:
+                logger.info(f"🔄 [JIRA EMBEDDING] Initializing providers for tenant {tenant_id}")
+                init_success = await self.hybrid_provider.initialize_providers(tenant_id)
+                if not init_success:
+                    logger.error(f"❌ [JIRA EMBEDDING] Failed to initialize providers for tenant {tenant_id}")
+                    return False
+
+            # Fetch entity data
+            entity_data = await self._fetch_entity_data(tenant_id, entity_type, entity_id)
+            if not entity_data:
+                logger.debug(f"🔍 [JIRA EMBEDDING] Entity not found: {entity_type} ID {entity_id}")
+                return True  # Not an error, entity might have been deleted
+
+            # Generate embedding
+            text_content = self._extract_text_content(entity_data, entity_type)
+            if not text_content:
+                logger.debug(f"🔍 [JIRA EMBEDDING] No text content for {entity_type} ID {entity_id}")
+                return True  # Not an error, just no content to embed
+
+            # Generate embedding vector
+            embedding_result = await self.hybrid_provider.generate_embeddings(
+                texts=[text_content],
+                tenant_id=tenant_id
             )
+            if not embedding_result.success or not embedding_result.data:
+                logger.error(f"❌ [JIRA EMBEDDING] Failed to generate embedding: {embedding_result.error}")
+                return False
 
-        # Map table names to models for counting records
-        table_model_map = {
-            'wits_hierarchies': WitHierarchy,
-            'wits_mappings': WitMapping,
-            'statuses_mappings': StatusMapping,
-            'workflows': Workflow
-        }
+            embedding_vector = embedding_result.data[0]
 
-        model = table_model_map[table_name]
-
-        # Get count of active records
-        database = get_database()
-        with database.get_read_session_context() as session:
-            record_count = session.query(model).filter(
-                model.tenant_id == tenant_id,
-                model.active == True
-            ).count()
-
-            if record_count == 0:
-                return QueueTableResponse(
-                    success=True,
-                    queued_count=0,
-                    table_name=request.table_name,
-                    message=f"No active records found in {request.table_name}"
-                )
-
-            # Use QueueManager to publish bulk mapping table message
-            queue_manager = QueueManager()
-
-            # Use the new bulk mapping table embedding approach
-            # Always use the database table name (statuses_mappings) for consistency
-            success = queue_manager.publish_mapping_table_embedding(
+            # Store in Qdrant and update bridge table
+            success = await self._store_embedding(
                 tenant_id=tenant_id,
-                table_name=table_name  # Use normalized database table name
+                entity_type=entity_type,
+                entity_id=entity_data['id'],  # Use internal ID for storage
+                embedding_vector=embedding_vector,
+                entity_data=entity_data,
+                message=message or {}
             )
 
             if success:
-                logger.info(f"Successfully queued {table_name} table for bulk embedding ({record_count} records)")
-                return QueueTableResponse(
-                    success=True,
-                    queued_count=record_count,
-                    table_name=request.table_name,  # Return the original table name from frontend
-                    message=f"Successfully queued {request.table_name} table for bulk embedding ({record_count} records)"
-                )
+                logger.debug(f"✅ [JIRA EMBEDDING] Successfully processed {entity_type} ID {entity_id}")
             else:
-                logger.error(f"Failed to queue {table_name} table for bulk embedding")
-                raise HTTPException(
-                    status_code=500,
-                    detail=f"Failed to queue {request.table_name} table for embedding"
-                )
-            
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Error queueing table for embedding: {e}")
-        raise HTTPException(
-            status_code=500,
-            detail=f"Failed to queue table for embedding: {str(e)}"
-        )
+                logger.error(f"❌ [JIRA EMBEDDING] Failed to store embedding for {entity_type} ID {entity_id}")
 
+            return success
+
+        except Exception as e:
+            logger.error(f"❌ [JIRA EMBEDDING] Error processing {entity_type} entity {entity_id}: {e}")
+            import traceback
+            logger.error(f"❌ [JIRA EMBEDDING] Full traceback: {traceback.format_exc()}")
+            return False
+
+    async def _fetch_entity_data(self, tenant_id: int, entity_type: str, entity_id: str) -> Optional[Dict[str, Any]]:
+        """Fetch Jira entity data from database for embedding generation."""
+        try:
+            logger.debug(f"🔍 [JIRA EMBEDDING] Fetching {entity_type} with external_id={entity_id}, tenant_id={tenant_id}")
+            database = get_database()
+
+            # 🔑 Use WRITE session for reads to ensure we read from primary
+            with database.get_write_session_context() as session:
+                if entity_type == 'work_items':
+                    entity = session.query(WorkItem).filter(
+                        WorkItem.external_id == str(entity_id),
+                        WorkItem.tenant_id == tenant_id
+                    ).first()
+
+                    if entity:
+                        return {
+                            'id': entity.id,
+                            'external_id': entity.external_id,
+                            'key': entity.key,
+                            'summary': entity.summary,
+                            'description': entity.description,
+                            'entity_type': entity_type,
+                            'tenant_id': tenant_id
+                        }
+
+                elif entity_type == 'projects':
+                    entity = session.query(Project).filter(
+                        Project.external_id == str(entity_id),
+                        Project.tenant_id == tenant_id
+                    ).first()
+
+                    if entity:
+                        return {
+                            'id': entity.id,
+                            'external_id': entity.external_id,
+                            'key': entity.key,
+                            'name': entity.name,
+                            'description': entity.description,
+                            'entity_type': entity_type,
+                            'tenant_id': tenant_id
+                        }
+
+                elif entity_type == 'wits':
+                    entity = session.query(Wit).filter(
+                        Wit.external_id == str(entity_id),
+                        Wit.tenant_id == tenant_id
+                    ).first()
+
+                    if entity:
+                        return {
+                            'id': entity.id,
+                            'external_id': entity.external_id,
+                            'name': entity.name,
+                            'description': entity.description,
+                            'entity_type': entity_type,
+                            'tenant_id': tenant_id
+                        }
+
+                elif entity_type == 'statuses':
+                    entity = session.query(Status).filter(
+                        Status.external_id == str(entity_id),
+                        Status.tenant_id == tenant_id
+                    ).first()
+
+                    if entity:
+                        return {
+                            'id': entity.id,
+                            'external_id': entity.external_id,
+                            'name': entity.name,
+                            'description': entity.description,
+                            'category': entity.category,
+                            'entity_type': entity_type,
+                            'tenant_id': tenant_id
+                        }
+
+                elif entity_type == 'changelogs':
+                    entity = session.query(Changelog).filter(
+                        Changelog.external_id == str(entity_id),
+                        Changelog.tenant_id == tenant_id
+                    ).first()
+
+                    if entity:
+                        return {
+                            'id': entity.id,
+                            'external_id': entity.external_id,
+                            'field': entity.field,
+                            'from_value': entity.from_value,
+                            'to_value': entity.to_value,
+                            'entity_type': entity_type,
+                            'tenant_id': tenant_id
+                        }
+
+                elif entity_type == 'work_items_prs_links':
+                    entity = session.query(WorkItemPrLink).filter(
+                        WorkItemPrLink.id == int(entity_id),  # This table uses internal ID
+                        WorkItemPrLink.tenant_id == tenant_id
+                    ).first()
+
+                    if entity:
+                        return {
+                            'id': entity.id,
+                            'work_item_id': entity.work_item_id,
+                            'pr_id': entity.pr_id,
+                            'entity_type': entity_type,
+                            'tenant_id': tenant_id
+                        }
+
+                else:
+                    logger.warning(f"⚠️ [JIRA EMBEDDING] Unknown entity type: {entity_type}")
+                    return None
+
+            return None
+
+        except Exception as e:
+            logger.error(f"❌ [JIRA EMBEDDING] Error fetching {entity_type} entity {entity_id}: {e}")
+            return None
+
+    def _extract_text_content(self, entity_data: Dict[str, Any], entity_type: str) -> str:
+        """Extract text content from Jira entity data for embedding generation."""
+        text_parts = []
+        logger.debug(f"🔍 [JIRA EMBEDDING] Extracting text content for {entity_type}: {entity_data}")
+
+        if entity_type == 'work_items':
+            if entity_data.get('key'):
+                text_parts.append(f"Key: {entity_data['key']}")
+            if entity_data.get('summary'):
+                text_parts.append(f"Summary: {entity_data['summary']}")
+            if entity_data.get('description'):
+                text_parts.append(f"Description: {entity_data['description']}")
+
+        elif entity_type == 'projects':
+            if entity_data.get('key'):
+                text_parts.append(f"Key: {entity_data['key']}")
+            if entity_data.get('name'):
+                text_parts.append(f"Name: {entity_data['name']}")
+            if entity_data.get('description'):
+                text_parts.append(f"Description: {entity_data['description']}")
+
+        elif entity_type == 'wits':
+            if entity_data.get('name'):
+                text_parts.append(f"Work Item Type: {entity_data['name']}")
+            if entity_data.get('description'):
+                text_parts.append(f"Description: {entity_data['description']}")
+
+        elif entity_type == 'statuses':
+            if entity_data.get('name'):
+                text_parts.append(f"Status: {entity_data['name']}")
+            if entity_data.get('category'):
+                text_parts.append(f"Category: {entity_data['category']}")
+            if entity_data.get('description'):
+                text_parts.append(f"Description: {entity_data['description']}")
+
+        elif entity_type == 'changelogs':
+            if entity_data.get('field'):
+                text_parts.append(f"Field: {entity_data['field']}")
+            if entity_data.get('from_value'):
+                text_parts.append(f"From: {entity_data['from_value']}")
+            if entity_data.get('to_value'):
+                text_parts.append(f"To: {entity_data['to_value']}")
+
+        elif entity_type == 'work_items_prs_links':
+            if entity_data.get('work_item_id'):
+                text_parts.append(f"Work Item ID: {entity_data['work_item_id']}")
+            if entity_data.get('pr_id'):
+                text_parts.append(f"PR ID: {entity_data['pr_id']}")
+
+        # Mapping tables
+        elif entity_type == 'wits_hierarchies':
+            if entity_data.get('level_name'):
+                text_parts.append(f"Level Name: {entity_data['level_name']}")
+            if entity_data.get('level_number'):
+                text_parts.append(f"Level Number: {entity_data['level_number']}")
+            if entity_data.get('description'):
+                text_parts.append(f"Description: {entity_data['description']}")
+
+        elif entity_type == 'wits_mappings':
+            if entity_data.get('wit_from'):
+                text_parts.append(f"WIT From: {entity_data['wit_from']}")
+            if entity_data.get('wit_to'):
+                text_parts.append(f"WIT To: {entity_data['wit_to']}")
+
+        elif entity_type == 'statuses_mappings':
+            if entity_data.get('status_from'):
+                text_parts.append(f"Status From: {entity_data['status_from']}")
+            if entity_data.get('status_to'):
+                text_parts.append(f"Status To: {entity_data['status_to']}")
+            if entity_data.get('status_category'):
+                text_parts.append(f"Status Category: {entity_data['status_category']}")
+
+        elif entity_type == 'workflows':
+            if entity_data.get('step_name'):
+                text_parts.append(f"Workflow Step: {entity_data['step_name']}")
+            if entity_data.get('step_number'):
+                text_parts.append(f"Step Number: {entity_data['step_number']}")
+            if entity_data.get('step_category'):
+                text_parts.append(f"Step Category: {entity_data['step_category']}")
+            if entity_data.get('is_commitment_point'):
+                text_parts.append(f"Commitment Point: {entity_data['is_commitment_point']}")
+
+        result = " ".join(text_parts)
+        logger.debug(f"✅ [JIRA EMBEDDING] Extracted text for {entity_type}: {result[:100] if result else 'EMPTY'}")
+        return result
+
+    async def _store_embedding(self, tenant_id: int, entity_type: str, entity_id: int,
+                               embedding_vector: list, entity_data: Dict[str, Any], message: Dict[str, Any]) -> bool:
+        """Store embedding in Qdrant and update qdrant_vectors bridge table."""
+        try:
+            # Store in Qdrant (tenant-isolated collection)
+            qdrant_success = await self._store_in_qdrant(
+                tenant_id=tenant_id,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                embedding_vector=embedding_vector,
+                entity_data=entity_data
+            )
+
+            if not qdrant_success:
+                logger.error(f"❌ [JIRA EMBEDDING] Failed to store in Qdrant")
+                return False
+
+            # Update qdrant_vectors bridge table
+            bridge_success = await self._update_bridge_table(
+                tenant_id=tenant_id,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                message=message
+            )
+
+            if not bridge_success:
+                logger.error(f"❌ [JIRA EMBEDDING] Failed to update bridge table")
+                return False
+
+            return True
+
+        except Exception as e:
+            logger.error(f"❌ [JIRA EMBEDDING] Error storing embedding: {e}")
+            import traceback
+            logger.error(f"❌ [JIRA EMBEDDING] Full traceback: {traceback.format_exc()}")
+            return False
+
+    async def _store_in_qdrant(self, tenant_id: int, entity_type: str, entity_id: int,
+                               embedding_vector: list, entity_data: Dict[str, Any]) -> bool:
+        """Store embedding vector in Qdrant."""
+        try:
+            from app.ai.qdrant_manager import QdrantManager
+            qdrant_manager = QdrantManager()
+
+            # Create tenant-specific collection name
+            collection_name = f"tenant_{tenant_id}"
+
+            # Store vector with metadata
+            success = await qdrant_manager.upsert_vector(
+                collection_name=collection_name,
+                vector_id=f"{entity_type}_{entity_id}",
+                vector=embedding_vector,
+                payload={
+                    'tenant_id': tenant_id,
+                    'entity_type': entity_type,
+                    'entity_id': entity_id,
+                    'external_id': entity_data.get('external_id'),
+                    **entity_data
+                }
+            )
+
+            if success:
+                logger.debug(f"✅ [JIRA EMBEDDING] Stored in Qdrant: {entity_type} ID {entity_id}")
+            else:
+                logger.error(f"❌ [JIRA EMBEDDING] Failed to store in Qdrant: {entity_type} ID {entity_id}")
+
+            return success
+
+        except Exception as e:
+            logger.error(f"❌ [JIRA EMBEDDING] Error storing in Qdrant: {e}")
+            return False
+
+    async def _update_bridge_table(self, tenant_id: int, entity_type: str, entity_id: int, message: Dict[str, Any]) -> bool:
+        """Update qdrant_vectors bridge table."""
+        try:
+            from app.models.unified_models import QdrantVector
+            from app.core.utils import DateTimeHelper
+
+            database = get_database()
+
+            with database.get_write_session_context() as session:
+                # Check if record exists
+                existing = session.query(QdrantVector).filter(
+                    QdrantVector.tenant_id == tenant_id,
+                    QdrantVector.entity_type == entity_type,
+                    QdrantVector.entity_id == entity_id
+                ).first()
+
+                if existing:
+                    # Update existing record
+                    existing.last_updated_at = DateTimeHelper.default_now()
+                    existing.active = True
+                    logger.debug(f"✅ [JIRA EMBEDDING] Updated bridge table: {entity_type} ID {entity_id}")
+                else:
+                    # Insert new record
+                    new_record = QdrantVector(
+                        tenant_id=tenant_id,
+                        entity_type=entity_type,
+                        entity_id=entity_id,
+                        active=True,
+                        created_at=DateTimeHelper.default_now(),
+                        last_updated_at=DateTimeHelper.default_now()
+                    )
+                    session.add(new_record)
+                    logger.debug(f"✅ [JIRA EMBEDDING] Inserted into bridge table: {entity_type} ID {entity_id}")
+
+                session.commit()
+                return True
+
+        except Exception as e:
+            logger.error(f"❌ [JIRA EMBEDDING] Error updating bridge table: {e}")
+            return False
+
+    async def _process_mapping_table(self, tenant_id: int, table_name: str) -> bool:
+        """Process an entire Jira mapping table for embedding."""
+        try:
+            # Initialize providers for this tenant if not already done
+            if not self.hybrid_provider:
+                from app.ai.hybrid_provider_manager import HybridProviderManager
+                self.hybrid_provider = HybridProviderManager()
+
+            if not self.hybrid_provider.providers:
+                if not await self.hybrid_provider.initialize_providers(tenant_id):
+                    logger.error(f"❌ [JIRA EMBEDDING] Failed to initialize providers for tenant {tenant_id}")
+                    return False
+
+            database = get_database()
+
+            # Map table names to model classes
+            table_models = {
+                'statuses_mappings': StatusMapping,
+                'wits_mappings': WitMapping,
+                'wits_hierarchies': WitHierarchy,
+                'workflows': Workflow
+            }
+
+            if table_name not in table_models:
+                logger.error(f"❌ [JIRA EMBEDDING] Unknown mapping table: {table_name}")
+                return False
+
+            model_class = table_models[table_name]
+
+            # 🔑 Use WRITE session for mapping tables
+            with database.get_write_session_context() as session:
+                # Get all records from the table for this tenant
+                records = session.query(model_class).filter(
+                    model_class.tenant_id == tenant_id
+                ).all()
+
+                logger.info(f"🔄 [JIRA EMBEDDING] Found {len(records)} records in {table_name} for tenant {tenant_id}")
+
+                if not records:
+                    logger.info(f"✅ [JIRA EMBEDDING] No records to process in {table_name}")
+                    return True
+
+                # Process each record with rate limiting
+                success_count = 0
+                for i, record in enumerate(records):
+                    try:
+                        # Add rate limiting - delay every 5 records
+                        if i > 0 and i % 5 == 0:
+                            logger.debug(f"🔄 [JIRA EMBEDDING] Rate limiting - processed {i}/{len(records)} records, pausing...")
+                            await asyncio.sleep(5)
+
+                        # Create entity data based on table type
+                        entity_data = self._create_mapping_entity_data(record, table_name)
+
+                        # Generate embedding
+                        text_content = self._extract_text_content(entity_data, table_name)
+                        if not text_content:
+                            logger.debug(f"🔍 [JIRA EMBEDDING] No text content for {table_name} ID {record.id}")
+                            continue
+
+                        embedding_result = await self.hybrid_provider.generate_embeddings(
+                            texts=[text_content],
+                            tenant_id=tenant_id
+                        )
+                        if not embedding_result.success or not embedding_result.data:
+                            logger.warning(f"⚠️ [JIRA EMBEDDING] Failed to generate embedding for {table_name} ID {record.id}")
+                            continue
+
+                        embedding_vector = embedding_result.data[0]
+
+                        # Store embedding
+                        success = await self._store_embedding(
+                            tenant_id=tenant_id,
+                            entity_type=table_name,
+                            entity_id=record.id,
+                            embedding_vector=embedding_vector,
+                            entity_data=entity_data,
+                            message={'tenant_id': tenant_id, 'table_name': table_name, 'type': 'mappings'}
+                        )
+
+                        if success:
+                            success_count += 1
+                            if success_count % 20 == 0:
+                                logger.info(f"🔄 [JIRA EMBEDDING] Progress {success_count}/{len(records)} records embedded for {table_name}")
+                        else:
+                            logger.warning(f"⚠️ [JIRA EMBEDDING] Failed to embed {table_name} ID {record.id}")
+
+                    except Exception as e:
+                        logger.error(f"❌ [JIRA EMBEDDING] Error processing {table_name} ID {record.id}: {e}")
+
+                logger.info(f"✅ [JIRA EMBEDDING] Successfully embedded {success_count}/{len(records)} records from {table_name}")
+                return success_count > 0
+
+        except Exception as e:
+            logger.error(f"❌ [JIRA EMBEDDING] Error processing mapping table {table_name}: {e}")
+            return False
+
+    def _create_mapping_entity_data(self, record, table_name: str) -> Dict[str, Any]:
+        """Create entity data dictionary from mapping table record."""
+        base_data = {
+            'id': record.id,
+            'tenant_id': record.tenant_id,
+            'entity_type': table_name
+        }
+
+        if table_name == 'wits_hierarchies':
+            base_data.update({
+                'level_name': record.level_name,
+                'level_number': record.level_number,
+                'description': record.description
+            })
+        elif table_name == 'wits_mappings':
+            base_data.update({
+                'wit_from': record.wit_from,
+                'wit_to': record.wit_to
+            })
+        elif table_name == 'statuses_mappings':
+            base_data.update({
+                'status_from': record.status_from,
+                'status_to': record.status_to,
+                'status_category': record.status_category
+            })
+        elif table_name == 'workflows':
+            base_data.update({
+                'step_name': record.step_name,
+                'step_number': record.step_number,
+                'step_category': record.step_category,
+                'is_commitment_point': record.is_commitment_point
+            })
+
+        return base_data
