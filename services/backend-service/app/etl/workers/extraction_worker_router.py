@@ -180,6 +180,9 @@ class ExtractionWorker(BaseWorker):
             from sqlalchemy import text
 
             # Store failed message in database for investigation
+            from app.core.utils import DateTimeHelper
+            now = DateTimeHelper.now_default()
+
             with self.get_db_session() as db:
                 insert_query = text("""
                     INSERT INTO extraction_failures (
@@ -187,7 +190,7 @@ class ExtractionWorker(BaseWorker):
                         original_message, error_message, failed_at, created_at
                     ) VALUES (
                         :tenant_id, :integration_id, :extraction_type,
-                        :original_message, :error_message, NOW(), NOW()
+                        :original_message, :error_message, :failed_at, :created_at
                     )
                 """)
 
@@ -196,7 +199,9 @@ class ExtractionWorker(BaseWorker):
                     'integration_id': message.get('integration_id'),
                     'extraction_type': message.get('type'),
                     'original_message': json.dumps(message),
-                    'error_message': error_message[:1000]  # Limit error message length
+                    'error_message': error_message[:1000],  # Limit error message length
+                    'failed_at': now,
+                    'created_at': now
                 })
                 db.commit()
 
@@ -207,17 +212,21 @@ class ExtractionWorker(BaseWorker):
             if job_id:
                 from app.core.database import get_database
                 database = get_database()
+                from app.core.utils import DateTimeHelper
+                now = DateTimeHelper.now_default()
+
                 with database.get_write_session_context() as session:
                     update_query = text(f"""
                         UPDATE etl_jobs
                         SET status = jsonb_set(status, ARRAY['overall'], '"FAILED"'::jsonb),
                             error_message = :error_message,
-                            last_updated_at = NOW()
+                            last_updated_at = :now
                         WHERE id = :job_id
                     """)
                     session.execute(update_query, {
                         'job_id': job_id,
-                        'error_message': error_message[:500]
+                        'error_message': error_message[:500],
+                        'now': now
                     })
                     session.commit()
 

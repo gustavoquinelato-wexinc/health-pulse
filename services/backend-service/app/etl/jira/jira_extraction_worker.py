@@ -169,12 +169,15 @@ class JiraExtractionWorker:
         """
         try:
             database = get_database()
+            from app.core.utils import DateTimeHelper
+            now = DateTimeHelper.now_default()
+
             with database.get_write_session_context() as db:
                 insert_query = text("""
                     INSERT INTO raw_extraction_data (
                         tenant_id, integration_id, type, raw_data, created_at
                     ) VALUES (
-                        :tenant_id, :integration_id, :type, CAST(:raw_data AS jsonb), NOW()
+                        :tenant_id, :integration_id, :type, CAST(:raw_data AS jsonb), :created_at
                     ) RETURNING id
                 """)
 
@@ -183,7 +186,8 @@ class JiraExtractionWorker:
                     'tenant_id': tenant_id,
                     'integration_id': integration_id,
                     'type': data_type,
-                    'raw_data': json.dumps(raw_data)
+                    'raw_data': json.dumps(raw_data),
+                    'created_at': now
                 })
 
                 raw_data_id = result.fetchone()[0]
@@ -243,6 +247,9 @@ class JiraExtractionWorker:
             error_message: Optional error message
         """
         try:
+            from app.core.utils import DateTimeHelper
+            now = DateTimeHelper.now_default()
+
             database = get_database()
             with database.get_write_session_context() as db:
                 if error_message:
@@ -252,23 +259,25 @@ class JiraExtractionWorker:
                         UPDATE etl_jobs
                         SET status = jsonb_set(status, ARRAY['overall'], '"{status}"'::jsonb),
                             error_message = :error_message,
-                            last_updated_at = NOW()
+                            last_updated_at = :now
                         WHERE id = :job_id
                     """)
                     db.execute(query, {
                         'error_message': error_message,
-                        'job_id': job_id
+                        'job_id': job_id,
+                        'now': now
                     })
                 else:
                     # Update overall status only
                     query = text(f"""
                         UPDATE etl_jobs
                         SET status = jsonb_set(status, ARRAY['overall'], '"{status}"'::jsonb),
-                            last_updated_at = NOW()
+                            last_updated_at = :now
                         WHERE id = :job_id
                     """)
                     db.execute(query, {
-                        'job_id': job_id
+                        'job_id': job_id,
+                        'now': now
                     })
 
             logger.debug(f"Updated job {job_id} overall status to {status}")

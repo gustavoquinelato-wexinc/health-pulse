@@ -640,13 +640,16 @@ class GitHubExtractionWorker:
             database = get_database()
 
             with database.get_write_session_context() as db:
+                from app.core.utils import DateTimeHelper
+                now = DateTimeHelper.now_default()
+
                 insert_query = text("""
                     INSERT INTO raw_extraction_data (
                         tenant_id, integration_id, type,
                         raw_data, status, active, created_at
                     ) VALUES (
                         :tenant_id, :integration_id, :type,
-                        CAST(:raw_data AS jsonb), 'pending', TRUE, NOW()
+                        CAST(:raw_data AS jsonb), 'pending', TRUE, :created_at
                     ) RETURNING id
                 """)
 
@@ -654,7 +657,8 @@ class GitHubExtractionWorker:
                     'tenant_id': tenant_id,
                     'integration_id': integration_id,
                     'type': data_type,
-                    'raw_data': json.dumps(raw_data)
+                    'raw_data': json.dumps(raw_data),
+                    'created_at': now
                 })
 
                 raw_data_id = result.fetchone()[0]
@@ -1717,17 +1721,21 @@ class GitHubExtractionWorker:
                 'checkpoint_timestamp': DateTimeHelper.now_default().isoformat()
             }
 
+            from app.core.utils import DateTimeHelper
+            now = DateTimeHelper.now_default()
+
             with database.get_write_session_context() as db:
                 update_query = text("""
                     UPDATE etl_jobs
                     SET checkpoint_data = :checkpoint_data,
-                        last_updated_at = NOW()
+                        last_updated_at = :now
                     WHERE id = :job_id AND tenant_id = :tenant_id
                 """)
                 db.execute(update_query, {
                     'job_id': job_id,
                     'tenant_id': tenant_id,
-                    'checkpoint_data': json.dumps(checkpoint_data)
+                    'checkpoint_data': json.dumps(checkpoint_data),
+                    'now': now
                 })
                 logger.debug(f"✅ Saved checkpoint: {checkpoint_data}")
         except Exception as e:
@@ -1782,17 +1790,21 @@ class GitHubExtractionWorker:
                 'last_repo_pushed_date': last_repo_pushed_date
             }
 
+            from app.core.utils import DateTimeHelper
+            now = DateTimeHelper.now_default()
+
             with database.get_write_session_context() as db:
                 update_query = text("""
                     UPDATE etl_jobs
                     SET checkpoint_data = :checkpoint_data,
-                        last_updated_at = NOW()
+                        last_updated_at = :now
                     WHERE id = :job_id AND tenant_id = :tenant_id
                 """)
                 db.execute(update_query, {
                     'job_id': job_id,
                     'tenant_id': tenant_id,
-                    'checkpoint_data': json.dumps(checkpoint_data)
+                    'checkpoint_data': json.dumps(checkpoint_data),
+                    'now': now
                 })
                 logger.debug(f"✅ Saved rate limit checkpoint: node_type={rate_limit_node_type}, reset_at={checkpoint_data['rate_limit_reset_at']}")
         except Exception as e:

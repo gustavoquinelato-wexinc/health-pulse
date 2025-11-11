@@ -48,16 +48,20 @@ class WorkerStatusManager:
                 if step_type:
                     # Update specific step status (e.g., github_repositories extraction = running)
                     # Use string formatting for the status value to avoid parameter binding issues
+                    from app.core.utils import DateTimeHelper
+                    now = DateTimeHelper.now_default()
+
                     update_query = text(f"""
                         UPDATE etl_jobs
                         SET status = jsonb_set(status, ARRAY['steps', :step_type, :step], '"{status}"'::jsonb),
-                            last_updated_at = NOW()
+                            last_updated_at = :now
                         WHERE id = :job_id
                     """)
                     write_session.execute(update_query, {
                         'step_type': step_type,
                         'step': step,
-                        'job_id': job_id
+                        'job_id': job_id,
+                        'now': now
                     })
                     write_session.commit()
                     logger.info(f"📝 Updated database: job {job_id}, step {step_type}, {step} = {status}")
