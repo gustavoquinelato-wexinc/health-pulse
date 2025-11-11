@@ -41,6 +41,10 @@ def apply(connection):
     cursor = connection.cursor(cursor_factory=RealDictCursor)
 
     try:
+        # Set timezone for this session to match application timezone
+        cursor.execute("SET timezone = 'America/New_York';")
+        print("🌍 Session timezone set to America/New_York")
+
         print("🚀 Applying Migration 0003: Initial Seed Data Apple")
 
         # 1. Insert global DORA market benchmarks (2024) and insights
