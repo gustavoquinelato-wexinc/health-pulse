@@ -78,7 +78,7 @@ def complete_etl_job(job_id: int, last_sync_date: str, tenant_id: int):
             })
             session.commit()
 
-            logger.info(f"✅ ETL job {job_id} completed successfully with next_run: {next_run}")
+            logger.debug(f"✅ ETL job {job_id} completed successfully with next_run: {next_run}")
 
     except Exception as e:
         logger.error(f"❌ Failed to complete ETL job {job_id}: {e}")
@@ -119,174 +119,82 @@ class TransformWorker(BaseWorker):
             status_manager=self.status_manager,
             queue_manager=self.queue_manager
         )
-        logger.info(f"Initialized TransformWorker #{worker_number} for tier queue: {queue_name}")
+        logger.debug(f"Initialized TransformWorker #{worker_number} for tier queue: {queue_name}")
 
     async def process_message(self, message: Dict[str, Any]) -> bool:
         """
-        Process a transform message based on its type.
+        Process a transform message by routing to appropriate provider worker.
 
         Args:
-            message: Message containing raw_data_id and type
+            message: Transform message with structure:
+                {
+                    'type': 'jira_projects_and_issue_types' | 'github_repositories' | etc,
+                    'provider': 'jira' | 'github',
+                    'tenant_id': int,
+                    'integration_id': int,
+                    'job_id': int,
+                    'raw_data_id': int | None,
+                    'token': str,
+                    'first_item': bool,
+                    'last_item': bool,
+                    'last_job_item': bool,
+                    ... provider-specific fields
+                }
 
         Returns:
-            bool: True if processing succeeded
+            bool: True if message processed successfully
         """
         try:
             message_type = message.get('type')
-            raw_data_id = message.get('raw_data_id')
+            provider = message.get('provider')
             tenant_id = message.get('tenant_id')
-            integration_id = message.get('integration_id')
             job_id = message.get('job_id')
             first_item = message.get('first_item', False)
-            last_item = message.get('last_item', False)
-            token = message.get('token')  # 🔑 Extract token from message
 
-            # Send WebSocket status update when first_item=true (worker starting)
-            logger.info(f"🔍 [DEBUG] Checking WebSocket conditions: job_id={job_id}, first_item={first_item}")
+            logger.debug(f"📋 [TRANSFORM] Processing {message_type} (provider: {provider}) for tenant {tenant_id}, job {job_id}")
+
+            # 🔔 Send WebSocket status update when first_item=true (transform worker starting)
             if job_id and first_item:
-                logger.info(f"🚀 [DEBUG] Sending WebSocket status update: transform worker running for {message_type}")
+                logger.debug(f"🚀 [TRANSFORM] Sending WebSocket status update: transform worker running for {message_type}")
                 try:
                     await self._send_worker_status("transform", tenant_id, job_id, "running", message_type)
-                    logger.info(f"✅ [DEBUG] WebSocket status update completed for {message_type}")
+                    logger.debug(f"✅ [TRANSFORM] WebSocket status update completed for {message_type}")
                 except Exception as ws_error:
-                    logger.error(f"❌ [DEBUG] Error sending WebSocket status: {ws_error}")
-            else:
-                logger.info(f"❌ [DEBUG] WebSocket conditions not met: job_id={job_id}, first_item={first_item}")
+                    logger.error(f"❌ [TRANSFORM] Error sending WebSocket status: {ws_error}")
 
-            # 🎯 HANDLE COMPLETION MESSAGE: raw_data_id=None signals completion (check BEFORE field validation)
-            logger.info(f"🔍 [DEBUG] Checking completion message: raw_data_id={raw_data_id} (type={type(raw_data_id).__name__}), message_type={message_type}")
-            if raw_data_id is None:
-                logger.info(f"🎯 [COMPLETION] raw_data_id is None - processing completion message for {message_type}")
-
-                # Send WebSocket status: transform worker finished (on last_item)
-                if last_item and job_id:
-                    try:
-                        await self._send_worker_status("transform", tenant_id, job_id, "finished", message_type)
-                        logger.info(f"✅ Transform worker marked as finished for {message_type} (completion message)")
-                    except Exception as e:
-                        logger.error(f"❌ Error sending finished status for {message_type}: {e}")
-
-                # Handle different completion message types
-                if message_type == 'jira_dev_status':
-                    logger.info(f"🎯 [COMPLETION] Processing jira_dev_status completion message")
-                    self._queue_entities_for_embedding(
-                        tenant_id=tenant_id,
-                        table_name='work_items_prs_links',
-                        entities=[],  # Empty list - signals completion
-                        job_id=job_id,
-                        message_type='jira_dev_status',
-                        integration_id=integration_id,
-                        provider=message.get('provider', 'jira'),
-                        last_sync_date=message.get('last_sync_date'),
-                        first_item=message.get('first_item', False),  # ✅ Preserved
-                        last_item=message.get('last_item', False),    # ✅ Preserved
-                        last_job_item=message.get('last_job_item', False),  # ✅ Preserved
-                        token=token  # 🔑 Include token in message
-                    )
-                    logger.info(f"🎯 [COMPLETION] jira_dev_status completion message forwarded to embedding")
-                    return True
-
-                elif message_type == 'jira_issues_with_changelogs':
-                    logger.info(f"🎯 [COMPLETION] Processing jira_issues_with_changelogs completion message")
-                    self._queue_entities_for_embedding(
-                        tenant_id=tenant_id,
-                        table_name='work_items',
-                        entities=[],  # Empty list - signals completion
-                        job_id=job_id,
-                        message_type='jira_issues_with_changelogs',
-                        integration_id=integration_id,
-                        provider=message.get('provider', 'jira'),
-                        last_sync_date=message.get('last_sync_date'),
-                        first_item=message.get('first_item', False),  # ✅ Preserved
-                        last_item=message.get('last_item', False),    # ✅ Preserved
-                        last_job_item=message.get('last_job_item', False)  # ✅ Preserved
-                    )
-                    logger.info(f"🎯 [COMPLETION] jira_issues_with_changelogs completion message forwarded to embedding")
-                    return True
-
-                elif message_type == 'github_repositories':
-                    logger.info(f"🎯 [COMPLETION] Processing github_repositories completion message")
-                    self.queue_manager.publish_embedding_job(
-                        tenant_id=tenant_id,
-                        table_name='repositories',
-                        external_id=None,  # 🔑 Completion message marker
-                        job_id=job_id,
-                        step_type='github_repositories',
-                        integration_id=integration_id,
-                        provider=message.get('provider', 'github'),
-                        last_sync_date=message.get('last_sync_date'),
-                        first_item=message.get('first_item', False),  # ✅ Preserved
-                        last_item=message.get('last_item', False),    # ✅ Preserved
-                        last_job_item=message.get('last_job_item', False),  # ✅ Preserved
-                        token=message.get('token')  # 🔑 Include token in message
-                    )
-                    logger.info(f"🎯 [COMPLETION] github_repositories completion message forwarded to embedding")
-                    return True
-
-                elif message_type in ('github_prs', 'github_prs_nested', 'github_prs_commits_reviews_comments'):
-                    logger.info(f"🎯 [COMPLETION] Processing {message_type} completion message")
-                    self.queue_manager.publish_embedding_job(
-                        tenant_id=tenant_id,
-                        table_name='prs',
-                        external_id=None,  # 🔑 Completion message marker
-                        job_id=job_id,
-                        step_type='github_prs_commits_reviews_comments',
-                        integration_id=integration_id,
-                        provider=message.get('provider', 'github'),
-                        last_sync_date=message.get('last_sync_date'),
-                        first_item=message.get('first_item', False),  # ✅ Preserved
-                        last_item=message.get('last_item', False),    # ✅ Preserved
-                        last_job_item=message.get('last_job_item', False),  # ✅ Preserved
-                        token=message.get('token')  # 🔑 Include token in message
-                    )
-                    logger.info(f"🎯 [COMPLETION] {message_type} completion message forwarded to embedding")
-                    return True
-
-                else:
-                    logger.warning(f"⚠️ [COMPLETION] Unknown completion message type: {message_type}")
-                    return False
-
-            # Check required fields
-            if not all([message_type, raw_data_id, tenant_id, integration_id]):
-                logger.error(f"Missing required fields in message: {message}")
-                return False
-
-            logger.info(f"Processing {message_type} message for raw_data_id={raw_data_id} (first_item={first_item}, last_item={last_item})")
-
-            # Send WebSocket status: transform worker starting (on first_item)
-            if job_id and first_item:
-                try:
-                    await self._send_worker_status("transform", tenant_id, job_id, "running", message_type)
-                except Exception as e:
-                    logger.error(f"❌ Error sending WebSocket status: {e}")
-
-            # Note: Job status is updated via WebSocket status updates above
-            # No need to update database directly here
-
-            # Route to appropriate handler based on provider
+            # Route to appropriate transform handler based on provider
+            # Note: Provider-specific workers now handle their own "finished" status updates
+            # Router only sends "running" status when first_item=true
             result = False
-            if message_type.startswith('jira_'):
-                # Route all Jira messages to JiraTransformHandler
-                result = self.jira_handler.process_jira_message(
-                    message_type, raw_data_id, tenant_id, integration_id, job_id, message
-                )
-            elif message_type.startswith('github_'):
-                # Route all GitHub messages to GitHubTransformHandler
-                result = self.github_handler.process_github_message(
-                    message_type, raw_data_id, tenant_id, integration_id, job_id, message
-                )
-            else:
-                logger.warning(f"Unknown message type: {message_type}")
+            try:
+                if provider == 'jira':
+                    logger.debug(f"📋 [TRANSFORM] Routing to JiraTransformHandler for {message_type}")
+                    result = await self.jira_handler.process_jira_message(
+                        message_type, message
+                    )
+                    logger.debug(f"📋 [TRANSFORM] JiraTransformHandler returned: {result}")
+                elif provider == 'github':
+                    logger.debug(f"📋 [TRANSFORM] Routing to GitHubTransformHandler for {message_type}")
+                    result = await self.github_handler.process_github_message(
+                        message_type, message
+                    )
+                    logger.debug(f"📋 [TRANSFORM] GitHubTransformHandler returned: {result}")
+                else:
+                    logger.warning(f"❓ [TRANSFORM] Unknown provider: {provider} for message type: {message_type}")
+                    result = False
+            except Exception as route_error:
+                logger.error(f"💥 [TRANSFORM] Error during routing: {route_error}")
+                import traceback
+                logger.error(f"💥 [TRANSFORM] Routing error traceback: {traceback.format_exc()}")
                 result = False
 
-            # 🔔 Send WebSocket status update when last_item=true (transform worker finished)
-            if job_id and last_item and result:
-                logger.info(f"🏁 [TRANSFORM] Sending WebSocket status update: transform worker finished for {message_type}")
-                try:
-                    await self._send_worker_status("transform", tenant_id, job_id, "finished", message_type)
-                    logger.info(f"✅ [TRANSFORM] WebSocket finished status sent for {message_type}")
-                except Exception as ws_error:
-                    logger.error(f"❌ [TRANSFORM] Error sending WebSocket finished status: {ws_error}")
+            # Note: "finished" status is now sent by provider-specific workers
+            # This allows each worker to handle its own completion logic
+
+            if result:
+                logger.debug(f"✅ [TRANSFORM] Successfully processed {message_type}")
+            else:
+                logger.error(f"❌ [TRANSFORM] Failed to process {message_type}")
 
             return result
 

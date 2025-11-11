@@ -1,4 +1,3 @@
-import { motion } from 'framer-motion'
 import { useEffect, useState } from 'react'
 import CollapsedSidebar from '../components/CollapsedSidebar'
 import DoraFilterToolbar from '../components/DoraFilterToolbar'
@@ -165,7 +164,7 @@ export default function DoraOverviewPage() {
 
             {/* DORA Metrics Row */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-              {doraMetrics.map((metric, index) => (
+              {doraMetrics.map((metric) => (
                 <div
                   key={metric.title}
                   className="card p-6 space-y-4 cursor-pointer transition-all duration-200"

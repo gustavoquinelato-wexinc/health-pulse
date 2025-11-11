@@ -45,7 +45,7 @@ class GitHubTransformHandler:
         self.database = get_database()
         self.queue_manager = queue_manager or QueueManager()  # 🔑 Dependency injection with fallback
         self.status_manager = status_manager  # 🔑 Dependency injection
-        logger.info("Initialized GitHubTransformHandler")
+        logger.debug("Initialized GitHubTransformHandler")
 
     @contextmanager
     def get_db_session(self):
@@ -74,32 +74,76 @@ class GitHubTransformHandler:
         with self.database.get_read_session_context() as session:
             yield session
 
-    # Note: WebSocket status updates are handled by TransformWorkerRouter
-    # This handler doesn't need to send status updates directly
-
-    def process_github_message(self, message_type: str, raw_data_id: int, tenant_id: int,
-                              integration_id: int, job_id: int = None, message: Dict[str, Any] = None) -> bool:
+    async def _send_worker_status(self, step: str, tenant_id: int, job_id: int,
+                                   status: str, step_type: str = None):
         """
-        Route GitHub message to appropriate processor.
+        Send worker status update using injected status manager.
 
         Args:
-            message_type: Type of GitHub message
-            raw_data_id: ID of raw extraction data
+            step: ETL step name (e.g., 'extraction', 'transform', 'embedding')
             tenant_id: Tenant ID
-            integration_id: Integration ID
-            job_id: ETL job ID
-            message: Full message dict
+            job_id: Job ID
+            status: Status to send (e.g., 'running', 'finished', 'failed')
+            step_type: Optional step type for logging (e.g., 'github_repositories')
+        """
+        if self.status_manager:
+            await self.status_manager.send_worker_status(
+                step=step,
+                tenant_id=tenant_id,
+                job_id=job_id,
+                status=status,
+                step_type=step_type
+            )
+        else:
+            logger.warning(f"Status manager not available - cannot send {status} status for {step_type}")
+
+    async def process_github_message(self, message_type: str, message: Dict[str, Any]) -> bool:
+        """
+        Route GitHub transform messages to appropriate handler method.
+
+        Args:
+            message_type: Type of message (e.g., 'github_repositories')
+            message: Full message dict with structure:
+                {
+                    'type': str,
+                    'provider': 'github',
+                    'tenant_id': int,
+                    'integration_id': int,
+                    'job_id': int,
+                    'raw_data_id': int | None,
+                    'token': str,
+                    'first_item': bool,
+                    'last_item': bool,
+                    'last_job_item': bool,
+                    ... other fields
+                }
 
         Returns:
             bool: True if processing succeeded
         """
         try:
+            # Extract common fields from message
+            raw_data_id = message.get('raw_data_id')
+            tenant_id = message.get('tenant_id')
+            integration_id = message.get('integration_id')
+            job_id = message.get('job_id')
+            first_item = message.get('first_item', False)
+            last_item = message.get('last_item', False)
+
+            logger.debug(f"🔄 [GITHUB] Processing {message_type} for raw_data_id={raw_data_id} (first={first_item}, last={last_item})")
+
+            # 🎯 HANDLE COMPLETION MESSAGE: raw_data_id=None signals completion
+            if raw_data_id is None:
+                logger.debug(f"🎯 [COMPLETION] Received completion message for {message_type}")
+                return await self._handle_completion_message(message_type, message)
+
+            # Route to appropriate handler based on message type
             if message_type == 'github_repositories':
-                return self._process_github_repositories(raw_data_id, tenant_id, integration_id, job_id, message)
+                return await self._process_github_repositories(raw_data_id, tenant_id, integration_id, job_id, message)
             elif message_type in ('github_prs', 'github_prs_commits_reviews_comments'):
-                return self._process_github_prs(raw_data_id, tenant_id, integration_id, job_id, message)
+                return await self._process_github_prs(raw_data_id, tenant_id, integration_id, job_id, message)
             elif message_type == 'github_prs_nested':
-                return self._process_github_prs_nested(raw_data_id, tenant_id, integration_id, job_id, message)
+                return await self._process_github_prs_nested(raw_data_id, tenant_id, integration_id, job_id, message)
             else:
                 logger.warning(f"Unknown GitHub message type: {message_type}")
                 return False
@@ -110,12 +154,88 @@ class GitHubTransformHandler:
             logger.error(f"Full traceback: {traceback.format_exc()}")
             return False
 
+    # ============ COMPLETION MESSAGE HANDLING ============
+
+    async def _handle_completion_message(self, message_type: str, message: Dict[str, Any]) -> bool:
+        """
+        Handle completion messages (raw_data_id=None) for GitHub transform steps.
+
+        Args:
+            message_type: Type of completion message
+            message: Full message dict
+
+        Returns:
+            bool: True if completion message handled successfully
+        """
+        tenant_id = message.get('tenant_id')
+        job_id = message.get('job_id')
+        integration_id = message.get('integration_id')
+        token = message.get('token')
+        last_item = message.get('last_item', False)
+
+        # Handle different completion message types
+        if message_type == 'github_repositories':
+            logger.debug(f"🎯 [COMPLETION] Processing github_repositories completion message")
+            self.queue_manager.publish_embedding_job(
+                tenant_id=tenant_id,
+                table_name='repositories',
+                external_id=None,  # 🔑 Completion message marker
+                job_id=job_id,
+                step_type='github_repositories',
+                integration_id=integration_id,
+                provider=message.get('provider', 'github'),
+                old_last_sync_date=message.get('old_last_sync_date'),
+                new_last_sync_date=message.get('new_last_sync_date'),  # 🔑 Forward new_last_sync_date for job completion
+                first_item=message.get('first_item', False),
+                last_item=last_item,
+                last_job_item=message.get('last_job_item', False),
+                token=token
+            )
+            logger.debug(f"🎯 [COMPLETION] github_repositories completion message forwarded to embedding")
+
+            # 🔑 Send transform worker "finished" status when last_item=True
+            if last_item and job_id:
+                await self._send_worker_status("transform", tenant_id, job_id, "finished", "github_repositories")
+                logger.debug(f"✅ [GITHUB] Transform step marked as finished for github_repositories (completion message)")
+
+            return True
+
+        elif message_type in ('github_prs', 'github_prs_nested', 'github_prs_commits_reviews_comments'):
+            logger.debug(f"🎯 [COMPLETION] Processing {message_type} completion message")
+            self.queue_manager.publish_embedding_job(
+                tenant_id=tenant_id,
+                table_name='prs',
+                external_id=None,  # 🔑 Completion message marker
+                job_id=job_id,
+                step_type='github_prs_commits_reviews_comments',
+                integration_id=integration_id,
+                provider=message.get('provider', 'github'),
+                old_last_sync_date=message.get('old_last_sync_date'),
+                new_last_sync_date=message.get('new_last_sync_date'),  # 🔑 Forward new_last_sync_date for job completion
+                first_item=message.get('first_item', False),
+                last_item=last_item,
+                last_job_item=message.get('last_job_item', False),
+                token=token
+            )
+            logger.debug(f"🎯 [COMPLETION] {message_type} completion message forwarded to embedding")
+
+            # 🔑 Send transform worker "finished" status when last_item=True
+            if last_item and job_id:
+                await self._send_worker_status("transform", tenant_id, job_id, "finished", "github_prs_commits_reviews_comments")
+                logger.debug(f"✅ [GITHUB] Transform step marked as finished for {message_type} (completion message)")
+
+            return True
+
+        else:
+            logger.warning(f"⚠️ [COMPLETION] Unknown GitHub completion message type: {message_type}")
+            return False
+
     # ============ GITHUB PROCESSING METHODS ============
     # All GitHub-specific processing methods extracted from transform_worker.py
 
 
 
-    def _process_github_repositories(self, raw_data_id: int, tenant_id: int, integration_id: int,
+    async def _process_github_repositories(self, raw_data_id: int, tenant_id: int, integration_id: int,
                                     job_id: int, message: Dict[str, Any] = None) -> bool:
         """
         Process GitHub repositories batch from raw_extraction_data.
@@ -141,9 +261,10 @@ class GitHubTransformHandler:
             last_item = message.get('last_item', False) if message else False
             last_job_item = message.get('last_job_item', False) if message else False
             provider = message.get('provider', 'github') if message else 'github'
-            last_sync_date = message.get('last_sync_date') if message else None
+            old_last_sync_date = message.get('old_last_sync_date') if message else None
+            new_last_sync_date = message.get('new_last_sync_date') if message else None  # 🔑 Extraction end date for job completion
 
-            logger.info(f"🚀 [GITHUB] Processing repositories batch for tenant {tenant_id}, integration {integration_id}, raw_data_id={raw_data_id}")
+            logger.debug(f"🚀 [GITHUB] Processing repositories batch for tenant {tenant_id}, integration {integration_id}, raw_data_id={raw_data_id}")
 
             # Note: WebSocket status is sent by TransformWorkerRouter, not here
 
@@ -168,7 +289,7 @@ class GitHubTransformHandler:
 
             # Extract repositories from batch
             repositories = raw_batch_data.get('repositories', [])
-            logger.info(f"📦 Processing {len(repositories)} repositories from batch")
+            logger.debug(f"📦 Processing {len(repositories)} repositories from batch")
 
             if not repositories:
                 logger.warning(f"No repositories found in raw_data_id={raw_data_id}")
@@ -319,7 +440,8 @@ class GitHubTransformHandler:
                     step_type='github_repositories',
                     integration_id=integration_id,
                     provider=provider,
-                    last_sync_date=last_sync_date,
+                    old_last_sync_date=old_last_sync_date,
+                    new_last_sync_date=new_last_sync_date,  # 🔑 Extraction end date for job completion
                     first_item=repo_first_item,
                     last_item=repo_last_item,
                     last_job_item=repo_last_job_item,
@@ -340,15 +462,18 @@ class GitHubTransformHandler:
                 db.execute(update_query, {'raw_data_id': raw_data_id})
                 db.commit()
 
-            logger.info(f"Processed {len(repos_to_queue)} repositories - marked raw_data_id={raw_data_id} as completed")
+            logger.debug(f"Processed {len(repos_to_queue)} repositories - marked raw_data_id={raw_data_id} as completed")
 
-            # Note: WebSocket status is sent by TransformWorkerRouter, not here
+            # 🔑 Send transform worker "finished" status when last_item=True
+            if last_item and job_id:
+                await self._send_worker_status("transform", tenant_id, job_id, "finished", "github_repositories")
+                logger.debug(f"✅ [GITHUB] Transform step marked as finished for github_repositories")
 
             # 🔑 NOTE: Step 2 extraction queuing is handled by Extraction worker (Step 1)
             # Transform worker only processes and inserts data, does NOT queue next extraction steps
             # This maintains unidirectional flow: Extract → Transform → Embed
 
-            logger.info(f"✅ [GITHUB] Processed {len(repositories)} repositories and queued for embedding")
+            logger.debug(f"✅ [GITHUB] Processed {len(repositories)} repositories and queued for embedding")
             return True
 
         except Exception as e:
@@ -357,7 +482,7 @@ class GitHubTransformHandler:
             logger.error(f"Full traceback: {traceback.format_exc()}")
             return False
 
-    def _process_github_prs(
+    async def _process_github_prs(
         self, raw_data_id: int, tenant_id: int, integration_id: int,
         job_id: int = None, message: Dict[str, Any] = None
     ) -> bool:
@@ -405,7 +530,7 @@ class GitHubTransformHandler:
                 # 🔑 Check if this is a nested pagination message (Type 2)
                 # Type 2 messages have 'nested_type' and 'data' instead of 'pr_data'
                 if raw_json.get('nested_type'):
-                    logger.info(f"🔄 Routing to _process_github_prs_nested for {raw_json.get('nested_type')}")
+                    logger.debug(f"🔄 Routing to _process_github_prs_nested for {raw_json.get('nested_type')}")
                     return self._process_github_prs_nested(raw_data_id, tenant_id, integration_id, job_id, message)
 
                 # 🔑 Initialize entities_to_queue_after_commit (will be set if conditions met)
@@ -417,7 +542,7 @@ class GitHubTransformHandler:
                     logger.error(f"No pr_data found in raw_json for raw_data_id={raw_data_id}")
                     return False
 
-                logger.info(f"📝 [TYPE 1] Processing PR data for PR {pr_id}")
+                logger.debug(f"📝 [TYPE 1] Processing PR data for PR {pr_id}")
 
                 # Extract nested data from pr_data object
                 pr_commits = pr_data.get('commits', {}).get('nodes', [])
@@ -433,8 +558,8 @@ class GitHubTransformHandler:
                     pr_data.get('reviewThreads', {}).get('pageInfo', {}).get('hasNextPage', False)
                 )
 
-                logger.info(f"  PR has {len(pr_commits)} commits, {len(pr_reviews)} reviews, {len(pr_comments)} comments, {len(pr_review_threads)} review threads")
-                logger.info(f"  Has pending nested data: {has_pending_nested}")
+                logger.debug(f"  PR has {len(pr_commits)} commits, {len(pr_reviews)} reviews, {len(pr_comments)} comments, {len(pr_review_threads)} review threads")
+                logger.debug(f"  Has pending nested data: {has_pending_nested}")
 
                 # 🔑 Look up repository_id by full_name (stored in raw_data from extraction)
                 full_name = raw_json.get('full_name')
@@ -464,7 +589,7 @@ class GitHubTransformHandler:
 
                 repository_id = repo_result[0]
                 repo_external_id = repo_result[1]  # 🔑 Get repository's external_id (not PR's!)
-                logger.info(f"✅ Looked up repository_id={repository_id}, external_id={repo_external_id} for {lookup_full_name}")
+                logger.debug(f"✅ Looked up repository_id={repository_id}, external_id={repo_external_id} for {lookup_full_name}")
 
                 # Insert PR data
                 pr_db_id = self._insert_pr(db, pr_data, tenant_id, integration_id, repository_id, repo_external_id)
@@ -482,7 +607,7 @@ class GitHubTransformHandler:
                 if pr_review_threads:
                     self._insert_review_threads(db, pr_review_threads, pr_db_id, tenant_id, integration_id)
 
-                logger.info(f"✅ Inserted PR {pr_id} with nested data")
+                logger.debug(f"✅ Inserted PR {pr_id} with nested data")
 
                 # 🔑 ALWAYS queue entities to embedding, regardless of first_item/last_item flags
                 # Those flags are ONLY for WebSocket status updates and job completion tracking
@@ -519,7 +644,7 @@ class GitHubTransformHandler:
                         if comment_data.get('id'):
                             entities_to_queue_after_commit.append({'table_name': 'prs_comments', 'external_id': comment_data['id']})
 
-                logger.info(f"📤 Queuing {len(entities_to_queue_after_commit)} entities for PR {pr_id} to embedding")
+                logger.debug(f"📤 Queuing {len(entities_to_queue_after_commit)} entities for PR {pr_id} to embedding")
 
                 # ✅ Mark raw data as completed
                 update_query = text("""
@@ -534,7 +659,7 @@ class GitHubTransformHandler:
                 # Note: WebSocket status is sent by TransformWorkerRouter, not here
 
                 db.commit()
-                logger.info(f"✅ [GITHUB] Processed PR data and marked raw_data_id={raw_data_id} as completed")
+                logger.debug(f"✅ [GITHUB] Processed PR data and marked raw_data_id={raw_data_id} as completed")
 
                 # 🔑 Queue to embedding AFTER commit so entities are visible in database
                 if entities_to_queue_after_commit:
@@ -556,7 +681,10 @@ class GitHubTransformHandler:
                         token=token  # 🔑 Forward token to embedding
                     )
 
-                    # Note: WebSocket status is sent by TransformWorkerRouter, not here
+                    # 🔑 Send transform worker "finished" status when last_item=True
+                    if last_item_flag and job_id:
+                        await self._send_worker_status("transform", tenant_id, job_id, "finished", "github_prs_commits_reviews_comments")
+                        logger.debug(f"✅ [GITHUB] Transform step marked as finished for github_prs_commits_reviews_comments")
 
                 return True
 
@@ -566,7 +694,7 @@ class GitHubTransformHandler:
             logger.error(f"Full traceback: {traceback.format_exc()}")
             return False
 
-    def _process_github_prs_nested(
+    async def _process_github_prs_nested(
         self, raw_data_id: int, tenant_id: int, integration_id: int,
         job_id: int = None, message: Dict[str, Any] = None
     ) -> bool:
@@ -609,7 +737,7 @@ class GitHubTransformHandler:
                 pr_id = raw_json.get('pr_id')
                 nested_type = raw_json.get('nested_type')
 
-                logger.info(f"📝 [NESTED] Processing {nested_type} for PR {pr_id}")
+                logger.debug(f"📝 [NESTED] Processing {nested_type} for PR {pr_id}")
 
                 # Lookup PR by external_id
                 pr_lookup_query = text("""
@@ -637,7 +765,7 @@ class GitHubTransformHandler:
                 elif nested_type == 'review_threads':
                     self._insert_review_threads(db, nested_data, pr_db_id, tenant_id, integration_id)
 
-                logger.info(f"✅ Inserted {len(nested_data)} {nested_type} for PR {pr_id}")
+                logger.debug(f"✅ Inserted {len(nested_data)} {nested_type} for PR {pr_id}")
 
                 # Mark raw data as completed
                 update_query = text("""
@@ -653,7 +781,7 @@ class GitHubTransformHandler:
                 # first_item/last_item flags are ONLY for WebSocket status updates
                 # Queue every page of nested data as it arrives
 
-                logger.info(f"📤 Queuing nested entities for PR {pr_id} to embedding ({nested_type})")
+                logger.debug(f"📤 Queuing nested entities for PR {pr_id} to embedding ({nested_type})")
 
                 # 🔑 Build list of nested entities to queue
                 entities_to_queue = []
@@ -687,11 +815,13 @@ class GitHubTransformHandler:
                                 entities_to_queue.append({'table_name': table_name, 'external_id': external_id})
 
                 db.commit()
-                logger.info(f"✅ [GITHUB] Processed nested {nested_type} data and marked raw_data_id={raw_data_id} as completed")
+                logger.debug(f"✅ [GITHUB] Processed nested {nested_type} data and marked raw_data_id={raw_data_id} as completed")
 
                 # 🔑 Queue to embedding AFTER commit so entities are visible in database
                 if entities_to_queue:
                     token = message.get('token') if message else None  # 🔑 Extract token from message
+                    last_item_flag = message.get('last_item', False) if message else False
+
                     self._queue_github_nested_entities_for_embedding(
                         tenant_id=tenant_id,
                         pr_external_id=pr_id,
@@ -699,12 +829,17 @@ class GitHubTransformHandler:
                         integration_id=integration_id,
                         provider=message.get('provider', 'github') if message else 'github',
                         first_item=message.get('first_item', False) if message else False,
-                        last_item=message.get('last_item', False) if message else False,  # 🔑 Use actual flag from message
+                        last_item=last_item_flag,  # 🔑 Use actual flag from message
                         last_job_item=message.get('last_job_item', False) if message else False,
                         message=message,
                         entities_to_queue=entities_to_queue,
                         token=token  # 🔑 Forward token to embedding
                     )
+
+                    # 🔑 Send transform worker "finished" status when last_item=True
+                    if last_item_flag and job_id:
+                        await self._send_worker_status("transform", tenant_id, job_id, "finished", "github_prs_commits_reviews_comments")
+                        logger.debug(f"✅ [GITHUB] Transform step marked as finished for github_prs_nested")
 
                 return True
 
@@ -738,7 +873,7 @@ class GitHubTransformHandler:
                 logger.error(f"PR data missing 'id' field")
                 return None
 
-            logger.info(f"🔍 Inserting PR {pr_id}")
+            logger.debug(f"🔍 Inserting PR {pr_id}")
 
             # Extract nested data from pr_data object
             pr_commits = pr_data.get('commits', {}).get('nodes', [])
@@ -748,14 +883,14 @@ class GitHubTransformHandler:
 
             # Calculate PR metrics from GraphQL data
             metrics = self._calculate_pr_metrics(pr_data, pr_commits, pr_reviews, pr_comments, pr_review_threads)
-            logger.info(f"📊 Calculated PR metrics: commit_count={metrics['commit_count']}, reviewers={metrics['reviewers']}, rework_commits={metrics['rework_commit_count']}")
+            logger.debug(f"📊 Calculated PR metrics: commit_count={metrics['commit_count']}, reviewers={metrics['reviewers']}, rework_commits={metrics['rework_commit_count']}")
 
             # 🔑 Use repository_id from raw_data (passed as parameter)
             if not repository_id:
                 logger.error(f"Repository ID not provided for PR {pr_id}")
                 return None
 
-            logger.info(f"  Using repository_id={repository_id} from raw_data")
+            logger.debug(f"  Using repository_id={repository_id} from raw_data")
 
             # Build PR data for insertion
             transformed_pr = {
@@ -829,7 +964,7 @@ class GitHubTransformHandler:
 
             pr_result = db.execute(upsert_query, transformed_pr)
             pr_db_id = pr_result.scalar()
-            logger.info(f"✅ Upserted PR {pr_id} (db_id={pr_db_id})")
+            logger.debug(f"✅ Upserted PR {pr_id} (db_id={pr_db_id})")
 
             return pr_db_id
 
@@ -842,18 +977,18 @@ class GitHubTransformHandler:
     def _insert_commits(self, db, commits: list, pr_db_id: int, tenant_id: int, integration_id: int = None) -> None:
         """Insert commits for a PR"""
         if not commits:
-            logger.info(f"No commits to insert for PR {pr_db_id}")
+            logger.debug(f"No commits to insert for PR {pr_db_id}")
             return
 
         from app.core.utils import DateTimeHelper
         from sqlalchemy import text
 
-        logger.info(f"🔍 Inserting {len(commits)} commits for PR {pr_db_id}, tenant_id={tenant_id}, integration_id={integration_id}")
+        logger.debug(f"🔍 Inserting {len(commits)} commits for PR {pr_db_id}, tenant_id={tenant_id}, integration_id={integration_id}")
 
         for commit_data in commits:
             try:
                 commit_oid = commit_data['commit']['oid']
-                logger.info(f"  ✅ Inserting commit {commit_oid} (type: {type(commit_oid).__name__})")
+                logger.debug(f"  ✅ Inserting commit {commit_oid} (type: {type(commit_oid).__name__})")
 
                 insert_query = text("""
                     INSERT INTO prs_commits (
@@ -889,7 +1024,7 @@ class GitHubTransformHandler:
                     'created_at': DateTimeHelper.now_default(),
                     'last_updated_at': DateTimeHelper.now_default()
                 })
-                logger.info(f"  ✅ Inserted commit {commit_oid} into prs_commits")
+                logger.debug(f"  ✅ Inserted commit {commit_oid} into prs_commits")
             except Exception as e:
                 logger.error(f"❌ Error inserting commit {commit_data.get('commit', {}).get('oid', 'unknown')}: {e}")
                 import traceback
@@ -1073,7 +1208,7 @@ class GitHubTransformHandler:
             old_last_sync_date = message.get('old_last_sync_date') if message else None  # old_last_sync_date (for filtering)
             new_last_sync_date = message.get('new_last_sync_date') if message else None  # extraction end date (for job completion)
 
-            logger.info(f"📤 Queuing {len(entities_to_queue)} GitHub entities for embedding (first_item={first_item}, last_item={last_item}, last_job_item={last_job_item})")
+            logger.debug(f"📤 Queuing {len(entities_to_queue)} GitHub entities for embedding (first_item={first_item}, last_item={last_item}, last_job_item={last_job_item})")
 
             for i, entity in enumerate(entities_to_queue):
                 table_name = entity.get('table_name')
@@ -1097,7 +1232,7 @@ class GitHubTransformHandler:
                     job_id=job_id,
                     integration_id=integration_id,
                     provider=provider,
-                    last_sync_date=old_last_sync_date,  # 🔑 Used for filtering (old_last_sync_date)
+                    old_last_sync_date=old_last_sync_date,  # 🔑 Used for filtering (old_last_sync_date)
                     new_last_sync_date=new_last_sync_date,  # 🔑 Used for job completion (extraction end date)
                     first_item=entity_first_item,  # Only first entity has first_item=true
                     last_item=entity_last_item,  # Only last entity has last_item=true
@@ -1106,7 +1241,7 @@ class GitHubTransformHandler:
                     token=token  # 🔑 Include token in message
                 )
 
-            logger.info(f"📤 Queued {len(entities_to_queue)} GitHub entities for embedding")
+            logger.debug(f"📤 Queued {len(entities_to_queue)} GitHub entities for embedding")
 
         except Exception as e:
             logger.error(f"❌ Error queuing GitHub nested entities for embedding: {e}")

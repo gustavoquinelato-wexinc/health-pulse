@@ -33,7 +33,6 @@ export default function TenantManagementPage() {
     logo_filename: '',
     active: true
   })
-  const [uploading, setUploading] = useState(false)
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
 
   // Set document title
@@ -124,11 +123,12 @@ export default function TenantManagementPage() {
       }
 
       let updatedFormData = { ...formData }
+      let uploadedFilename: string | null = null  // Declare outside the if block
 
       // Upload file if one is selected
       if (selectedFile) {
         try {
-          const uploadedFilename = await uploadSelectedFile()
+          uploadedFilename = await uploadSelectedFile()
           if (uploadedFilename) {
             updatedFormData.logo_filename = uploadedFilename
           }
@@ -235,7 +235,6 @@ export default function TenantManagementPage() {
       logo_filename: '',
       active: true
     })
-    setUploading(false)
     setSelectedFile(null)
   }
 
@@ -270,8 +269,6 @@ export default function TenantManagementPage() {
   const uploadSelectedFile = async () => {
     if (!selectedFile || !editingTenant) return null
 
-    setUploading(true)
-
     try {
       const token = localStorage.getItem('pulse_token')
       if (!token) {
@@ -302,8 +299,6 @@ export default function TenantManagementPage() {
       } else {
         throw new Error(err.response?.data?.message || 'Network error')
       }
-    } finally {
-      setUploading(false)
     }
   }
 

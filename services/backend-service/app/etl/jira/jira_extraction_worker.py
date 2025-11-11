@@ -19,7 +19,7 @@ Architecture:
 Uses dependency injection to receive WorkerStatusManager for sending status updates.
 """
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any, Optional, Tuple
 from sqlalchemy import text
 from datetime import datetime
 
@@ -50,7 +50,7 @@ class JiraExtractionWorker:
         """
         self.database = get_database()
         self.status_manager = status_manager  # 🔑 Dependency injection
-        logger.info("Initialized JiraExtractionWorker")
+        logger.debug("Initialized JiraExtractionWorker")
 
     async def _send_worker_status(self, step: str, tenant_id: int, job_id: int, status: str, step_type: str = None):
         """
@@ -82,7 +82,7 @@ class JiraExtractionWorker:
             bool: True if extraction succeeded, False otherwise
         """
         try:
-            logger.info(f"🚀 [JIRA] Processing {extraction_type} extraction")
+            logger.debug(f"🚀 [JIRA] Processing {extraction_type} extraction")
 
             # Route to appropriate extraction method
             if extraction_type == 'jira_projects_and_issue_types':
@@ -93,8 +93,6 @@ class JiraExtractionWorker:
                 return await self._extract_issues_with_changelogs(message)
             elif extraction_type == 'jira_dev_status':
                 return await self._fetch_jira_dev_status(message)
-            elif extraction_type == 'jira_custom_fields':
-                return await self._extract_jira_custom_fields(message)
             else:
                 logger.error(f"❌ [JIRA] Unknown extraction type: {extraction_type}")
                 return False
@@ -105,12 +103,12 @@ class JiraExtractionWorker:
             logger.error(f"Full traceback: {traceback.format_exc()}")
             return False
 
-    def _get_jira_client(self, tenant_id: int, integration_id: int) -> tuple:
+    def _get_jira_client(self, tenant_id: int, integration_id: int) -> Tuple[Optional[Dict[str, Any]], Optional[JiraAPIClient]]:
         """
         Get integration and create Jira client.
 
         Returns:
-            tuple: (integration, jira_client) or (None, None) if failed
+            Tuple of (integration_data dict, JiraAPIClient instance) or (None, None) if failed
         """
         try:
             database = get_database()
@@ -189,7 +187,7 @@ class JiraExtractionWorker:
                 })
 
                 raw_data_id = result.fetchone()[0]
-                logger.info(f"✅ Stored raw data with ID: {raw_data_id}")
+                logger.debug(f"✅ Stored raw data with ID: {raw_data_id}")
                 return raw_data_id
 
         except Exception as e:
@@ -228,7 +226,7 @@ class JiraExtractionWorker:
             success = queue_manager._publish_message(tier_queue, message)
 
             if success:
-                logger.info(f"✅ Queued next step: {next_step} to {tier_queue}")
+                logger.debug(f"✅ Queued next step: {next_step} to {tier_queue}")
             else:
                 logger.error(f"❌ Failed to queue next step: {next_step}")
 
@@ -273,7 +271,7 @@ class JiraExtractionWorker:
                         'job_id': job_id
                     })
 
-            logger.info(f"Updated job {job_id} overall status to {status}")
+            logger.debug(f"Updated job {job_id} overall status to {status}")
 
         except Exception as e:
             logger.error(f"Error updating job status: {e}")
@@ -299,8 +297,17 @@ class JiraExtractionWorker:
                 self._update_job_status(job_id, "FAILED", "Failed to initialize Jira client")
                 return False
 
-            # Fetch projects from Jira
-            projects = jira_client.get_projects(expand="issueTypes")
+            # Get project keys from integration settings
+            settings = integration.get('settings', {})
+            project_keys = settings.get('projects', [])
+
+            if project_keys:
+                logger.debug(f"📊 Fetching {len(project_keys)} configured projects: {project_keys}")
+            else:
+                logger.debug(f"📊 No project filter configured - fetching ALL projects")
+
+            # Fetch projects from Jira (filtered by project_keys if configured, otherwise all projects)
+            projects = jira_client.get_projects(project_keys=project_keys if project_keys else None, expand="issueTypes")
 
             if not projects:
                 logger.warning(f"No projects found")
@@ -308,7 +315,7 @@ class JiraExtractionWorker:
                 self._queue_next_step(tenant_id, integration_id, job_id, 'jira_statuses_and_relationships', token, old_last_sync_date)
                 return True
 
-            logger.info(f"📊 Found {len(projects)} projects")
+            logger.debug(f"📊 Found {len(projects)} projects")
 
             # Store raw data
             raw_data_id = self._store_raw_data(tenant_id, integration_id, 'jira_projects_and_issue_types', projects)
@@ -385,7 +392,7 @@ class JiraExtractionWorker:
                 self._queue_next_step(tenant_id, integration_id, job_id, 'jira_issues_with_changelogs', token, old_last_sync_date, True, False, False)
                 return True
 
-            logger.info(f"📊 Fetching statuses for {len(project_keys)} projects: {project_keys}")
+            logger.debug(f"📊 Fetching statuses for {len(project_keys)} projects: {project_keys}")
 
             queue_manager = QueueManager()
             total_projects = len(project_keys)
@@ -395,7 +402,7 @@ class JiraExtractionWorker:
                 is_first = (i == 0)
                 is_last = (i == total_projects - 1)
 
-                logger.info(f"📋 Fetching statuses for project {project_key} ({i+1}/{total_projects})")
+                logger.debug(f"📋 Fetching statuses for project {project_key} ({i+1}/{total_projects})")
 
                 # Fetch project-specific statuses
                 project_statuses = jira_client.get_project_statuses(project_key)
@@ -404,7 +411,7 @@ class JiraExtractionWorker:
                     logger.warning(f"No statuses found for project {project_key}")
                     continue
 
-                logger.info(f"📊 Found {len(project_statuses)} issue types with statuses for project {project_key}")
+                logger.debug(f"📊 Found {len(project_statuses)} issue types with statuses for project {project_key}")
 
                 # Store raw data (one per project) - wrap in dict with project_key
                 raw_data_id = self._store_raw_data(
@@ -440,7 +447,7 @@ class JiraExtractionWorker:
                     logger.error(f"Failed to queue project {project_key} for transformation")
                     continue
 
-                logger.info(f"✅ Queued project {project_key} to transform (first_item={is_first}, last_item={is_last})")
+                logger.debug(f"✅ Queued project {project_key} to transform (first_item={is_first}, last_item={is_last})")
 
             # Send finished status for this step
             await self._send_worker_status("extraction", tenant_id, job_id, "finished", "jira_statuses_and_relationships")
@@ -490,6 +497,10 @@ class JiraExtractionWorker:
             if not project_keys:
                 logger.warning(f"No projects configured in integration settings")
                 # Send completion message (no issues case)
+                # Set new_last_sync_date even for no-data case
+                from app.core.utils import DateTimeHelper
+                new_last_sync_date = DateTimeHelper.now_default().strftime('%Y-%m-%d')
+
                 queue_manager = QueueManager()
                 queue_manager.publish_transform_job(
                     tenant_id=tenant_id,
@@ -499,6 +510,7 @@ class JiraExtractionWorker:
                     job_id=job_id,
                     provider='jira',
                     old_last_sync_date=old_last_sync_date,  # 🔑 Forward to transform
+                    new_last_sync_date=new_last_sync_date,  # 🔑 Forward to transform
                     first_item=True,
                     last_item=True,
                     last_job_item=True,  # Skip Step 4 (no issues)
@@ -534,13 +546,19 @@ class JiraExtractionWorker:
             if last_sync_date:
                 date_str = last_sync_date.strftime('%Y-%m-%d %H:%M')
                 jql_parts.append(f"updated >= '{date_str}'")
-                logger.info(f"📅 Incremental sync from: {last_sync_date}")
+                logger.debug(f"📅 Incremental sync from: {last_sync_date}")
             else:
-                logger.info(f"📅 Full sync (no last_sync_date)")
+                logger.debug(f"📅 Full sync (no last_sync_date)")
 
             # Combine all parts
             jql = " AND ".join(jql_parts) + " ORDER BY updated ASC"
             logger.info(f"📋 JQL Query: {jql}")
+
+            # 🔑 Set new_last_sync_date to current time (extraction start time)
+            # This will be saved to last_sync_date when job completes successfully
+            from app.core.utils import DateTimeHelper
+            new_last_sync_date = DateTimeHelper.now_default().strftime('%Y-%m-%d')
+            logger.info(f"📅 Setting new_last_sync_date for job completion: {new_last_sync_date}")
 
             # Fetch issues from Jira (using fields=['*all'] to get all fields including development)
             issues_response = jira_client.search_issues(
@@ -562,6 +580,7 @@ class JiraExtractionWorker:
                     job_id=job_id,
                     provider='jira',
                     old_last_sync_date=old_last_sync_date,  # 🔑 Forward to transform
+                    new_last_sync_date=new_last_sync_date,  # 🔑 Forward to transform
                     first_item=True,
                     last_item=True,
                     last_job_item=True,  # Skip Step 4 (no issues)
@@ -572,7 +591,7 @@ class JiraExtractionWorker:
 
             issues_list = issues_response.get('issues', [])
             total_issues = len(issues_list)
-            logger.info(f"📊 Found {total_issues} issues")
+            logger.debug(f"📊 Found {total_issues} issues")
 
             # 🔑 Get development field external_id from custom_fields_mapping table
             development_field_external_id = None
@@ -594,9 +613,9 @@ class JiraExtractionWorker:
 
                 if result:
                     development_field_external_id = result[0]
-                    logger.info(f"📋 Development field from mapping: {development_field_external_id}")
+                    logger.debug(f"📋 Development field from mapping: {development_field_external_id}")
                 else:
-                    logger.info(f"⚠️ No development field mapped in custom_fields_mapping table")
+                    logger.debug(f"⚠️ No development field mapped in custom_fields_mapping table")
 
             # Track issues with development field (for Step 4)
             issues_with_dev = []
@@ -609,7 +628,7 @@ class JiraExtractionWorker:
                 is_last = (i == total_issues - 1)
 
                 issue_key = issue.get('key', 'unknown')
-                logger.info(f"📋 Processing issue {issue_key} ({i+1}/{total_issues})")
+                logger.debug(f"📋 Processing issue {issue_key} ({i+1}/{total_issues})")
 
                 # 🔑 Check if issue has development field using mapped field from database
                 has_development = False
@@ -620,7 +639,7 @@ class JiraExtractionWorker:
                     # Check if field exists and has value
                     if field_value:
                         has_development = True
-                        logger.info(f"✅ Issue {issue_key} has development field {development_field_external_id}")
+                        logger.debug(f"✅ Issue {issue_key} has development field {development_field_external_id}")
 
                 if has_development:
                     issues_with_dev.append(issue)
@@ -653,6 +672,7 @@ class JiraExtractionWorker:
                     job_id=job_id,
                     provider='jira',
                     old_last_sync_date=old_last_sync_date,  # 🔑 Forward to transform
+                    new_last_sync_date=new_last_sync_date,  # 🔑 Forward to transform
                     first_item=is_first,      # True only for first issue
                     last_item=is_last,        # True only for last issue
                     last_job_item=last_job_item,  # True only if last issue AND no dev status
@@ -663,14 +683,14 @@ class JiraExtractionWorker:
                     logger.error(f"Failed to queue issue {issue_key} for transformation")
                     continue
 
-                logger.info(f"✅ Queued issue {issue_key} to transform (first_item={is_first}, last_item={is_last}, last_job_item={last_job_item})")
+                logger.debug(f"✅ Queued issue {issue_key} to transform (first_item={is_first}, last_item={is_last}, last_job_item={last_job_item})")
 
             # Send finished status for this step
             await self._send_worker_status("extraction", tenant_id, job_id, "finished", "jira_issues_with_changelogs")
 
             # If any issues have development field, queue Step 4 extraction jobs
             if issues_with_dev:
-                logger.info(f"📋 Queuing Step 4 (dev_status) for {len(issues_with_dev)} issues with development field")
+                logger.debug(f"📋 Queuing Step 4 (dev_status) for {len(issues_with_dev)} issues with development field")
 
                 total_dev_issues = len(issues_with_dev)
                 for i, issue in enumerate(issues_with_dev):
@@ -692,16 +712,17 @@ class JiraExtractionWorker:
                         'first_item': is_first_dev,
                         'last_item': is_last_dev,
                         'token': token,
-                        'old_last_sync_date': old_last_sync_date  # 🔑 Forward to Step 4
+                        'old_last_sync_date': old_last_sync_date,  # 🔑 Forward to Step 4
+                        'new_last_sync_date': new_last_sync_date   # 🔑 Forward to Step 4
                     }
 
                     tier = queue_manager._get_tenant_tier(tenant_id)
                     tier_queue = queue_manager.get_tier_queue_name(tier, 'extraction')
                     queue_manager._publish_message(tier_queue, dev_message)
 
-                    logger.info(f"✅ Queued dev_status extraction for issue {issue_key} (first_item={is_first_dev}, last_item={is_last_dev})")
+                    logger.debug(f"✅ Queued dev_status extraction for issue {issue_key} (first_item={is_first_dev}, last_item={is_last_dev})")
             else:
-                logger.info(f"⏭️ No issues with development field - Step 4 will be skipped")
+                logger.debug(f"⏭️ No issues with development field - Step 4 will be skipped")
 
             logger.info(f"✅ Issues with changelogs extraction completed ({total_issues} issues, {len(issues_with_dev)} with dev status)")
             return True
@@ -728,6 +749,7 @@ class JiraExtractionWorker:
             job_id = message.get('job_id')
             token = message.get('token')
             old_last_sync_date = message.get('old_last_sync_date')  # 🔑 Extract from message
+            new_last_sync_date = message.get('new_last_sync_date')  # 🔑 Extract from message
             issue_id = message.get('issue_id')
             issue_key = message.get('issue_key')
             first_item = message.get('first_item', False)
@@ -751,7 +773,7 @@ class JiraExtractionWorker:
                     # Use empty dict as placeholder
                     dev_status = {}
 
-                logger.info(f"📊 Fetched dev status for issue {issue_key}")
+                logger.debug(f"📊 Fetched dev status for issue {issue_key}")
 
             except Exception as e:
                 logger.error(f"Error fetching dev status for issue {issue_key}: {e}")
@@ -785,6 +807,7 @@ class JiraExtractionWorker:
                 job_id=job_id,
                 provider='jira',
                 old_last_sync_date=old_last_sync_date,  # 🔑 Forward to transform
+                new_last_sync_date=new_last_sync_date,  # 🔑 Forward to transform
                 first_item=first_item,      # True only for first dev status
                 last_item=last_item,        # True only for last dev status
                 last_job_item=last_item,    # 🎯 True on last item (final step)
@@ -796,55 +819,17 @@ class JiraExtractionWorker:
                 self._update_job_status(job_id, "FAILED", f"Failed to queue dev status for {issue_key}")
                 return False
 
-            logger.info(f"✅ Queued dev status for issue {issue_key} to transform (first_item={first_item}, last_item={last_item}, last_job_item={last_item})")
+            logger.debug(f"✅ Queued dev status for issue {issue_key} to transform (first_item={first_item}, last_item={last_item}, last_job_item={last_item})")
 
             # Send finished status ONLY on last item
             if last_item:
                 await self._send_worker_status("extraction", tenant_id, job_id, "finished", "jira_dev_status")
-                logger.info(f"✅ Dev status extraction completed (last item)")
+                logger.debug(f"✅ Dev status extraction completed (last item)")
 
             return True
 
         except Exception as e:
             logger.error(f"❌ Error in dev status extraction: {e}")
-            import traceback
-            logger.error(f"Full traceback: {traceback.format_exc()}")
-            if 'job_id' in locals():
-                self._update_job_status(job_id, "FAILED", str(e))
-            return False
-
-    async def _extract_jira_custom_fields(self, message: Dict[str, Any]) -> bool:
-        """
-        Extract Jira custom fields.
-
-        This is used for custom fields discovery on the custom fields mapping page.
-        """
-        try:
-            tenant_id = message.get('tenant_id')
-            integration_id = message.get('integration_id')
-            job_id = message.get('job_id')
-            token = message.get('token')
-
-            logger.info(f"🏁 [JIRA] Starting custom fields extraction")
-
-            # Get Jira client
-            integration, jira_client = self._get_jira_client(tenant_id, integration_id)
-            if not integration or not jira_client:
-                self._update_job_status(job_id, "FAILED", "Failed to initialize Jira client")
-                return False
-
-            # Fetch custom fields from Jira
-            # This would normally call the createmeta endpoint
-            logger.info(f"⏭️ Custom fields extraction not implemented yet")
-
-            # Send finished status for this step
-            await self._send_worker_status("extraction", tenant_id, job_id, "finished", "jira_custom_fields")
-
-            logger.info(f"✅ Custom fields extraction completed (skipped)")
-            return True
-
-        except Exception as e:
-            logger.error(f"❌ Error in custom fields extraction: {e}")
             import traceback
             logger.error(f"Full traceback: {traceback.format_exc()}")
             if 'job_id' in locals():

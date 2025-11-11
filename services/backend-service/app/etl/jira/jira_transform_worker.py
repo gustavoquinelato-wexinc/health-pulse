@@ -4,13 +4,9 @@ Jira Transform Handler - Processes Jira-specific ETL data.
 Handles all Jira message types:
 - jira_custom_fields: Process custom fields discovery data from createmeta API
 - jira_special_fields: Process special fields from field search API (e.g., development field)
-- jira_project_search: Process projects and issue types from project/search API
-- jira_projects_and_issue_types: Process projects and issue types (new step name)
-- jira_project_statuses: Process statuses and project relationships
-- jira_statuses_and_project_relationships: Process statuses and relationships (new step name)
-- jira_issues_changelogs: Process work items and changelogs (legacy batch)
-- jira_single_issue_changelog: Process individual work items with changelogs
-- jira_issues_with_changelogs: Process individual work items (new step name)
+- jira_projects_and_issue_types: Process projects and issue types
+- jira_statuses_and_relationships: Process statuses and project relationships
+- jira_issues_with_changelogs: Process individual work items with changelogs
 - jira_dev_status: Process development status data
 """
 
@@ -50,7 +46,7 @@ class JiraTransformHandler:
         self.database = get_database()
         self.status_manager = status_manager  # 🔑 Dependency injection
         self.queue_manager = queue_manager    # 🔑 Dependency injection
-        logger.info("Initialized JiraTransformHandler")
+        logger.debug("Initialized JiraTransformHandler")
 
     @contextmanager
     def get_db_session(self):
@@ -79,74 +75,167 @@ class JiraTransformHandler:
         with self.database.get_read_session_context() as session:
             yield session
 
-    async def _send_worker_status(self, worker_type: str, tenant_id: int, job_id: int,
-                                   status: str, step_name: str = None, error_message: str = None):
+    async def _send_worker_status(self, step: str, tenant_id: int, job_id: int,
+                                   status: str, step_type: str = None):
         """
         Send worker status update using injected status manager.
 
         Args:
-            worker_type: Type of worker (e.g., 'transform')
+            step: ETL step name (e.g., 'extraction', 'transform', 'embedding')
             tenant_id: Tenant ID
             job_id: Job ID
             status: Status to send (e.g., 'running', 'finished', 'failed')
-            step_name: Optional step name
-            error_message: Optional error message for failed status
+            step_type: Optional step type for logging (e.g., 'jira_projects_and_issue_types')
         """
         if self.status_manager:
             await self.status_manager.send_worker_status(
-                worker_type=worker_type,
+                step=step,
                 tenant_id=tenant_id,
                 job_id=job_id,
                 status=status,
-                step_name=step_name,
-                error_message=error_message
+                step_type=step_type
             )
         else:
-            logger.warning(f"Status manager not available - cannot send {status} status for {step_name}")
+            logger.warning(f"Status manager not available - cannot send {status} status for {step_type}")
 
-    def process_jira_message(self, message_type: str, raw_data_id: int, tenant_id: int,
-                            integration_id: int, job_id: int = None, message: Dict[str, Any] = None) -> bool:
+    async def process_jira_message(self, message_type: str, message: Dict[str, Any]) -> bool:
         """
-        Route Jira message to appropriate processor.
-        
+        Route Jira transform messages to appropriate handler method.
+
         Args:
-            message_type: Type of Jira message
-            raw_data_id: ID of raw extraction data
-            tenant_id: Tenant ID
-            integration_id: Integration ID
-            job_id: ETL job ID
-            message: Full message dict
-            
+            message_type: Type of message (e.g., 'jira_projects_and_issue_types')
+            message: Full message dict with structure:
+                {
+                    'type': str,
+                    'provider': 'jira',
+                    'tenant_id': int,
+                    'integration_id': int,
+                    'job_id': int,
+                    'raw_data_id': int | None,
+                    'token': str,
+                    'first_item': bool,
+                    'last_item': bool,
+                    'last_job_item': bool,
+                    ... other fields
+                }
+
         Returns:
             bool: True if processing succeeded
         """
         try:
+            # Extract common fields from message
+            raw_data_id = message.get('raw_data_id')
+            tenant_id = message.get('tenant_id')
+            integration_id = message.get('integration_id')
+            job_id = message.get('job_id')
+            first_item = message.get('first_item', False)
+            last_item = message.get('last_item', False)
+            token = message.get('token')
+
+            logger.debug(f"🔄 [JIRA] Processing {message_type} for raw_data_id={raw_data_id} (first={first_item}, last={last_item})")
+
+            # 🎯 HANDLE COMPLETION MESSAGE: raw_data_id=None signals completion
+            if raw_data_id is None:
+                logger.debug(f"🎯 [COMPLETION] Received completion message for {message_type}")
+                return await self._handle_completion_message(message_type, message)
+
+            # Route to appropriate handler based on message type
             if message_type == 'jira_custom_fields':
                 return self._process_jira_custom_fields(raw_data_id, tenant_id, integration_id)
             elif message_type == 'jira_special_fields':
                 return self._process_jira_special_fields(raw_data_id, tenant_id, integration_id)
-            elif message_type in ('jira_project_search', 'jira_projects_and_issue_types'):
-                return self._process_jira_project_search(raw_data_id, tenant_id, integration_id, job_id, message)
-            elif message_type in ('jira_project_statuses', 'jira_statuses_and_project_relationships', 'jira_statuses_and_relationships'):
-                return self._process_jira_statuses_and_project_relationships(raw_data_id, tenant_id, integration_id, job_id, message)
-            elif message_type in ('jira_issues_changelogs', 'jira_single_issue_changelog', 'jira_issues_with_changelogs', 'jira_issue'):
-                return self._process_jira_single_issue_changelog(raw_data_id, tenant_id, integration_id, job_id, message)
+            elif message_type == 'jira_projects_and_issue_types':
+                return await self._process_jira_project_search(raw_data_id, tenant_id, integration_id, job_id, message)
+            elif message_type == 'jira_statuses_and_relationships':
+                return await self._process_jira_statuses_and_project_relationships(raw_data_id, tenant_id, integration_id, job_id, message)
+            elif message_type == 'jira_issues_with_changelogs':
+                return await self._process_jira_single_issue_changelog(raw_data_id, tenant_id, integration_id, job_id, message)
             elif message_type == 'jira_dev_status':
-                return self._process_jira_dev_status(raw_data_id, tenant_id, integration_id, job_id, message)
+                return await self._process_jira_dev_status(raw_data_id, tenant_id, integration_id, job_id, message)
             else:
                 logger.warning(f"Unknown Jira message type: {message_type}")
                 return False
-                
+
         except Exception as e:
             logger.error(f"Error processing Jira message type {message_type}: {e}")
             import traceback
             logger.error(f"Full traceback: {traceback.format_exc()}")
             return False
 
+    # ============ COMPLETION MESSAGE HANDLING ============
+
+    async def _handle_completion_message(self, message_type: str, message: Dict[str, Any]) -> bool:
+        """
+        Handle completion messages (raw_data_id=None) for Jira transform steps.
+
+        Args:
+            message_type: Type of completion message
+            message: Full message dict
+
+        Returns:
+            bool: True if completion message handled successfully
+        """
+        tenant_id = message.get('tenant_id')
+        job_id = message.get('job_id')
+        integration_id = message.get('integration_id')
+        last_item = message.get('last_item', False)
+        token = message.get('token')
+
+        # Send WebSocket status: transform worker finished (on last_item)
+        if last_item and job_id:
+            try:
+                await self._send_worker_status("transform", tenant_id, job_id, "finished", message_type)
+                logger.debug(f"✅ Transform worker marked as finished for {message_type} (completion message)")
+            except Exception as e:
+                logger.error(f"❌ Error sending finished status for {message_type}: {e}")
+
+        # Handle different completion message types
+        if message_type == 'jira_dev_status':
+            logger.debug(f"🎯 [COMPLETION] Processing jira_dev_status completion message")
+            self._queue_entities_for_embedding(
+                tenant_id=tenant_id,
+                table_name='work_items_prs_links',
+                entities=[],  # Empty list - signals completion
+                job_id=job_id,
+                message_type='jira_dev_status',
+                integration_id=integration_id,
+                provider=message.get('provider', 'jira'),
+                last_sync_date=message.get('last_sync_date'),
+                first_item=message.get('first_item', False),
+                last_item=message.get('last_item', False),
+                last_job_item=message.get('last_job_item', False),
+                token=token
+            )
+            logger.debug(f"🎯 [COMPLETION] jira_dev_status completion message forwarded to embedding")
+            return True
+
+        elif message_type == 'jira_issues_with_changelogs':
+            logger.debug(f"🎯 [COMPLETION] Processing jira_issues_with_changelogs completion message")
+            self._queue_entities_for_embedding(
+                tenant_id=tenant_id,
+                table_name='work_items',
+                entities=[],  # Empty list - signals completion
+                job_id=job_id,
+                message_type='jira_issues_with_changelogs',
+                integration_id=integration_id,
+                provider=message.get('provider', 'jira'),
+                last_sync_date=message.get('last_sync_date'),
+                first_item=message.get('first_item', False),
+                last_item=message.get('last_item', False),
+                last_job_item=message.get('last_job_item', False),
+                token=token
+            )
+            logger.debug(f"🎯 [COMPLETION] jira_issues_with_changelogs completion message forwarded to embedding")
+            return True
+
+        else:
+            logger.warning(f"⚠️ [COMPLETION] Unknown Jira completion message type: {message_type}")
+            return False
+
     # ============ JIRA PROCESSING METHODS ============
     # All Jira-specific processing methods extracted from transform_worker.py
 
-    def _process_jira_project_search(self, raw_data_id: int, tenant_id: int, integration_id: int, job_id: int = None, message: Dict[str, Any] = None) -> bool:
+    async def _process_jira_project_search(self, raw_data_id: int, tenant_id: int, integration_id: int, job_id: int = None, message: Dict[str, Any] = None) -> bool:
         """
         Process Jira projects and issue types from raw_extraction_data.
 
@@ -173,6 +262,7 @@ class JiraTransformHandler:
             last_item = message.get('last_item', False) if message else False
             last_job_item = message.get('last_job_item', False) if message else False
             provider = message.get('provider', 'jira') if message else 'jira'
+            old_last_sync_date = message.get('old_last_sync_date') if message else None  # 🔑 From extraction worker
             new_last_sync_date = message.get('new_last_sync_date') if message else None
             token = message.get('token') if message else None
 
@@ -199,7 +289,7 @@ class JiraTransformHandler:
                 logger.error(f"Expected list of projects, got {type(projects_data)}")
                 return False
 
-            logger.info(f"📊 Found {len(projects_data)} projects to process")
+            logger.debug(f"📊 Found {len(projects_data)} projects to process")
 
             # Process projects and issue types
             with database.get_write_session_context() as db:
@@ -240,40 +330,51 @@ class JiraTransformHandler:
                 # Note: project-wit relationships are handled by _perform_bulk_operations
 
                 db.commit()
-                logger.info(f"✅ Committed projects and issue types to database")
+                logger.debug(f"✅ Committed projects and issue types to database")
 
             # Queue entities for embedding (after commit)
-            # Queue projects
-            if projects_to_insert or projects_to_update:
+            # Queue projects - loop and queue individual projects
+            has_projects = bool(projects_to_insert or projects_to_update)
+            has_wits = bool(wits_to_insert or wits_to_update)
+
+            if has_projects:
                 all_projects = projects_to_insert + projects_to_update
                 self._queue_entities_for_embedding(
                     tenant_id, 'projects', all_projects, job_id,
                     message_type='jira_projects_and_issue_types',
                     integration_id=integration_id,
                     provider=provider,
+                    old_last_sync_date=old_last_sync_date,  # 🔑 Forward old_last_sync_date
                     new_last_sync_date=new_last_sync_date,
-                    first_item=first_item,
-                    last_item=False,  # Not last yet, still have WITs to queue
-                    last_job_item=False,
+                    first_item=first_item,  # First project gets first_item=True
+                    last_item=False if has_wits else last_item,  # Only last if no WITs to follow
+                    last_job_item=False if has_wits else last_job_item,  # Only last_job_item if no WITs
                     token=token
                 )
 
-            # Queue WITs
-            if wits_to_insert or wits_to_update:
+            # Queue WITs - loop and queue individual WITs, last WIT gets last_item=True
+            if has_wits:
                 all_wits = wits_to_insert + wits_to_update
                 self._queue_entities_for_embedding(
                     tenant_id, 'wits', all_wits, job_id,
                     message_type='jira_projects_and_issue_types',
                     integration_id=integration_id,
                     provider=provider,
+                    old_last_sync_date=old_last_sync_date,  # 🔑 Forward old_last_sync_date
                     new_last_sync_date=new_last_sync_date,
-                    first_item=False,  # Projects were first
-                    last_item=last_item,  # Use the last_item flag from message
-                    last_job_item=last_job_item,
+                    first_item=first_item if not has_projects else False,  # First WIT gets first_item=True only if no projects
+                    last_item=last_item,  # 🔑 Last WIT gets last_item=True
+                    last_job_item=last_job_item,  # 🔑 Forward last_job_item flag
                     token=token
                 )
 
-            logger.info(f"✅ Successfully processed jira_projects_and_issue_types")
+            # ✅ Send WebSocket status update when last_item=True
+            if last_item and job_id:
+                logger.info(f"🏁 [PROJECTS] Sending 'finished' status for transform step")
+                await self._send_worker_status('transform', tenant_id, job_id, 'finished', 'jira_projects_and_issue_types')
+                logger.debug(f"✅ [PROJECTS] Transform step marked as finished and WebSocket notification sent")
+
+            logger.info(f"✅ [PROJECTS] Completed projects and issue types processing (raw_data_id={raw_data_id})")
             return True
 
         except Exception as e:
@@ -325,7 +426,7 @@ class JiraTransformHandler:
                     logger.warning(f"No projects found in raw data: {raw_data_id}")
                     return True  # Not an error, just empty data
 
-                logger.info(f"🔍 DEBUG: Processing {len(projects_data)} projects from createmeta")
+                logger.debug(f"🔍 DEBUG: Processing {len(projects_data)} projects from createmeta")
 
                 # Debug: Count total issue types and relationships
                 total_issue_types = 0
@@ -339,9 +440,9 @@ class JiraTransformHandler:
                     for it in issue_types:
                         unique_issue_types.add(it.get('id'))
 
-                logger.info(f"🔍 DEBUG: Found {len(unique_issue_types)} unique issue types across all projects")
-                logger.info(f"🔍 DEBUG: Expected {total_relationships} project-wit relationships")
-                logger.info(f"🔍 DEBUG: Unique issue type IDs: {sorted(unique_issue_types)}")
+                logger.debug(f"🔍 DEBUG: Found {len(unique_issue_types)} unique issue types across all projects")
+                logger.debug(f"🔍 DEBUG: Expected {total_relationships} project-wit relationships")
+                logger.debug(f"🔍 DEBUG: Unique issue type IDs: {sorted(unique_issue_types)}")
                 
                 # 3. Process projects and collect data for bulk operations
                 projects_to_insert = []
@@ -358,23 +459,23 @@ class JiraTransformHandler:
                 existing_custom_fields = self._get_existing_custom_fields(session, tenant_id, integration_id)
                 existing_relationships = self._get_existing_project_wit_relationships(session, tenant_id)
 
-                logger.info(f"🔍 DEBUG: Found {len(existing_projects)} existing projects")
-                logger.info(f"🔍 DEBUG: Found {len(existing_wits)} existing WITs: {list(existing_wits.keys())}")
-                logger.info(f"🔍 DEBUG: Found {len(existing_custom_fields)} existing custom fields")
-                logger.info(f"🔍 DEBUG: Found {len(existing_relationships)} existing relationships")
+                logger.debug(f"🔍 DEBUG: Found {len(existing_projects)} existing projects")
+                logger.debug(f"🔍 DEBUG: Found {len(existing_wits)} existing WITs: {list(existing_wits.keys())}")
+                logger.debug(f"🔍 DEBUG: Found {len(existing_custom_fields)} existing custom fields")
+                logger.debug(f"🔍 DEBUG: Found {len(existing_relationships)} existing relationships")
 
                 # Collect all unique custom fields globally (not per project)
                 global_custom_fields = {}  # field_key -> field_info
 
                 # Process each project
-                logger.info(f"🔍 DEBUG: Starting to process {len(projects_data)} projects individually...")
+                logger.debug(f"🔍 DEBUG: Starting to process {len(projects_data)} projects individually...")
                 for i, project_data in enumerate(projects_data):
                     project_key = project_data.get('key', 'UNKNOWN')
                     project_name = project_data.get('name', 'UNKNOWN')
                     # Handle both camelCase (project search API) and lowercase (createmeta API)
                     issue_types_count = len(project_data.get('issueTypes', project_data.get('issuetypes', [])))
 
-                    logger.info(f"🔍 DEBUG: Processing project {i+1}/{len(projects_data)}: {project_key} ({project_name}) with {issue_types_count} issue types")
+                    logger.debug(f"🔍 DEBUG: Processing project {i+1}/{len(projects_data)}: {project_key} ({project_name}) with {issue_types_count} issue types")
 
                     project_result = self._process_project_data(
                         project_data, tenant_id, integration_id,
@@ -389,16 +490,16 @@ class JiraTransformHandler:
                         wits_to_update.extend(project_result.get('wits_to_update', []))
                         project_wit_relationships.extend(project_result.get('project_wit_relationships', []))
 
-                        logger.info(f"🔍 DEBUG: After processing {project_key}: Total WITs to insert: {len(wits_to_insert)}, relationships: {len(project_wit_relationships)}")
+                        logger.debug(f"🔍 DEBUG: After processing {project_key}: Total WITs to insert: {len(wits_to_insert)}, relationships: {len(project_wit_relationships)}")
                     else:
                         logger.warning(f"🔍 DEBUG: No result returned for project {project_key}")
 
-                logger.info(f"🔍 DEBUG: Final totals after all projects:")
-                logger.info(f"🔍 DEBUG:   - Projects to insert: {len(projects_to_insert)}")
-                logger.info(f"🔍 DEBUG:   - Projects to update: {len(projects_to_update)}")
-                logger.info(f"🔍 DEBUG:   - WITs to insert (before dedup): {len(wits_to_insert)}")
-                logger.info(f"🔍 DEBUG:   - WITs to update: {len(wits_to_update)}")
-                logger.info(f"🔍 DEBUG:   - Project-wit relationships: {len(project_wit_relationships)}")
+                logger.debug(f"🔍 DEBUG: Final totals after all projects:")
+                logger.debug(f"🔍 DEBUG:   - Projects to insert: {len(projects_to_insert)}")
+                logger.debug(f"🔍 DEBUG:   - Projects to update: {len(projects_to_update)}")
+                logger.debug(f"🔍 DEBUG:   - WITs to insert (before dedup): {len(wits_to_insert)}")
+                logger.debug(f"🔍 DEBUG:   - WITs to update: {len(wits_to_update)}")
+                logger.debug(f"🔍 DEBUG:   - Project-wit relationships: {len(project_wit_relationships)}")
 
                 # 🔧 FIX: Deduplicate WITs globally by external_id
                 # The same WIT (e.g., "Story" with id "10001") appears in multiple projects
@@ -411,13 +512,13 @@ class JiraTransformHandler:
 
                 wits_to_insert = list(unique_wits_to_insert.values())
 
-                logger.info(f"🔍 DEBUG: After WIT deduplication:")
-                logger.info(f"🔍 DEBUG:   - Unique WITs to insert: {len(wits_to_insert)}")
-                logger.info(f"🔍 DEBUG:   - WIT external IDs: {list(unique_wits_to_insert.keys())}")
+                logger.debug(f"🔍 DEBUG: After WIT deduplication:")
+                logger.debug(f"🔍 DEBUG:   - Unique WITs to insert: {len(wits_to_insert)}")
+                logger.debug(f"🔍 DEBUG:   - WIT external IDs: {list(unique_wits_to_insert.keys())}")
 
                 # Show WIT names for debugging
                 for wit in wits_to_insert:
-                    logger.info(f"🔍 DEBUG:   - WIT to insert: {wit.get('original_name')} (id: {wit.get('external_id')})")
+                    logger.debug(f"🔍 DEBUG:   - WIT to insert: {wit.get('original_name')} (id: {wit.get('external_id')})")
 
                 # Also deduplicate WITs to update
                 unique_wits_to_update = {}
@@ -427,10 +528,10 @@ class JiraTransformHandler:
                         unique_wits_to_update[wit_id] = wit
 
                 wits_to_update = list(unique_wits_to_update.values())
-                logger.info(f"🔍 DEBUG:   - Unique WITs to update: {len(wits_to_update)}")
+                logger.debug(f"🔍 DEBUG:   - Unique WITs to update: {len(wits_to_update)}")
 
                 # Process global custom fields once
-                logger.info(f"Processing {len(global_custom_fields)} unique custom fields globally")
+                logger.debug(f"Processing {len(global_custom_fields)} unique custom fields globally")
                 for field_key, field_info in global_custom_fields.items():
                     cf_result = self._process_custom_field_data(
                         field_key, field_info, tenant_id, integration_id,
@@ -440,7 +541,7 @@ class JiraTransformHandler:
                         custom_fields_to_insert.extend(cf_result.get('custom_fields_to_insert', []))
                         custom_fields_to_update.extend(cf_result.get('custom_fields_to_update', []))
 
-                logger.info(f"Custom fields to insert: {len(custom_fields_to_insert)}, to update: {len(custom_fields_to_update)}")
+                logger.debug(f"Custom fields to insert: {len(custom_fields_to_insert)}, to update: {len(custom_fields_to_update)}")
 
                 # 4. Perform bulk operations (projects and WITs first)
                 bulk_result = self._perform_bulk_operations(
@@ -452,11 +553,11 @@ class JiraTransformHandler:
 
                 # 5. Create project-wit relationships after projects and WITs are saved
                 if project_wit_relationships:
-                    logger.info(f"Creating {len(project_wit_relationships)} project-wit relationships")
+                    logger.debug(f"Creating {len(project_wit_relationships)} project-wit relationships")
                     relationships_created = self._create_project_wit_relationships_for_search(
                         session, project_wit_relationships, integration_id, tenant_id
                     )
-                    logger.info(f"Created {relationships_created} project-wit relationships")
+                    logger.debug(f"Created {relationships_created} project-wit relationships")
 
                 # 6. Auto-map development field if it exists
                 self._auto_map_development_field(session, tenant_id, integration_id)
@@ -471,7 +572,7 @@ class JiraTransformHandler:
                 # Projects and WITs are NOT queued for embedding here
                 # Only /project/search should queue for embedding
 
-                logger.info(f"Successfully processed custom fields for raw_data_id={raw_data_id}")
+                logger.debug(f"Successfully processed custom fields for raw_data_id={raw_data_id}")
                 return True
 
         except Exception as e:
@@ -539,7 +640,7 @@ class JiraTransformHandler:
                 if field_name.lower() == 'development':
                     field_name = 'Development'
 
-                logger.info(f"Processing special field: {field_id} - {field_name}")
+                logger.debug(f"Processing special field: {field_id} - {field_name}")
 
                 # 3. Check if field already exists
                 existing_custom_fields = self._get_existing_custom_fields(session, tenant_id, integration_id)
@@ -547,7 +648,7 @@ class JiraTransformHandler:
                 # 4. Insert or update custom field
                 if field_id in existing_custom_fields:
                     # Update existing field
-                    logger.info(f"Special field {field_id} already exists, updating")
+                    logger.debug(f"Special field {field_id} already exists, updating")
                     update_query = text("""
                         UPDATE custom_fields
                         SET name = :name,
@@ -566,7 +667,7 @@ class JiraTransformHandler:
                     })
                 else:
                     # Insert new field
-                    logger.info(f"Inserting new special field: {field_id} - {field_name}")
+                    logger.debug(f"Inserting new special field: {field_id} - {field_name}")
                     insert_query = text("""
                         INSERT INTO custom_fields (
                             external_id, name, field_type, operations,
@@ -597,7 +698,7 @@ class JiraTransformHandler:
                 # Commit all changes
                 session.commit()
 
-                logger.info(f"Successfully processed special field for raw_data_id={raw_data_id}")
+                logger.debug(f"Successfully processed special field for raw_data_id={raw_data_id}")
                 return True
 
         except Exception as e:
@@ -634,6 +735,7 @@ class JiraTransformHandler:
         """
         Auto-map development field to development_field_id if it exists in custom_fields.
         This is called after custom fields are synced from Jira.
+        Uses JIRA_DEVELOPMENT_FIELD_ID from .env to identify the development field.
         """
         try:
             import os
@@ -654,11 +756,11 @@ class JiraTransformHandler:
             }).fetchone()
 
             if not result:
-                logger.info(f"Development field {development_field_id} not found, skipping auto-mapping")
+                logger.debug(f"Development field {development_field_id} not found, skipping auto-mapping")
                 return
 
             custom_field_db_id = result[0]
-            logger.info(f"Found development field {development_field_id} with ID {custom_field_db_id}")
+            logger.debug(f"Found development field {development_field_id} with ID {custom_field_db_id}")
 
             # Check if custom_fields_mapping record exists
             mapping_check_query = text("""
@@ -685,7 +787,7 @@ class JiraTransformHandler:
                     'tenant_id': tenant_id,
                     'integration_id': integration_id
                 })
-                logger.info(f"Auto-mapped development field {development_field_id} to development_field_id")
+                logger.debug(f"Auto-mapped development field {development_field_id} to development_field_id")
             else:
                 # Create new mapping record
                 insert_query = text("""
@@ -702,7 +804,7 @@ class JiraTransformHandler:
                     'integration_id': integration_id,
                     'field_id': custom_field_db_id
                 })
-                logger.info(f"Created custom_fields_mapping and auto-mapped development field {development_field_id}")
+                logger.debug(f"Created custom_fields_mapping and auto-mapped development field {development_field_id}")
 
         except Exception as e:
             logger.error(f"Error auto-mapping development field: {e}")
@@ -763,11 +865,11 @@ class JiraTransformHandler:
             logger.info(f"🔍 DEBUG: _create_project_wit_relationships_for_search called with {len(project_wit_relationships)} relationships")
 
             if not project_wit_relationships:
-                logger.info("No project-wit relationships to create")
+                logger.debug("No project-wit relationships to create")
                 return 0
 
             # Get mapping of external_id -> internal_id for projects
-            logger.info("🔍 DEBUG: Querying projects mapping...")
+            logger.debug("🔍 DEBUG: Querying projects mapping...")
             projects_query = text("""
                 SELECT external_id, id
                 FROM projects
@@ -778,10 +880,10 @@ class JiraTransformHandler:
                 'tenant_id': tenant_id
             }).fetchall()
             projects_lookup = {row[0]: row[1] for row in projects_result}
-            logger.info(f"🔍 DEBUG: Found {len(projects_lookup)} projects")
+            logger.debug(f"🔍 DEBUG: Found {len(projects_lookup)} projects")
 
             # Get mapping of external_id -> internal_id for WITs
-            logger.info("🔍 DEBUG: Querying WITs mapping...")
+            logger.debug("🔍 DEBUG: Querying WITs mapping...")
             wits_query = text("""
                 SELECT external_id, id
                 FROM wits
@@ -792,22 +894,22 @@ class JiraTransformHandler:
                 'tenant_id': tenant_id
             }).fetchall()
             wits_lookup = {row[0]: row[1] for row in wits_result}
-            logger.info(f"🔍 DEBUG: Found {len(wits_lookup)} WITs")
+            logger.debug(f"🔍 DEBUG: Found {len(wits_lookup)} WITs")
 
             # Get existing relationships
-            logger.info("🔍 DEBUG: Getting existing relationships...")
+            logger.debug("🔍 DEBUG: Getting existing relationships...")
             existing_relationships = self._get_existing_project_wit_relationships(session, tenant_id)
-            logger.info(f"🔍 DEBUG: Found {len(existing_relationships)} existing relationships")
+            logger.debug(f"🔍 DEBUG: Found {len(existing_relationships)} existing relationships")
 
             # Build relationships to insert
-            logger.info("🔍 DEBUG: Building relationships to insert...")
+            logger.debug("🔍 DEBUG: Building relationships to insert...")
             relationships_to_insert = []
             for project_external_id, wit_external_id in project_wit_relationships:
                 # Convert to strings for database lookup (external_id is VARCHAR in DB)
                 project_external_id_str = str(project_external_id)
                 wit_external_id_str = str(wit_external_id)
 
-                logger.info(f"🔍 DEBUG: Looking up project {project_external_id_str} and wit {wit_external_id_str}")
+                logger.debug(f"🔍 DEBUG: Looking up project {project_external_id_str} and wit {wit_external_id_str}")
 
                 project_id = projects_lookup.get(project_external_id_str)
                 wit_id = wits_lookup.get(wit_external_id_str)
@@ -823,18 +925,18 @@ class JiraTransformHandler:
                 # Check if relationship already exists
                 if (project_id, wit_id) not in existing_relationships:
                     relationships_to_insert.append((project_id, wit_id))
-                    logger.info(f"🔍 DEBUG: Added relationship to insert: project_id={project_id}, wit_id={wit_id}")
+                    logger.debug(f"🔍 DEBUG: Added relationship to insert: project_id={project_id}, wit_id={wit_id}")
 
-            logger.info(f"🔍 DEBUG: Built {len(relationships_to_insert)} relationships to insert")
+            logger.debug(f"🔍 DEBUG: Built {len(relationships_to_insert)} relationships to insert")
 
             if not relationships_to_insert:
-                logger.info("No new project-wit relationships to create")
+                logger.debug("No new project-wit relationships to create")
                 return 0
 
             # Bulk insert relationships
-            logger.info(f"🔍 DEBUG: Starting bulk insert of {len(relationships_to_insert)} relationships...")
+            logger.debug(f"🔍 DEBUG: Starting bulk insert of {len(relationships_to_insert)} relationships...")
             BulkOperations.bulk_insert_relationships(session, 'projects_wits', relationships_to_insert)
-            logger.info(f"🔍 DEBUG: Bulk insert completed")
+            logger.debug(f"🔍 DEBUG: Bulk insert completed")
 
             logger.info(f"Created {len(relationships_to_insert)} project-wit relationships")
             return len(relationships_to_insert)
@@ -875,7 +977,7 @@ class JiraTransformHandler:
             # Handle both camelCase (project search API) and lowercase (createmeta API)
             issue_types = project_data.get('issueTypes', project_data.get('issuetypes', []))
 
-            logger.info(f"🔍 DEBUG: _process_project_data - Processing {project_key} ({project_name}) with {len(issue_types)} issue types")
+            logger.debug(f"🔍 DEBUG: _process_project_data - Processing {project_key} ({project_name}) with {len(issue_types)} issue types")
 
             if not all([project_external_id, project_key, project_name]):
                 logger.warning(f"Incomplete project data: {project_data}")
@@ -916,17 +1018,17 @@ class JiraTransformHandler:
             unique_custom_fields = {}  # field_key -> field_info (deduplicated)
             project_wit_external_ids = []  # Store WIT external IDs for this project
 
-            logger.info(f"🔍 DEBUG: Processing {len(issue_types)} issue types for project {project_key}")
+            logger.debug(f"🔍 DEBUG: Processing {len(issue_types)} issue types for project {project_key}")
 
             for i, issue_type in enumerate(issue_types):
                 wit_external_id = issue_type.get('id')
                 wit_name = issue_type.get('name', 'UNKNOWN')
 
-                logger.info(f"🔍 DEBUG: Processing issue type {i+1}/{len(issue_types)}: {wit_name} (id: {wit_external_id})")
+                logger.debug(f"🔍 DEBUG: Processing issue type {i+1}/{len(issue_types)}: {wit_name} (id: {wit_external_id})")
 
                 if wit_external_id:
                     project_wit_external_ids.append(wit_external_id)
-                    logger.info(f"🔍 DEBUG: Added WIT external ID {wit_external_id} to project {project_key}")
+                    logger.debug(f"🔍 DEBUG: Added WIT external ID {wit_external_id} to project {project_key}")
 
                 wit_result = self._process_wit_data(
                     issue_type, tenant_id, integration_id, existing_wits
@@ -935,7 +1037,7 @@ class JiraTransformHandler:
                     wits_to_insert = wit_result.get('wits_to_insert', [])
                     wits_to_update = wit_result.get('wits_to_update', [])
 
-                    logger.info(f"🔍 DEBUG: WIT result for {wit_name}: {len(wits_to_insert)} to insert, {len(wits_to_update)} to update")
+                    logger.debug(f"🔍 DEBUG: WIT result for {wit_name}: {len(wits_to_insert)} to insert, {len(wits_to_update)} to update")
 
                     result['wits_to_insert'].extend(wits_to_insert)
                     result['wits_to_update'].extend(wits_to_update)
@@ -952,13 +1054,13 @@ class JiraTransformHandler:
 
             # Store project-wit relationships for later processing (after WITs are saved)
             # We'll store as (project_external_id, wit_external_id) tuples
-            logger.info(f"🔍 DEBUG: Creating {len(project_wit_external_ids)} project-wit relationships for project {project_key}")
-            logger.info(f"🔍 DEBUG: WIT external IDs for {project_key}: {project_wit_external_ids}")
+            logger.debug(f"🔍 DEBUG: Creating {len(project_wit_external_ids)} project-wit relationships for project {project_key}")
+            logger.debug(f"🔍 DEBUG: WIT external IDs for {project_key}: {project_wit_external_ids}")
 
             for wit_external_id in project_wit_external_ids:
                 relationship = (project_external_id, wit_external_id)
                 result['project_wit_relationships'].append(relationship)
-                logger.info(f"🔍 DEBUG: Added relationship: project {project_external_id} -> wit {wit_external_id}")
+                logger.debug(f"🔍 DEBUG: Added relationship: project {project_external_id} -> wit {wit_external_id}")
 
             # Add unique custom fields from this project to global collection
             for field_key, field_info in unique_custom_fields.items():
@@ -966,12 +1068,12 @@ class JiraTransformHandler:
                 if field_key not in global_custom_fields:
                     global_custom_fields[field_key] = field_info
 
-            logger.info(f"🔍 DEBUG: Project {project_key} summary:")
-            logger.info(f"🔍 DEBUG:   - WITs to insert: {len(result['wits_to_insert'])}")
-            logger.info(f"🔍 DEBUG:   - WITs to update: {len(result['wits_to_update'])}")
-            logger.info(f"🔍 DEBUG:   - Project-wit relationships: {len(result['project_wit_relationships'])}")
-            logger.info(f"🔍 DEBUG:   - Unique custom fields: {len(unique_custom_fields)}")
-            logger.info(f"🔍 DEBUG:   - Relationship details: {result['project_wit_relationships']}")
+            logger.debug(f"🔍 DEBUG: Project {project_key} summary:")
+            logger.debug(f"🔍 DEBUG:   - WITs to insert: {len(result['wits_to_insert'])}")
+            logger.debug(f"🔍 DEBUG:   - WITs to update: {len(result['wits_to_update'])}")
+            logger.debug(f"🔍 DEBUG:   - Project-wit relationships: {len(result['project_wit_relationships'])}")
+            logger.debug(f"🔍 DEBUG:   - Unique custom fields: {len(unique_custom_fields)}")
+            logger.debug(f"🔍 DEBUG:   - Relationship details: {result['project_wit_relationships']}")
 
             return result
 
@@ -998,7 +1100,7 @@ class JiraTransformHandler:
             wit_description = issue_type_data.get('description', '')
             hierarchy_level = issue_type_data.get('hierarchyLevel', 0)
 
-            logger.info(f"🔍 DEBUG: _process_wit_data - Processing WIT: {wit_name} (id: {wit_external_id})")
+            logger.debug(f"🔍 DEBUG: _process_wit_data - Processing WIT: {wit_name} (id: {wit_external_id})")
 
             if not all([wit_external_id, wit_name]):
                 logger.warning(f"🔍 DEBUG: Incomplete WIT data: external_id={wit_external_id}, name={wit_name}")
@@ -1007,20 +1109,20 @@ class JiraTransformHandler:
             # Lookup wits_mapping_id from wits_mappings table
             wits_mapping_id = self._lookup_wit_mapping_id(wit_name, tenant_id)
             if wits_mapping_id:
-                logger.info(f"🔍 DEBUG: Found wits_mapping_id={wits_mapping_id} for WIT '{wit_name}'")
+                logger.debug(f"🔍 DEBUG: Found wits_mapping_id={wits_mapping_id} for WIT '{wit_name}'")
             else:
-                logger.info(f"🔍 DEBUG: No wits_mapping found for WIT '{wit_name}' - will be set to NULL")
+                logger.debug(f"🔍 DEBUG: No wits_mapping found for WIT '{wit_name}' - will be set to NULL")
 
             if wit_external_id in existing_wits:
                 # Check if WIT needs update
                 existing_wit = existing_wits[wit_external_id]
-                logger.info(f"🔍 DEBUG: WIT {wit_name} already exists, checking for updates...")
+                logger.debug(f"🔍 DEBUG: WIT {wit_name} already exists, checking for updates...")
 
                 if (existing_wit.original_name != wit_name or
                     existing_wit.description != wit_description or
                     existing_wit.hierarchy_level != hierarchy_level or
                     existing_wit.wits_mapping_id != wits_mapping_id):
-                    logger.info(f"🔍 DEBUG: WIT {wit_name} needs update")
+                    logger.debug(f"🔍 DEBUG: WIT {wit_name} needs update")
                     result['wits_to_update'].append({
                         'id': existing_wit.id,
                         'external_id': wit_external_id,  # Include for queueing
@@ -1031,10 +1133,10 @@ class JiraTransformHandler:
                         'last_updated_at': datetime.now(timezone.utc)
                     })
                 else:
-                    logger.info(f"🔍 DEBUG: WIT {wit_name} is up to date, no update needed")
+                    logger.debug(f"🔍 DEBUG: WIT {wit_name} is up to date, no update needed")
             else:
                 # New WIT
-                logger.info(f"🔍 DEBUG: WIT {wit_name} is new, adding to insert list")
+                logger.debug(f"🔍 DEBUG: WIT {wit_name} is new, adding to insert list")
                 wit_insert_data = {
                     'external_id': wit_external_id,
                     'original_name': wit_name,
@@ -1163,33 +1265,33 @@ class JiraTransformHandler:
             # 1. Bulk insert projects first
             if projects_to_insert:
                 BulkOperations.bulk_insert(session, 'projects', projects_to_insert)
-                logger.info(f"Inserted {len(projects_to_insert)} projects")
+                logger.debug(f"Inserted {len(projects_to_insert)} projects")
 
             # 2. Bulk update projects
             if projects_to_update:
                 BulkOperations.bulk_update(session, 'projects', projects_to_update)
-                logger.info(f"Updated {len(projects_to_update)} projects")
+                logger.debug(f"Updated {len(projects_to_update)} projects")
 
             # 3. Bulk insert WITs
             if wits_to_insert:
                 BulkOperations.bulk_insert(session, 'wits', wits_to_insert)
-                logger.info(f"Inserted {len(wits_to_insert)} WITs")
+                logger.debug(f"Inserted {len(wits_to_insert)} WITs")
 
             # 4. Bulk update WITs
             if wits_to_update:
                 BulkOperations.bulk_update(session, 'wits', wits_to_update)
-                logger.info(f"Updated {len(wits_to_update)} WITs")
+                logger.debug(f"Updated {len(wits_to_update)} WITs")
 
             # 5. Bulk insert custom fields (global, no project relationship)
             if custom_fields_to_insert:
                 BulkOperations.bulk_insert(session, 'custom_fields', custom_fields_to_insert)
-                logger.info(f"Inserted {len(custom_fields_to_insert)} custom fields")
+                logger.debug(f"Inserted {len(custom_fields_to_insert)} custom fields")
                 # Note: Custom fields are not vectorized (they're metadata)
 
             # 6. Bulk update custom fields
             if custom_fields_to_update:
                 BulkOperations.bulk_update(session, 'custom_fields', custom_fields_to_update)
-                logger.info(f"Updated {len(custom_fields_to_update)} custom fields")
+                logger.debug(f"Updated {len(custom_fields_to_update)} custom fields")
                 # Note: Custom fields are not vectorized (they're metadata)
 
             # 7. Project-WIT relationships are handled separately using _create_project_wit_relationships_for_search
@@ -1207,7 +1309,7 @@ class JiraTransformHandler:
             logger.error(f"Error in bulk operations: {e}")
             raise
 
-    def _process_jira_statuses_and_project_relationships(self, raw_data_id: int, tenant_id: int, integration_id: int, job_id: int = None, message: Dict[str, Any] = None) -> bool:
+    async def _process_jira_statuses_and_project_relationships(self, raw_data_id: int, tenant_id: int, integration_id: int, job_id: int = None, message: Dict[str, Any] = None) -> bool:
         """
         Process statuses and project relationships from raw data.
 
@@ -1218,6 +1320,8 @@ class JiraTransformHandler:
         4. Returns success status
         """
         try:
+            logger.info(f"🏁 [STATUSES] Starting statuses and project relationships processing (raw_data_id={raw_data_id})")
+
             # NOTE: Status updates are handled by TransformWorker router (lines 138-148, 276-283)
             # Do NOT send status updates from handler to avoid event loop conflicts
 
@@ -1243,7 +1347,7 @@ class JiraTransformHandler:
                     project_key = payload.get("project_key")
                     project_statuses_response = payload.get("statuses", [])
 
-                    logger.info(f"Processing individual project {project_key} with {len(project_statuses_response)} issue types")
+                    logger.debug(f"Processing individual project {project_key} with {len(project_statuses_response)} issue types")
 
                     # Extract unique statuses from this project
                     unique_statuses = {}
@@ -1274,7 +1378,7 @@ class JiraTransformHandler:
                     statuses_data = payload.get("statuses", [])
                     project_statuses_data = payload.get("project_statuses", [])
 
-                logger.info(f"Processing {len(statuses_data)} statuses and {len(project_statuses_data)} project relationships")
+                logger.debug(f"Processing {len(statuses_data)} statuses and {len(project_statuses_data)} project relationships")
 
                 # Process statuses and project relationships (returns entities for vectorization)
                 statuses_result = self._process_statuses_data(db, statuses_data, integration_id, tenant_id)
@@ -1303,13 +1407,13 @@ class JiraTransformHandler:
                 # This avoids duplicate embeddings for the same status across different projects
 
                 statuses_processed = statuses_result['count']
-                logger.info(f"Successfully processed {statuses_processed} statuses and {relationships_processed} project relationships")
+                logger.debug(f"Successfully processed {statuses_processed} statuses and {relationships_processed} project relationships")
 
                 # 🎯 DEBUG: Log message details
-                logger.info(f"🎯 [STATUSES] Message check: message={message is not None}, last_item={message.get('last_item') if message else 'N/A'}")
+                logger.debug(f"🎯 [STATUSES] Message check: message={message is not None}, last_item={message.get('last_item') if message else 'N/A'}")
 
                 if message and message.get('last_item'):
-                    logger.info(f"🎯 [STATUSES] Last item received - queuing all distinct statuses to embedding")
+                    logger.debug(f"🎯 [STATUSES] Last item received - queuing all distinct statuses to embedding")
 
                     # Query all distinct status external_ids from statuses table for this tenant/integration
                     statuses_query = text("""
@@ -1326,12 +1430,14 @@ class JiraTransformHandler:
                         }).fetchall()
 
                     status_external_ids = [row[0] for row in status_rows]
-                    logger.info(f"🎯 [STATUSES] Found {len(status_external_ids)} distinct statuses to queue for embedding")
+                    logger.debug(f"🎯 [STATUSES] Found {len(status_external_ids)} distinct statuses to queue for embedding")
 
                     # Get message info for forwarding
                     provider = message.get('provider') if message else 'jira'
+                    old_last_sync_date = message.get('old_last_sync_date') if message else None  # 🔑 From extraction worker
                     new_last_sync_date = message.get('new_last_sync_date') if message else None
                     last_job_item = message.get('last_job_item', False)
+                    token = message.get('token')  # 🔑 Extract token from message
 
                     # Queue each distinct status with proper first_item/last_item flags
                     for i, external_id in enumerate(status_external_ids):
@@ -1345,6 +1451,7 @@ class JiraTransformHandler:
                             message_type='jira_statuses_and_relationships',
                             integration_id=integration_id,
                             provider=provider,
+                            old_last_sync_date=old_last_sync_date,  # 🔑 Forward old_last_sync_date
                             new_last_sync_date=new_last_sync_date,
                             first_item=is_first,
                             last_item=is_last,
@@ -1352,11 +1459,18 @@ class JiraTransformHandler:
                             token=token  # 🔑 Include token in message
                         )
 
-                    logger.info(f"🎯 [STATUSES] Queued {len(status_external_ids)} distinct statuses for embedding")
-                    # NOTE: "finished" status is sent by TransformWorker router (line 276-283)
-                else:
-                    logger.info(f"🎯 [STATUSES] Not last item (first_item={message.get('first_item') if message else False}, last_item={message.get('last_item') if message else False}) - skipping embedding queue")
+                    logger.debug(f"🎯 [STATUSES] Queued {len(status_external_ids)} distinct statuses for embedding")
 
+                    # ✅ Send WebSocket status update immediately after queuing
+                    # This updates database and sends WebSocket notification to UI
+                    if job_id:
+                        logger.debug(f"🏁 [STATUSES] Sending 'finished' status for transform step")
+                        await self._send_worker_status('transform', tenant_id, job_id, 'finished', 'jira_statuses_and_relationships')
+                        logger.debug(f"✅ [STATUSES] Transform step marked as finished and WebSocket notification sent")
+                else:
+                    logger.debug(f"🎯 [STATUSES] Not last item (first_item={message.get('first_item') if message else False}, last_item={message.get('last_item') if message else False}) - skipping embedding queue")
+
+                logger.info(f"✅ [STATUSES] Completed statuses and project relationships processing (raw_data_id={raw_data_id})")
                 return True
 
         except Exception as e:
@@ -1400,7 +1514,7 @@ class JiraTransformHandler:
 
             # Create mapping lookup: original_name -> mapping_id
             status_mapping_lookup = {row[1]: row[0] for row in mappings_results}
-            logger.info(f"Found {len(status_mapping_lookup)} status mappings: {list(status_mapping_lookup.keys())}")
+            logger.debug(f"Found {len(status_mapping_lookup)} status mappings: {list(status_mapping_lookup.keys())}")
 
             # Process each status
             for status_data in statuses_data:
@@ -1454,7 +1568,7 @@ class JiraTransformHandler:
                     )
                 """)
                 db.execute(insert_query, statuses_to_insert)
-                logger.info(f"Inserted {len(statuses_to_insert)} new statuses with mapping links")
+                logger.debug(f"Inserted {len(statuses_to_insert)} new statuses with mapping links")
 
             # Bulk update existing statuses
             if statuses_to_update:
@@ -1466,7 +1580,7 @@ class JiraTransformHandler:
                     WHERE id = :id
                 """)
                 db.execute(update_query, statuses_to_update)
-                logger.info(f"Updated {len(statuses_to_update)} existing statuses with mapping links")
+                logger.debug(f"Updated {len(statuses_to_update)} existing statuses with mapping links")
 
             # Return entities for vectorization (to be queued AFTER commit)
             return {
@@ -1497,7 +1611,7 @@ class JiraTransformHandler:
 
             projects_lookup = {row[0]: row[2] for row in projects_results}  # external_id -> internal_id
             projects_key_lookup = {row[1]: row[2] for row in projects_results}  # key -> internal_id
-            logger.info(f"Found {len(projects_lookup)} projects for relationship mapping")
+            logger.debug(f"Found {len(projects_lookup)} projects for relationship mapping")
 
             # Get existing statuses mapping (external_id -> internal_id)
             statuses_query = text("""
@@ -1511,7 +1625,7 @@ class JiraTransformHandler:
             }).fetchall()
 
             statuses_lookup = {row[0]: row[1] for row in statuses_results}
-            logger.info(f"Found {len(statuses_lookup)} statuses for relationship mapping")
+            logger.debug(f"Found {len(statuses_lookup)} statuses for relationship mapping")
 
             # Get existing relationships to avoid duplicates
             existing_relationships_query = text("""
@@ -1588,7 +1702,7 @@ class JiraTransformHandler:
                     ON CONFLICT (project_id, status_id) DO NOTHING
                 """)
                 db.execute(insert_query, relationships_to_insert)
-                logger.info(f"Inserted {len(relationships_to_insert)} new project-status relationships")
+                logger.debug(f"Inserted {len(relationships_to_insert)} new project-status relationships")
 
             return len(relationships_to_insert)
 
@@ -1604,7 +1718,8 @@ class JiraTransformHandler:
         job_id: int = None,
         last_item: bool = False,
         provider: str = None,
-        new_last_sync_date: str = None,
+        old_last_sync_date: str = None,  # 🔑 Old last sync date (for filtering)
+        new_last_sync_date: str = None,  # 🔑 New last sync date (for job completion)
         message_type: str = None,
         integration_id: int = None,
         first_item: bool = False,
@@ -1618,10 +1733,12 @@ class JiraTransformHandler:
             tenant_id: Tenant ID
             table_name: Name of the table (projects, wits, statuses, etc.)
             entities: List of entity dictionaries with external_id or key
+            old_last_sync_date: Old last sync date used for filtering
+            new_last_sync_date: New last sync date to update on completion (extraction end date)
         """
         # 🎯 HANDLE COMPLETION MESSAGE: Empty entities with last_job_item=True
         if not entities and last_job_item:
-            logger.info(f"[COMPLETION] Sending job completion message to embedding queue (no {table_name} entities)")
+            logger.debug(f"[COMPLETION] Sending job completion message to embedding queue (no {table_name} entities)")
 
             # Send completion message to embedding queue with external_id=None
             if not self.queue_manager:
@@ -1635,7 +1752,8 @@ class JiraTransformHandler:
                 job_id=job_id,
                 integration_id=integration_id,
                 provider=provider,
-                new_last_sync_date=new_last_sync_date,
+                old_last_sync_date=old_last_sync_date,  # 🔑 Old last sync date (for filtering)
+                new_last_sync_date=new_last_sync_date,  # 🔑 New last sync date (for job completion)
                 first_item=first_item,
                 last_item=last_item,
                 last_job_item=last_job_item,  # 🎯 Signal job completion
@@ -1644,41 +1762,43 @@ class JiraTransformHandler:
             )
 
             if success:
-                logger.info(f"✅ Sent completion message to embedding queue for {table_name}")
+                logger.debug(f"✅ Sent completion message to embedding queue for {table_name}")
             else:
                 logger.error(f"❌ Failed to send completion message to embedding queue for {table_name}")
 
             return
 
         if not entities:
-            # 🎯 COMPLETION CHAIN: If entities is empty but we have last_item=True, publish completion message
-            if last_item:
-                logger.info(f"🎯 [COMPLETION] Publishing completion message to embedding queue for {table_name}")
+            # 🎯 FLAG MESSAGE: If entities is empty but we have first_item=True OR last_item=True, publish flag message
+            # This ensures WebSocket status updates are sent even when there are no entities to process
+            if first_item or last_item:
+                logger.debug(f"🎯 [FLAG-MESSAGE] Publishing flag message to embedding queue for {table_name} (first={first_item}, last={last_item})")
                 if not self.queue_manager:
-                    logger.error("QueueManager not available - cannot send completion message")
+                    logger.error("QueueManager not available - cannot send flag message")
                     return
 
                 success = self.queue_manager.publish_embedding_job(
                     tenant_id=tenant_id,
                     table_name=table_name,
-                    external_id=None,  # 🔑 Key: None signals completion message
+                    external_id=None,  # 🔑 Key: None signals flag/completion message
                     job_id=job_id,
                     integration_id=integration_id,
                     provider=provider,
-                    new_last_sync_date=new_last_sync_date,
-                    first_item=first_item,    # ✅ Preserved
-                    last_item=last_item,      # ✅ Preserved (True)
+                    old_last_sync_date=old_last_sync_date,  # 🔑 Old last sync date (for filtering)
+                    new_last_sync_date=new_last_sync_date,  # 🔑 New last sync date (for job completion)
+                    first_item=first_item,    # ✅ Preserved (could be True for 'running' status)
+                    last_item=last_item,      # ✅ Preserved (could be True for 'finished' status)
                     last_job_item=last_job_item,  # ✅ Preserved
                     step_type=message_type,
                     token=token  # 🔑 Include token in message
                 )
-                logger.info(f"🎯 [COMPLETION] Embedding completion message published: {success}")
+                logger.debug(f"🎯 [FLAG-MESSAGE] Embedding flag message published: {success}")
             else:
                 logger.debug(f"No entities to queue for {table_name}")
             return
 
         try:
-            logger.info(f"Attempting to queue {len(entities)} {table_name} entities for embedding")
+            logger.debug(f"Attempting to queue {len(entities)} {table_name} entities for embedding")
             if not self.queue_manager:
                 logger.error("QueueManager not available - cannot queue entities for embedding")
                 return
@@ -1688,39 +1808,26 @@ class JiraTransformHandler:
             # Update step status to running when queuing for embedding
             if job_id and queued_count == 0:  # Only on first entity to avoid multiple updates
                 # Don't update overall status here - let embedding worker handle completion
-                logger.info(f"Transform completed, queuing {table_name} for embedding")
+                logger.debug(f"Transform completed, queuing {table_name} for embedding")
 
             for entity in entities:
-                # Get external ID based on table type
-                external_id = None
-
-                if table_name == 'projects':
-                    external_id = entity.get('external_id')
-                    logger.debug(f"Project entity keys: {list(entity.keys())}, external_id value: {external_id}")
-                    logger.debug(f"Full project entity: {entity}")
-                elif table_name == 'wits':
-                    external_id = entity.get('external_id')
-                elif table_name == 'statuses':
-                    external_id = entity.get('external_id')
-                elif table_name == 'custom_fields':
-                    external_id = entity.get('external_id')
-                elif table_name == 'work_items':
-                    # For work_items, use 'external_id' field (maps to Jira payload IDs)
-                    external_id = entity.get('external_id')
-                elif table_name == 'changelogs':
-                    external_id = entity.get('external_id')
-                elif table_name in ['prs', 'prs_commits', 'prs_reviews', 'prs_comments', 'repositories']:
-                    external_id = entity.get('external_id')
-                elif table_name == 'work_items_prs_links':
-                    # Special case: use internal ID
+                # Get external ID - work_items_prs_links uses internal ID, all others use external_id
+                if table_name == 'work_items_prs_links':
                     external_id = str(entity.get('id'))
                 else:
-                    # Default: try external_id first, then key
-                    external_id = entity.get('external_id') or entity.get('key')
+                    external_id = entity.get('external_id')
 
                 if not external_id:
                     logger.warning(f"No external_id found for {table_name} entity: {entity}")
                     continue
+
+                # Calculate flags for this entity
+                entity_first_item = first_item and (queued_count == 0)
+                entity_last_item = last_item and (queued_count == len(entities) - 1)
+
+                # 🎯 DEBUG: Log flags for first entity
+                if queued_count == 0:
+                    logger.info(f"🎯 [EMBEDDING-QUEUE] First entity: table={table_name}, external_id={external_id}, first_item={entity_first_item}, last_item={entity_last_item}, incoming_first={first_item}, incoming_last={last_item}")
 
                 # Publish embedding message with standardized structure
                 success = self.queue_manager.publish_embedding_job(
@@ -1730,9 +1837,10 @@ class JiraTransformHandler:
                     job_id=job_id,
                     integration_id=integration_id,
                     provider=provider,
-                    new_last_sync_date=new_last_sync_date,
-                    first_item=first_item and (queued_count == 0),  # Use passed first_item flag
-                    last_item=last_item and (queued_count == len(entities) - 1),  # Use passed last_item flag
+                    old_last_sync_date=old_last_sync_date,  # 🔑 Old last sync date (for filtering)
+                    new_last_sync_date=new_last_sync_date,  # 🔑 New last sync date (for job completion)
+                    first_item=entity_first_item,  # True only for first entity when incoming first_item=True
+                    last_item=entity_last_item,  # True only for last entity when incoming last_item=True
                     last_job_item=last_job_item,  # Forward last_job_item flag from incoming message
                     step_type=message_type,  # Pass the step type (e.g., 'jira_projects_and_issue_types')
                     token=token  # 🔑 Include token in message
@@ -1742,7 +1850,7 @@ class JiraTransformHandler:
                     queued_count += 1
 
             if queued_count > 0:
-                logger.info(f"Queued {queued_count} {table_name} entities for embedding")
+                logger.debug(f"Queued {queued_count} {table_name} entities for embedding")
 
         except Exception as e:
             logger.error(f"Error queuing entities for embedding: {e}")
@@ -1756,7 +1864,8 @@ class JiraTransformHandler:
         job_id: int,
         message_type: str,
         provider: str,
-        new_last_sync_date: str,
+        old_last_sync_date: str,  # 🔑 Old last sync date (for filtering)
+        new_last_sync_date: str,  # 🔑 New last sync date (for job completion)
         last_job_item: bool,
         token: str = None  # 🔑 Job execution token
     ):
@@ -1773,7 +1882,8 @@ class JiraTransformHandler:
             job_id: ETL job ID
             message_type: ETL step type
             provider: Provider name (jira, github, etc.)
-            last_sync_date: Last sync date
+            old_last_sync_date: Old last sync date (for filtering)
+            new_last_sync_date: New last sync date (for job completion)
             last_job_item: Whether this is the final job item
         """
         try:
@@ -1792,7 +1902,7 @@ class JiraTransformHandler:
             ).all()
 
             total_entities = len(all_projects) + len(all_wits)
-            logger.info(f"🔄 Queueing ALL entities for embedding: {len(all_projects)} projects + {len(all_wits)} wits = {total_entities} total")
+            logger.debug(f"🔄 Queueing ALL entities for embedding: {len(all_projects)} projects + {len(all_wits)} wits = {total_entities} total")
 
             if total_entities == 0:
                 logger.warning(f"No active projects or wits found for tenant {tenant_id}, integration {integration_id}")
@@ -1811,6 +1921,7 @@ class JiraTransformHandler:
                     message_type=message_type,
                     integration_id=integration_id,
                     provider=provider,
+                    old_last_sync_date=old_last_sync_date,  # 🔑 Forward old_last_sync_date
                     new_last_sync_date=new_last_sync_date,
                     first_item=is_first,
                     last_item=is_last,
@@ -1831,6 +1942,7 @@ class JiraTransformHandler:
                     message_type=message_type,
                     integration_id=integration_id,
                     provider=provider,
+                    old_last_sync_date=old_last_sync_date,  # 🔑 Forward old_last_sync_date
                     new_last_sync_date=new_last_sync_date,
                     first_item=is_first,
                     last_item=is_last,
@@ -1838,7 +1950,7 @@ class JiraTransformHandler:
                     token=token  # 🔑 Include token in message
                 )
 
-            logger.info(f"✅ Successfully queued {total_entities} entities for embedding")
+            logger.debug(f"✅ Successfully queued {total_entities} entities for embedding")
 
         except Exception as e:
             logger.error(f"Error queuing all entities for embedding: {e}")
@@ -1855,7 +1967,7 @@ class JiraTransformHandler:
         4. Queue work_items and changelogs for vectorization
         """
         try:
-            logger.info(f"Processing jira_issues_changelogs for raw_data_id={raw_data_id}")
+            logger.debug(f"Processing jira_issues_changelogs for raw_data_id={raw_data_id}")
 
             with self.get_db_session() as db:
                 # Load raw data
@@ -1869,14 +1981,14 @@ class JiraTransformHandler:
                     logger.warning(f"No issues data found in raw_data_id={raw_data_id}")
                     return True
 
-                logger.info(f"Processing {len(issues_data)} issues")
+                logger.debug(f"Processing {len(issues_data)} issues")
 
                 # Get reference data for mapping
                 projects_map, wits_map, statuses_map = self._get_reference_data_maps(db, integration_id, tenant_id)
 
                 # Get custom field mappings from integration
                 custom_field_mappings = self._get_custom_field_mappings(db, integration_id, tenant_id)
-                logger.info(f"Loaded {len(custom_field_mappings)} custom field mappings")
+                logger.debug(f"Loaded {len(custom_field_mappings)} custom field mappings")
 
                 # Process issues
                 issues_processed = self._process_issues_data(
@@ -1899,7 +2011,7 @@ class JiraTransformHandler:
                 db.execute(update_query, {'raw_data_id': raw_data_id})
                 db.commit()
 
-                logger.info(f"Processed {issues_processed} issues and {changelogs_processed} changelogs - marked raw_data_id={raw_data_id} as completed")
+                logger.debug(f"Processed {issues_processed} issues and {changelogs_processed} changelogs - marked raw_data_id={raw_data_id} as completed")
                 return True
 
         except Exception as e:
@@ -2014,7 +2126,7 @@ class JiraTransformHandler:
 
             return False
 
-    def _process_jira_single_issue_changelog(self, raw_data_id: int, tenant_id: int, integration_id: int, job_id: int = None, message: Dict[str, Any] = None) -> bool:
+    async def _process_jira_single_issue_changelog(self, raw_data_id: int, tenant_id: int, integration_id: int, job_id: int = None, message: Dict[str, Any] = None) -> bool:
         """
         Process a single Jira issue with changelog from raw_extraction_data.
 
@@ -2031,7 +2143,7 @@ class JiraTransformHandler:
         try:
             # 🎯 HANDLE COMPLETION MESSAGE: raw_data_id=None signals job completion
             if raw_data_id is None and message and message.get('last_job_item'):
-                logger.info(f"[COMPLETION] Received completion message for jira_issues_with_changelogs (no data to process)")
+                logger.debug(f"[COMPLETION] Received completion message for jira_issues_with_changelogs (no data to process)")
 
                 # Send completion message to embedding queue
                 self._queue_entities_for_embedding(
@@ -2048,13 +2160,15 @@ class JiraTransformHandler:
                     last_job_item=True  # 🎯 Signal job completion to embedding worker
                 )
 
-                logger.info(f"✅ Sent completion message to embedding queue")
+                logger.debug(f"✅ Sent completion message to embedding queue")
                 return True
 
-            logger.debug(f"Processing single jira_single_issue_changelog for raw_data_id={raw_data_id}")
+            # Extract message flags
+            first_item = message.get('first_item', False) if message else False
+            last_item = message.get('last_item', False) if message else False
+            last_job_item = message.get('last_job_item', False) if message else False
 
-            # NOTE: Status updates are handled by TransformWorker router (lines 138-148, 276-283)
-            # Do NOT send status updates from handler to avoid event loop conflicts
+            logger.info(f"🏁 [ISSUES] Starting issue with changelog processing (raw_data_id={raw_data_id}, first={first_item}, last={last_item})")
 
             with self.get_db_session() as db:
                 # Load raw data (single issue)
@@ -2103,10 +2217,16 @@ class JiraTransformHandler:
                 db.execute(update_query, {'raw_data_id': raw_data_id})
                 db.commit()
 
-                # NOTE: "finished" status is sent by TransformWorker router (line 276-283)
-
                 logger.debug(f"Processed issue {issue.get('key')} with {changelogs_processed} changelogs - marked raw_data_id={raw_data_id} as completed")
-                return True
+
+            # ✅ Send WebSocket status update when last_item=True
+            if last_item and job_id:
+                logger.debug(f"🏁 [ISSUES] Sending 'finished' status for transform step")
+                await self._send_worker_status('transform', tenant_id, job_id, 'finished', 'jira_issues_with_changelogs')
+                logger.debug(f"✅ [ISSUES] Transform step marked as finished and WebSocket notification sent")
+
+            logger.info(f"✅ [ISSUES] Completed issue with changelog processing (raw_data_id={raw_data_id})")
+            return True
 
         except Exception as e:
             logger.error(f"Error processing single jira_single_issue_changelog (raw_data_id={raw_data_id}): {e}")
@@ -2213,13 +2333,13 @@ class JiraTransformHandler:
             }).fetchone()
 
             if not result:
-                logger.info(f"No custom field mappings found for integration {integration_id}")
+                logger.debug(f"No custom field mappings found for integration {integration_id}")
                 return {}
 
             # Get custom_fields external_ids for the mapped field IDs
             field_ids = [fid for fid in result if fid is not None]
             if not field_ids:
-                logger.info(f"No custom fields mapped for integration {integration_id}")
+                logger.debug(f"No custom fields mapped for integration {integration_id}")
                 return {}
 
             # Query custom_fields to get external_ids
@@ -2263,7 +2383,7 @@ class JiraTransformHandler:
                     if external_id:
                         mappings[external_id] = f'custom_field_{i+1:02d}'
 
-            logger.info(f"Loaded {len(mappings)} custom field mappings for integration {integration_id}")
+            logger.debug(f"Loaded {len(mappings)} custom field mappings for integration {integration_id}")
             return mappings
 
         except Exception as e:
@@ -2522,23 +2642,25 @@ class JiraTransformHandler:
         last_item = message.get('last_item', False) if message else False
         last_job_item = message.get('last_job_item', False) if message else False
         provider = message.get('provider') if message else 'jira'
+        old_last_sync_date = message.get('old_last_sync_date') if message else None  # 🔑 From extraction worker
         new_last_sync_date = message.get('new_last_sync_date') if message else None
 
         # Bulk insert new issues
         if issues_to_insert:
             BulkOperations.bulk_insert(db, 'work_items', issues_to_insert)
-            logger.info(f"Inserted {len(issues_to_insert)} new issues")
+            logger.debug(f"Inserted {len(issues_to_insert)} new issues")
 
             # Queue for embedding - forward first_item/last_item/last_job_item flags from incoming message
             self._queue_entities_for_embedding(tenant_id, 'work_items', issues_to_insert, job_id,
                                              message_type='jira_issues_with_changelogs', integration_id=integration_id,
-                                             provider=provider, new_last_sync_date=new_last_sync_date,
+                                             provider=provider, old_last_sync_date=old_last_sync_date,
+                                             new_last_sync_date=new_last_sync_date,
                                              first_item=first_item, last_item=last_item, last_job_item=last_job_item)
 
         # Bulk update existing issues
         if issues_to_update:
             BulkOperations.bulk_update(db, 'work_items', issues_to_update)
-            logger.info(f"Updated {len(issues_to_update)} existing issues")
+            logger.debug(f"Updated {len(issues_to_update)} existing issues")
 
             logger.debug(f"[DEBUG] Queuing {len(issues_to_update)} issues_to_update for embedding")
             for i, entity in enumerate(issues_to_update[:3]):  # Log first 3 entities
@@ -2548,7 +2670,8 @@ class JiraTransformHandler:
             # Queue for embedding - forward first_item/last_item/last_job_item flags from incoming message
             self._queue_entities_for_embedding(tenant_id, 'work_items', issues_to_update, job_id,
                                              message_type='jira_issues_with_changelogs', integration_id=integration_id,
-                                             provider=provider, new_last_sync_date=new_last_sync_date,
+                                             provider=provider, old_last_sync_date=old_last_sync_date,
+                                             new_last_sync_date=new_last_sync_date,
                                              first_item=first_item, last_item=last_item, last_job_item=last_job_item,
                                              token=token)  # 🔑 Include token in message
 
@@ -2695,24 +2818,26 @@ class JiraTransformHandler:
         # Bulk insert changelogs
         if changelogs_to_insert:
             BulkOperations.bulk_insert(db, 'changelogs', changelogs_to_insert)
-            logger.info(f"Inserted {len(changelogs_to_insert)} new changelogs")
+            logger.debug(f"Inserted {len(changelogs_to_insert)} new changelogs")
 
             # Get flags from incoming message to forward to embedding
             first_item = message.get('first_item', False) if message else False
             last_item = message.get('last_item', False) if message else False
             last_job_item = message.get('last_job_item', False) if message else False
             provider = message.get('provider') if message else 'jira'
+            old_last_sync_date = message.get('old_last_sync_date') if message else None  # 🔑 From extraction worker
             new_last_sync_date = message.get('new_last_sync_date') if message else None
 
             # Queue for embedding - forward first_item/last_item/last_job_item flags from incoming message
             self._queue_entities_for_embedding(tenant_id, 'changelogs', changelogs_to_insert, job_id,
                                              message_type='jira_issues_with_changelogs', integration_id=integration_id,
-                                             provider=provider, new_last_sync_date=new_last_sync_date,
+                                             provider=provider, old_last_sync_date=old_last_sync_date,
+                                             new_last_sync_date=new_last_sync_date,
                                              first_item=first_item, last_item=last_item, last_job_item=last_job_item)
 
         # Calculate and update enhanced workflow metrics from in-memory changelog data
         if changelogs_to_insert:
-            logger.info(f"Calculating enhanced workflow metrics for {len(work_items_map)} work items...")
+            logger.debug(f"Calculating enhanced workflow metrics for {len(work_items_map)} work items...")
             self._calculate_and_update_workflow_metrics(
                 db, changelogs_to_insert, work_items_map, statuses_map, integration_id, tenant_id
             )
@@ -2798,7 +2923,7 @@ class JiraTransformHandler:
         # Bulk update work_items
         if work_items_to_update:
             BulkOperations.bulk_update(db, 'work_items', work_items_to_update)
-            logger.info(f"Updated workflow metrics for {len(work_items_to_update)} work items")
+            logger.debug(f"Updated workflow metrics for {len(work_items_to_update)} work items")
 
     def _calculate_enhanced_workflow_metrics(
         self, changelogs: List[Dict], status_categories: Dict[int, str]
@@ -2929,7 +3054,7 @@ class JiraTransformHandler:
 
         return metrics
 
-    def _process_jira_dev_status(self, raw_data_id: int, tenant_id: int, integration_id: int, job_id: int = None, message: Dict[str, Any] = None) -> bool:
+    async def _process_jira_dev_status(self, raw_data_id: int, tenant_id: int, integration_id: int, job_id: int = None, message: Dict[str, Any] = None) -> bool:
         """
         Process Jira dev_status data from raw_extraction_data.
 
@@ -2947,7 +3072,7 @@ class JiraTransformHandler:
             last_item = message.get('last_item', False) if message else False
             last_job_item = message.get('last_job_item', False) if message else False
 
-            logger.info(f"🎯 [DEV_STATUS] Processing jira_dev_status for raw_data_id={raw_data_id} (first={first_item}, last={last_item}, job_end={last_job_item})")
+            logger.info(f"🏁 [DEV_STATUS] Starting dev status processing (raw_data_id={raw_data_id}, first={first_item}, last={last_item})")
             # NOTE: Status updates are handled by TransformWorker router (lines 138-148, 276-283)
 
             with self.get_db_session() as db:
@@ -2967,14 +3092,9 @@ class JiraTransformHandler:
                     logger.warning(f"No dev_status or issue_key found in raw_data_id={raw_data_id}")
                     # ✅ Send transform worker "finished" status when last_item=True even if no data
                     if message and message.get('last_item') and job_id:
-                        import asyncio
-                        loop = asyncio.new_event_loop()
-                        asyncio.set_event_loop(loop)
-                        try:
-                            loop.run_until_complete(self._send_worker_status("transform", tenant_id, job_id, "finished", "jira_dev_status"))
-                            logger.info(f"✅ Transform worker marked as finished for jira_dev_status (no data)")
-                        finally:
-                            loop.close()
+                        logger.debug(f"🏁 [DEV_STATUS] Sending 'finished' status for transform step (no data)")
+                        await self._send_worker_status("transform", tenant_id, job_id, "finished", "jira_dev_status")
+                        logger.debug(f"✅ [DEV_STATUS] Transform step marked as finished (no data)")
                     return True
 
                 # Convert to list format expected by _process_dev_status_data
@@ -2984,10 +3104,10 @@ class JiraTransformHandler:
                     'dev_details': dev_status
                 }]
 
-                logger.info(f"Processing dev_status for issue {issue_key}")
+                logger.debug(f"Processing dev_status for issue {issue_key}")
 
                 # Process dev_status
-                pr_links_processed = self._process_dev_status_data(
+                pr_links_processed = await self._process_dev_status_data(
                     db, dev_status_data, integration_id, tenant_id, job_id, message
                 )
 
@@ -3003,11 +3123,11 @@ class JiraTransformHandler:
                 db.execute(update_query, {'raw_data_id': raw_data_id})
                 db.commit()
 
-                logger.info(f"Processed {pr_links_processed} PR links from dev_status - marked raw_data_id={raw_data_id} as completed")
+                logger.debug(f"Processed {pr_links_processed} PR links from dev_status - marked raw_data_id={raw_data_id} as completed")
 
-                # Note: first_item/last_item flags are now properly forwarded through _process_dev_status_data
-                # NOTE: "finished" status is sent by TransformWorker router (line 276-283)
+                # Note: WebSocket "finished" status is sent by _process_dev_status_data when last_item=True
 
+                logger.info(f"✅ [DEV_STATUS] Completed dev status processing (raw_data_id={raw_data_id})")
                 return True
 
         except Exception as e:
@@ -3040,7 +3160,7 @@ class JiraTransformHandler:
 
             return False
 
-    def _process_dev_status_data(
+    async def _process_dev_status_data(
         self, db, dev_status_data: List[Dict], integration_id: int, tenant_id: int, job_id: int = None, message: Dict[str, Any] = None
     ) -> int:
         """Process dev_status data and insert/update work_items_prs_links table."""
@@ -3110,29 +3230,65 @@ class JiraTransformHandler:
                 logger.error(f"Error processing dev_status for issue {dev_status_item.get('issue_key', 'unknown')}: {e}")
                 continue
 
+        # Get flags from incoming message to forward to embedding
+        first_item = message.get('first_item', False) if message else False
+        last_item = message.get('last_item', False) if message else False
+        last_job_item = message.get('last_job_item', False) if message else False
+        provider = message.get('provider') if message else 'jira'
+        old_last_sync_date = message.get('old_last_sync_date') if message else None  # 🔑 From extraction worker
+        new_last_sync_date = message.get('new_last_sync_date') if message else None
+        token = message.get('token') if message else None  # 🔑 Extract token from message
+
+        logger.info(f"🎯 [DEV_STATUS] Flags from transform message: first_item={first_item}, last_item={last_item}, last_job_item={last_job_item}")
+
         # Bulk insert PR links
         if pr_links_to_insert:
             BulkOperations.bulk_insert(db, 'work_items_prs_links', pr_links_to_insert)
-            logger.info(f"Inserted {len(pr_links_to_insert)} new PR links")
+            logger.debug(f"Inserted {len(pr_links_to_insert)} new PR links")
 
             # Fetch the inserted records with their generated IDs for vectorization
             inserted_links = self._fetch_inserted_pr_links(db, pr_links_to_insert, integration_id, tenant_id)
-
-            # Get flags from incoming message to forward to embedding
-            first_item = message.get('first_item', False) if message else False
-            last_item = message.get('last_item', False) if message else False
-            last_job_item = message.get('last_job_item', False) if message else False
-            provider = message.get('provider') if message else 'jira'
-            new_last_sync_date = message.get('new_last_sync_date') if message else None
-            token = message.get('token') if message else None  # 🔑 Extract token from message
 
             # Queue for embedding - forward first_item/last_item/last_job_item flags from incoming message
             if inserted_links:
                 self._queue_entities_for_embedding(tenant_id, 'work_items_prs_links', inserted_links, job_id,
                                                  message_type='jira_dev_status', integration_id=integration_id,
-                                                 provider=provider, new_last_sync_date=new_last_sync_date,
+                                                 provider=provider, old_last_sync_date=old_last_sync_date,
+                                                 new_last_sync_date=new_last_sync_date,
                                                  first_item=first_item, last_item=last_item, last_job_item=last_job_item,
                                                  token=token)  # 🔑 Forward token to embedding
+        else:
+            # No PR links to insert - send message to embedding if first_item=True OR last_item=True
+            # This ensures WebSocket status updates are sent even when there are no entities
+            if first_item or last_item:
+                logger.debug(f"🎯 [DEV_STATUS] No PR links to insert, sending flag message to embedding (first={first_item}, last={last_item})")
+                self._queue_entities_for_embedding(
+                    tenant_id=tenant_id,
+                    table_name='work_items_prs_links',
+                    entities=[],  # Empty entities
+                    job_id=job_id,
+                    message_type='jira_dev_status',
+                    integration_id=integration_id,
+                    provider=provider,
+                    old_last_sync_date=old_last_sync_date,
+                    new_last_sync_date=new_last_sync_date,
+                    first_item=first_item,
+                    last_item=last_item,
+                    last_job_item=last_job_item,
+                    token=token
+                )
+
+        # ✅ Send WebSocket status update when last_item=True (OUTSIDE the if block)
+        if last_item and job_id:
+            logger.info(f"🏁 [DEV_STATUS] Sending 'finished' status for transform step")
+            await self.status_manager.send_worker_status(
+                step="transform",
+                tenant_id=tenant_id,
+                job_id=job_id,
+                status="finished",
+                step_type="jira_dev_status"
+            )
+            logger.info(f"✅ [DEV_STATUS] Transform step marked as finished")
 
         return len(pr_links_to_insert)
 
@@ -3194,7 +3350,7 @@ class JiraTransformHandler:
                 for row in result
             ]
 
-            logger.info(f"Fetched {len(fetched_links)} PR links with IDs for vectorization")
+            logger.debug(f"Fetched {len(fetched_links)} PR links with IDs for vectorization")
             return fetched_links
 
         except Exception as e:
@@ -3396,9 +3552,9 @@ class JiraTransformHandler:
                 })
                 session.commit()
 
-                logger.info(f"Updated job {job_id} step {step_name} transform status to {step_status}")
+                logger.debug(f"Updated job {job_id} step {step_name} transform status to {step_status}")
                 if message:
-                    logger.info(f"Job {job_id} message: {message}")
+                    logger.debug(f"Job {job_id} message: {message}")
 
         except Exception as e:
             logger.error(f"Error updating job status: {e}")

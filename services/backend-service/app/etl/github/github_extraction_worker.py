@@ -55,7 +55,7 @@ class GitHubExtractionWorker:
 
         self.database = get_database()
         self.status_manager = status_manager  # 🔑 Dependency injection
-        logger.info("Initialized GitHubExtractionWorker")
+        logger.debug("Initialized GitHubExtractionWorker")
 
     async def _send_worker_status(self, step: str, tenant_id: int, job_id: int, status: str, step_type: str = None):
         """
@@ -87,25 +87,25 @@ class GitHubExtractionWorker:
             bool: True if processing succeeded
         """
         try:
-            logger.info(f"🚀 [GITHUB] process_github_extraction called with type={message_type}")
+            logger.debug(f"🚀 [GITHUB] process_github_extraction called with type={message_type}")
 
             if message_type == 'github_repositories':
-                logger.info(f"🚀 [GITHUB] Processing github_repositories extraction")
+                logger.debug(f"🚀 [GITHUB] Processing github_repositories extraction")
                 result = await self._extract_github_repositories(message)
-                logger.info(f"🚀 [GITHUB] github_repositories extraction returned: {result}")
+                logger.debug(f"🚀 [GITHUB] github_repositories extraction returned: {result}")
                 return result
             elif message_type == 'github_prs_commits_reviews_comments':
-                logger.info(f"🚀 [GITHUB] Processing github_prs_commits_reviews_comments extraction")
+                logger.debug(f"🚀 [GITHUB] Processing github_prs_commits_reviews_comments extraction")
 
                 # 🔑 Check if this is a nested extraction message or PR extraction message
                 if message.get('pr_node_id') and message.get('nested_type'):
-                    logger.info(f"🔀 [GITHUB] Routing to nested extraction (type={message.get('nested_type')})")
+                    logger.debug(f"🔀 [GITHUB] Routing to nested extraction (type={message.get('nested_type')})")
                     result = await self._extract_github_nested(message)
                 else:
-                    logger.info(f"🔀 [GITHUB] Routing to PR extraction (pr_cursor={message.get('pr_cursor')})")
+                    logger.debug(f"🔀 [GITHUB] Routing to PR extraction (pr_cursor={message.get('pr_cursor')})")
                     result = await self._extract_github_prs(message)
 
-                logger.info(f"🚀 [GITHUB] github_prs_commits_reviews_comments extraction returned: {result}")
+                logger.debug(f"🚀 [GITHUB] github_prs_commits_reviews_comments extraction returned: {result}")
                 return result
             else:
                 logger.warning(f"Unknown GitHub extraction type: {message_type}")
@@ -133,12 +133,12 @@ class GitHubExtractionWorker:
             token = message.get('token')
             old_last_sync_date = message.get('old_last_sync_date')  # 🔑 Get from message (already fetched in jobs.py)
 
-            logger.info(f"🚀 [GITHUB] Starting repositories extraction for tenant {tenant_id}, integration {integration_id}")
+            logger.debug(f"🚀 [GITHUB] Starting repositories extraction for tenant {tenant_id}, integration {integration_id}")
 
             if old_last_sync_date:
-                logger.info(f"📅 [GITHUB] Using old_last_sync_date from message: {old_last_sync_date}")
+                logger.debug(f"📅 [GITHUB] Using old_last_sync_date from message: {old_last_sync_date}")
             else:
-                logger.info(f"📅 [GITHUB] No old_last_sync_date in message, will use 2-year default")
+                logger.debug(f"📅 [GITHUB] No old_last_sync_date in message, will use 2-year default")
 
             # Call the actual extraction method
             result = await self.extract_github_repositories(
@@ -150,16 +150,16 @@ class GitHubExtractionWorker:
             )
 
             if result.get('success'):
-                logger.info(f"✅ [GITHUB] Repositories extraction completed for tenant {tenant_id}")
-                logger.info(f"📊 [GITHUB] Processed {result.get('repositories_count', 0)} repositories")
+                logger.debug(f"✅ [GITHUB] Repositories extraction completed for tenant {tenant_id}")
+                logger.debug(f"📊 [GITHUB] Processed {result.get('repositories_count', 0)} repositories")
 
                 # 🔑 Send "finished" status for extraction worker
                 # This is needed because the incoming message has last_item=False,
                 # but we know we're done after processing all repositories
-                logger.info(f"🏁 [GITHUB] Sending extraction worker finished status for github_repositories")
+                logger.debug(f"🏁 [GITHUB] Sending extraction worker finished status for github_repositories")
                 try:
                     await self._send_worker_status("extraction", tenant_id, job_id, "finished", "github_repositories")
-                    logger.info(f"✅ [GITHUB] Extraction worker finished status sent for github_repositories")
+                    logger.debug(f"✅ [GITHUB] Extraction worker finished status sent for github_repositories")
                 except Exception as ws_error:
                     logger.error(f"❌ [GITHUB] Error sending extraction finished status: {ws_error}")
 
@@ -200,7 +200,7 @@ class GitHubExtractionWorker:
             last_repo = message.get('last_repo', False)
             last_pr_last_nested = message.get('last_pr_last_nested', False)
 
-            logger.info(f"🚀 [GITHUB] Starting nested extraction for tenant {tenant_id}, type={nested_type}")
+            logger.debug(f"🚀 [GITHUB] Starting nested extraction for tenant {tenant_id}, type={nested_type}")
 
             # Call the actual extraction method
             result = await self.extract_nested_pagination(
@@ -221,7 +221,7 @@ class GitHubExtractionWorker:
             )
 
             if result.get('success'):
-                logger.info(f"✅ [GITHUB] Nested extraction completed for tenant {tenant_id}")
+                logger.debug(f"✅ [GITHUB] Nested extraction completed for tenant {tenant_id}")
                 return True
             else:
                 logger.error(f"❌ [GITHUB] Nested extraction failed: {result.get('error')}")
@@ -256,9 +256,9 @@ class GitHubExtractionWorker:
             new_last_sync_date = message.get('new_last_sync_date')
             last_repo = message.get('last_repo', False)
 
-            logger.info(f"🚀 [GITHUB] Starting PRs extraction for tenant {tenant_id}, integration {integration_id}")
-            logger.info(f"🔍 [MESSAGE RECEIVED] pr_cursor={pr_cursor}, type={type(pr_cursor)}")
-            logger.info(f"🔍 [MESSAGE FULL] message={message}")
+            logger.debug(f"🚀 [GITHUB] Starting PRs extraction for tenant {tenant_id}, integration {integration_id}")
+            logger.debug(f"🔍 [MESSAGE RECEIVED] pr_cursor={pr_cursor}, type={type(pr_cursor)}")
+            logger.debug(f"🔍 [MESSAGE FULL] message={message}")
 
             # Call the actual extraction method
             result = await self.extract_github_prs_commits_reviews_comments(
@@ -276,7 +276,7 @@ class GitHubExtractionWorker:
             )
 
             if result.get('success'):
-                logger.info(f"✅ [GITHUB] PRs extraction completed for tenant {tenant_id}")
+                logger.debug(f"✅ [GITHUB] PRs extraction completed for tenant {tenant_id}")
                 return True
             else:
                 logger.error(f"❌ [GITHUB] PRs extraction failed: {result.get('error')}")
@@ -315,7 +315,7 @@ class GitHubExtractionWorker:
         Returns:
             Dictionary with extraction result
         """
-        logger.info(f"🚀 [GITHUB] Starting repository extraction for tenant {tenant_id}, integration {integration_id}")
+        logger.debug(f"🚀 [GITHUB] Starting repository extraction for tenant {tenant_id}, integration {integration_id}")
 
         # Set last_run_started_at at the beginning of extraction
         if job_id:
@@ -375,13 +375,13 @@ class GitHubExtractionWorker:
                 # for the NEXT job run (for incremental sync)
                 end_date = datetime.now().strftime('%Y-%m-%d')
 
-                logger.info(f"📅 Search date range: {start_date} to {end_date}")
-                logger.info(f"🔍 Repository filters: {name_filters}")
-                logger.info(f"🏢 Organization: {org}")
-                logger.info(f"⏭️ Next sync will use new_last_sync_date: {end_date}")
+                logger.debug(f"📅 Search date range: {start_date} to {end_date}")
+                logger.debug(f"🔍 Repository filters: {name_filters}")
+                logger.debug(f"🏢 Organization: {org}")
+                logger.debug(f"⏭️ Next sync will use new_last_sync_date: {end_date}")
 
                 # Step 1: Query Jira PR links for non-health repository names
-                logger.info("Step 1: Querying Jira PR links for repository names...")
+                logger.debug("Step 1: Querying Jira PR links for repository names...")
                 non_health_repo_names = set()
 
                 try:
@@ -417,7 +417,7 @@ class GitHubExtractionWorker:
                             if not should_exclude:
                                 non_health_repo_names.add(repo_name)
 
-                    logger.info(f"Found {len(non_health_repo_names)} unique non-health repositories from Jira PR links")
+                    logger.debug(f"Found {len(non_health_repo_names)} unique non-health repositories from Jira PR links")
 
                 except Exception as e:
                     logger.warning(f"Could not query Jira PR links: {e}")
@@ -432,7 +432,7 @@ class GitHubExtractionWorker:
                     'end_date': end_date,
                     'non_health_repo_names': non_health_repo_names
                 }
-                logger.info(f"✅ Exiting database session, integration_data prepared")
+                logger.debug(f"✅ Exiting database session, integration_data prepared")
         except Exception as e:
             logger.error(f"❌ Error in database session: {e}")
             import traceback
@@ -440,8 +440,8 @@ class GitHubExtractionWorker:
             raise
 
         try:
-            logger.info("Step 2: Searching GitHub repositories using combined search patterns...")
-            logger.info(f"DEBUG: integration_data keys = {list(integration_data.keys())}")
+            logger.debug("Step 2: Searching GitHub repositories using combined search patterns...")
+            logger.debug(f"DEBUG: integration_data keys = {list(integration_data.keys())}")
 
             from app.etl.workers.queue_manager import QueueManager
             queue_manager = QueueManager()
@@ -459,12 +459,12 @@ class GitHubExtractionWorker:
                 additional_repo_names=list(integration_data['non_health_repo_names']) if integration_data['non_health_repo_names'] else None
             )
 
-            logger.info(f"📦 Retrieved {len(all_repositories)} total repositories from GitHub API")
+            logger.debug(f"📦 Retrieved {len(all_repositories)} total repositories from GitHub API")
 
             # Process each repository as a separate raw_extraction_data record
             if all_repositories:
                 # 🔄 LOOP 1: Extract all repos and queue to transform
-                logger.info(f"📤 [LOOP 1] Queuing {len(all_repositories)} repositories to transform")
+                logger.debug(f"📤 [LOOP 1] Queuing {len(all_repositories)} repositories to transform")
                 for i, repo in enumerate(all_repositories):
                     is_first = (i == 0)
                     is_last = (i == len(all_repositories) - 1)
@@ -495,7 +495,7 @@ class GitHubExtractionWorker:
                     # 🔑 first_item=true ONLY on first repository
                     # 🔑 last_item=true ONLY on last repository
                     # 🔑 last_repo=true ONLY on last repository (signals to Step 2 that this is the final repo)
-                    logger.info(f"Queuing repository {i+1}/{len(all_repositories)} for transform (raw_data_id={raw_data_id}, first={is_first}, last={is_last})")
+                    logger.debug(f"Queuing repository {i+1}/{len(all_repositories)} for transform (raw_data_id={raw_data_id}, first={is_first}, last={is_last})")
                     success = queue_manager.publish_transform_job(
                         tenant_id=tenant_id,
                         integration_id=integration_id,
@@ -515,17 +515,17 @@ class GitHubExtractionWorker:
                     if not success:
                         logger.error(f"Failed to queue repository {i+1}/{len(all_repositories)} for transform")
 
-                logger.info(f"✅ [LOOP 1 COMPLETE] All {len(all_repositories)} repositories queued to transform")
+                logger.debug(f"✅ [LOOP 1 COMPLETE] All {len(all_repositories)} repositories queued to transform")
 
                 # 🔑 LOOP 2: Queue each repository to Step 2 extraction (NO database query)
-                logger.info(f"📤 [LOOP 2] Queuing {len(all_repositories)} repositories to Step 2 extraction")
+                logger.debug(f"📤 [LOOP 2] Queuing {len(all_repositories)} repositories to Step 2 extraction")
                 for i, repo in enumerate(all_repositories):
                     is_first = (i == 0)
                     is_last = (i == len(all_repositories) - 1)
 
                     # Queue PR extraction for this repository
                     # 🔑 NO database query - use repo data directly from extraction
-                    logger.info(f"Queuing PR extraction for repository {i+1}/{len(all_repositories)}: {repo.get('full_name')} (first={is_first}, last={is_last})")
+                    logger.debug(f"Queuing PR extraction for repository {i+1}/{len(all_repositories)}: {repo.get('full_name')} (first={is_first}, last={is_last})")
 
                     success_pr = queue_manager.publish_extraction_job(
                         tenant_id=tenant_id,
@@ -551,14 +551,14 @@ class GitHubExtractionWorker:
                     if not success_pr:
                         logger.error(f"Failed to queue PR extraction for repository {i+1}/{len(all_repositories)}")
 
-                logger.info(f"✅ [LOOP 2 COMPLETE] All {len(all_repositories)} repositories queued to Step 2 extraction")
+                logger.debug(f"✅ [LOOP 2 COMPLETE] All {len(all_repositories)} repositories queued to Step 2 extraction")
                 total_repositories = len(all_repositories)
 
-            logger.info(f"✅ [GITHUB] Repository extraction completed: {total_repositories} repositories found and queued for transform and PR extraction")
+            logger.debug(f"✅ [GITHUB] Repository extraction completed: {total_repositories} repositories found and queued for transform and PR extraction")
 
             # 🏁 Handle case when NO repositories were found
             if total_repositories == 0:
-                logger.info(f"📤 No repositories found - sending completion message to transform queue")
+                logger.debug(f"📤 No repositories found - sending completion message to transform queue")
                 # 🔑 Completion message pattern:
                 # - raw_data_id=None signals this is a closing message
                 # - last_job_item=True signals job completion
@@ -638,7 +638,7 @@ class GitHubExtractionWorker:
                 })
 
                 raw_data_id = result.fetchone()[0]
-                logger.info(f"✅ Stored raw GitHub data (type={data_type}) with ID {raw_data_id}")
+                logger.debug(f"✅ Stored raw GitHub data (type={data_type}) with ID {raw_data_id}")
                 return raw_data_id
 
         except Exception as e:
@@ -672,7 +672,7 @@ class GitHubExtractionWorker:
             job_id = message.get('job_id')
             repository_id = message.get('repository_id')
 
-            logger.info(f"🔀 [ROUTER] Extraction worker received message for repo {repository_id}")
+            logger.debug(f"🔀 [ROUTER] Extraction worker received message for repo {repository_id}")
 
             # 🔑 Extract token from message
             token = message.get('token')
@@ -680,7 +680,7 @@ class GitHubExtractionWorker:
             # ROUTER: Check if this is nested recovery from rate limit checkpoint
             if message.get('type') == 'github_nested_extraction_recovery':
                 # NESTED RECOVERY: Resume from rate limit checkpoint
-                logger.info(f"⏭️ [ROUTER] Routing to extract_nested_recovery (PR {message.get('pr_id')})")
+                logger.debug(f"⏭️ [ROUTER] Routing to extract_nested_recovery (PR {message.get('pr_id')})")
                 result = await self.extract_nested_recovery(
                     tenant_id=tenant_id,
                     integration_id=integration_id,  # 🔑 For service-to-service auth
@@ -696,7 +696,7 @@ class GitHubExtractionWorker:
             # ROUTER: Check if this is nested data continuation
             elif message.get('nested_type'):
                 # NESTED CONTINUATION: Extract next page of nested data
-                logger.info(f"🔀 [ROUTER] Routing to extract_nested_pagination (nested_type={message.get('nested_type')})")
+                logger.debug(f"🔀 [ROUTER] Routing to extract_nested_pagination (nested_type={message.get('nested_type')})")
                 result = await self.extract_nested_pagination(
                     tenant_id=tenant_id,
                     integration_id=integration_id,  # 🔑 For service-to-service auth
@@ -716,7 +716,7 @@ class GitHubExtractionWorker:
             else:
                 # FRESH OR NEXT PR PAGE
                 is_fresh = message.get('pr_cursor') is None
-                logger.info(f"🔀 [ROUTER] Routing to extract_github_prs_commits_reviews_comments ({'fresh' if is_fresh else 'next'} page)")
+                logger.debug(f"🔀 [ROUTER] Routing to extract_github_prs_commits_reviews_comments ({'fresh' if is_fresh else 'next'} page)")
                 result = await self.extract_github_prs_commits_reviews_comments(
                     tenant_id=tenant_id,
                     integration_id=integration_id,  # 🔑 For service-to-service auth
@@ -793,11 +793,11 @@ class GitHubExtractionWorker:
         Returns:
             Dictionary with extraction result
         """
-        logger.info(f"🔍 GUSTAVO - INICIO")
-        logger.info(f"🚀 [FUNCTION ENTRY] extract_github_prs_commits_reviews_comments called with pr_cursor={pr_cursor}, last_repo={last_repo}")
+        logger.debug(f"🔍 GUSTAVO - INICIO")
+        logger.debug(f"🚀 [FUNCTION ENTRY] extract_github_prs_commits_reviews_comments called with pr_cursor={pr_cursor}, last_repo={last_repo}")
         try:
             is_fresh = (pr_cursor is None)
-            logger.info(f"🚀 Starting GitHub PR extraction - {'Fresh' if is_fresh else 'Next'} page for {owner}/{repo_name}")
+            logger.debug(f"🚀 Starting GitHub PR extraction - {'Fresh' if is_fresh else 'Next'} page for {owner}/{repo_name}")
 
             # 🔑 IMPORTANT: Capture current date at start of extraction
             # This is the END date of the search range and will be used as new_last_sync_date
@@ -813,8 +813,8 @@ class GitHubExtractionWorker:
                 logger.error(f"owner and repo_name must be provided in message for PR extraction")
                 return {'success': False, 'error': 'owner and repo_name required in message'}
 
-            logger.info(f"✅ Using owner and repo_name from message: {owner}/{repo_name}")
-            logger.info(f"📅 Using old_last_sync_date for filtering: {old_last_sync_date}")
+            logger.debug(f"✅ Using owner and repo_name from message: {owner}/{repo_name}")
+            logger.debug(f"📅 Using old_last_sync_date for filtering: {old_last_sync_date}")
 
             # 🔑 Get integration (service-to-service, not data processing)
             with get_read_session_context() as db:
@@ -836,7 +836,7 @@ class GitHubExtractionWorker:
             if integration.settings and isinstance(integration.settings, dict):
                 sync_config = integration.settings.get('sync_config', {})
                 batch_size = sync_config.get('batch_size', 50)
-            logger.info(f"🔧 Using batch_size={batch_size} from integration settings")
+            logger.debug(f"🔧 Using batch_size={batch_size} from integration settings")
 
             # Initialize clients
             from app.etl.github.github_graphql_client import GitHubGraphQLClient
@@ -844,7 +844,7 @@ class GitHubExtractionWorker:
             queue_manager = QueueManager()
 
             # STEP 1: Fetch PR page
-            logger.info(f"🔄 Fetching PR page for {owner}/{repo_name} (cursor: {pr_cursor or 'None'})")
+            logger.debug(f"🔄 Fetching PR page for {owner}/{repo_name} (cursor: {pr_cursor or 'None'})")
             try:
                 pr_page = await github_client.get_pull_requests_with_details(
                     owner, repo_name, pr_cursor
@@ -862,7 +862,7 @@ class GitHubExtractionWorker:
 
                 # 🔑 Send completion message to transform queue to signal job completion
                 # This allows the job to finish gracefully even though we hit rate limit
-                logger.info(f"📤 Sending completion message to transform queue due to rate limit")
+                logger.debug(f"📤 Sending completion message to transform queue due to rate limit")
                 queue_manager.publish_transform_job(
                     tenant_id=tenant_id,
                     integration_id=integration.id,
@@ -895,7 +895,7 @@ class GitHubExtractionWorker:
 
                 # 🔑 If this is the last repository (last_repo=true), send completion message
                 if last_repo:
-                    logger.info(f"🏁 [COMPLETION] No PRs found and this is the last repo - sending completion message")
+                    logger.debug(f"🏁 [COMPLETION] No PRs found and this is the last repo - sending completion message")
                     queue_manager.publish_transform_job(
                         tenant_id=tenant_id,
                         integration_id=integration.id,
@@ -911,11 +911,11 @@ class GitHubExtractionWorker:
                         last_repo=last_repo,
                         token=token  # 🔑 Include token in message
                     )
-                    logger.info(f"✅ Completion message queued to transform")
+                    logger.debug(f"✅ Completion message queued to transform")
 
                 return {'success': True, 'prs_processed': 0}
 
-            logger.info(f"📝 Processing {len(prs)} PRs from page")
+            logger.debug(f"📝 Processing {len(prs)} PRs from page")
 
             # STEP 1.5: Filter PRs by old_last_sync_date for incremental sync
             # PRs are ordered by UPDATED_AT DESC, so we can stop early when reaching old PRs
@@ -927,9 +927,9 @@ class GitHubExtractionWorker:
                 # Using module-level imports from line 24
                 two_years_ago = datetime.now() - timedelta(days=730)
                 old_last_sync_date = two_years_ago.strftime('%Y-%m-%d')
-                logger.info(f"📅 No old_last_sync_date provided, using 2-year default: {old_last_sync_date}")
+                logger.debug(f"📅 No old_last_sync_date provided, using 2-year default: {old_last_sync_date}")
 
-            logger.info(f"🔍 Filtering PRs by old_last_sync_date: {old_last_sync_date}")
+            logger.debug(f"🔍 Filtering PRs by old_last_sync_date: {old_last_sync_date}")
             from datetime import timezone  # Only need timezone, datetime already imported at module level
 
             # Parse old_last_sync_date (format: YYYY-MM-DD or YYYY-MM-DD HH:MM)
@@ -961,14 +961,14 @@ class GitHubExtractionWorker:
                             filtered_prs.append(pr)
                         else:
                             # PR is older than last sync, stop pagination
-                            logger.info(f"⏹️ PR {pr.get('number')} updated at {pr_updated_at_str} is older than old_last_sync_date {old_last_sync_date}, stopping pagination")
+                            logger.debug(f"⏹️ PR {pr.get('number')} updated at {pr_updated_at_str} is older than old_last_sync_date {old_last_sync_date}, stopping pagination")
                             early_termination = True
                             break
                     except Exception as e:
                         logger.warning(f"Error parsing PR updated time: {e}, including PR")
                         filtered_prs.append(pr)
 
-            logger.info(f"✅ Filtered {len(filtered_prs)} PRs (from {len(prs)} total)")
+            logger.debug(f"✅ Filtered {len(filtered_prs)} PRs (from {len(prs)} total)")
 
             # STEP 2: Split PRs into individual raw_data entries
             # 🔑 Clean structure: pr_data contains all nested data, no duplication
@@ -989,14 +989,14 @@ class GitHubExtractionWorker:
                     )
                     raw_data_ids.append(raw_data_id)
 
-            logger.info(f"💾 Stored {len(raw_data_ids)} raw data entries")
+            logger.debug(f"💾 Stored {len(raw_data_ids)} raw data entries")
 
             # Get page info early to determine if there are more pages
             page_info = pr_page['data']['repository']['pullRequests']['pageInfo']
             has_next_page = page_info['hasNextPage']
             returned_cursor = page_info.get('endCursor')
 
-            logger.info(f"📄 [PR PAGE INFO] hasNextPage={has_next_page}, endCursor={returned_cursor}, PRs in page={len(filtered_prs)}")
+            logger.debug(f"📄 [PR PAGE INFO] hasNextPage={has_next_page}, endCursor={returned_cursor}, PRs in page={len(filtered_prs)}")
 
             # STEP 3: Check if there are ANY nested pagination jobs needed
             # 🔑 This determines if last_item should be true on the last PR
@@ -1009,7 +1009,7 @@ class GitHubExtractionWorker:
                     has_nested_pagination = True
                     break
 
-            logger.info(f"🔍 Has nested pagination: {has_nested_pagination}")
+            logger.debug(f"🔍 Has nested pagination: {has_nested_pagination}")
 
             # STEP 4: Queue all PRs to transform
             # 🔑 first_item=true ONLY on first PR when received from message
@@ -1054,7 +1054,7 @@ class GitHubExtractionWorker:
                     token=token  # 🔑 Include token in message
                 )
 
-            logger.info(f"📤 Queued {len(raw_data_ids)} PRs to transform")
+            logger.debug(f"📤 Queued {len(raw_data_ids)} PRs to transform")
 
             # STEP 5: Loop through each PR and queue nested pagination if needed
             # 🔑 Build list of nested types that need pagination for this PR
@@ -1079,7 +1079,7 @@ class GitHubExtractionWorker:
 
                 total_nested_types = len(nested_types_needing_pagination)
                 for nested_index, (nested_type, nested_cursor) in enumerate(nested_types_needing_pagination):
-                    logger.info(f"🔍 GUSTAVO - NESTED")
+                    logger.debug(f"🔍 GUSTAVO - NESTED")
                     is_last_nested_type = (nested_index == total_nested_types - 1)
 
                     # 🔑 Set last_pr_last_nested=true ONLY for the last nested type of the last PR of the last repo
@@ -1108,20 +1108,20 @@ class GitHubExtractionWorker:
                         last_repo=last_repo,                # 🔑 Forward: true if last repository
                         last_pr_last_nested=last_pr_last_nested  # 🔑 last_pr_last_nested: true ONLY for last nested type of last PR
                     )
-                    logger.info(f"📤 Queued {nested_type} pagination (nested_type={nested_type}, last_pr_last_nested={last_pr_last_nested})")
+                    logger.debug(f"📤 Queued {nested_type} pagination (nested_type={nested_type}, last_pr_last_nested={last_pr_last_nested})")
 
-            logger.info(f"📤 Queued nested pagination messages for PRs with incomplete data")
+            logger.debug(f"📤 Queued nested pagination messages for PRs with incomplete data")
 
             # STEP 5: Queue next PR page if exists (and we didn't hit early termination)
             # 🔑 RELAY FLAGS: Pass last_repo=true to next page
             # This signals "you are processing the last repository" through the PR page chain
             next_pr_cursor = None
-            logger.info(f"🔍 [NEXT PAGE CHECK] has_next_page={has_next_page}, early_termination={early_termination}")
-            logger.info(f"🔍 [PAGE_INFO] page_info={page_info}")
+            logger.debug(f"🔍 [NEXT PAGE CHECK] has_next_page={has_next_page}, early_termination={early_termination}")
+            logger.debug(f"🔍 [PAGE_INFO] page_info={page_info}")
             if has_next_page and not early_termination:
                 next_pr_cursor = page_info['endCursor']
-                logger.info(f"🔍 [CURSOR] next_pr_cursor={next_pr_cursor}, type={type(next_pr_cursor)}")
-                logger.info(f"📤 [QUEUING NEXT PR PAGE] Cursor={next_pr_cursor}, last_repo={last_repo}")
+                logger.debug(f"🔍 [CURSOR] next_pr_cursor={next_pr_cursor}, type={type(next_pr_cursor)}")
+                logger.debug(f"📤 [QUEUING NEXT PR PAGE] Cursor={next_pr_cursor}, last_repo={last_repo}")
 
                 extraction_data_to_queue = {
                     'owner': owner,
@@ -1130,7 +1130,7 @@ class GitHubExtractionWorker:
                     'pr_cursor': next_pr_cursor,
                     'pr_node_id': None
                 }
-                logger.info(f"🔍 [EXTRACTION_DATA] extraction_data={extraction_data_to_queue}")
+                logger.debug(f"🔍 [EXTRACTION_DATA] extraction_data={extraction_data_to_queue}")
 
                 queue_manager.publish_extraction_job(
                     tenant_id=tenant_id,
@@ -1147,20 +1147,20 @@ class GitHubExtractionWorker:
                     last_repo=last_repo,       # 🔑 Forward: true if last repository
                     token=token                # 🔑 Forward token to next page
                 )
-                logger.info(f"📤 Queued next PR page to extraction queue with last_repo={last_repo}")
+                logger.debug(f"📤 Queued next PR page to extraction queue with last_repo={last_repo}")
             elif early_termination:
-                logger.info(f"⏹️ Early termination due to old PRs, not queuing next page")
+                logger.debug(f"⏹️ Early termination due to old PRs, not queuing next page")
 
                 # 🔑 Send "finished" status for extraction worker
-                logger.info(f"🏁 [GITHUB] Sending extraction worker finished status for github_prs_commits_reviews_comments (early termination)")
+                logger.debug(f"🏁 [GITHUB] Sending extraction worker finished status for github_prs_commits_reviews_comments (early termination)")
                 try:
                     await self._send_worker_status("extraction", tenant_id, job_id, "finished", "github_prs_commits_reviews_comments")
-                    logger.info(f"✅ [GITHUB] Extraction worker finished status sent for github_prs_commits_reviews_comments")
+                    logger.debug(f"✅ [GITHUB] Extraction worker finished status sent for github_prs_commits_reviews_comments")
                 except Exception as ws_error:
                     logger.error(f"❌ [GITHUB] Error sending extraction finished status: {ws_error}")
 
                 # 🔑 Send completion message when early termination
-                logger.info(f"📤 Sending completion message to transform (early termination)")
+                logger.debug(f"📤 Sending completion message to transform (early termination)")
                 queue_manager.publish_transform_job(
                     tenant_id=tenant_id,
                     integration_id=integration_id,
@@ -1178,13 +1178,13 @@ class GitHubExtractionWorker:
                 )
             else:
                 # 🔑 No more pages AND no early termination = FINAL PAGE!
-                logger.info(f"✅ FINAL PR PAGE - Sending completion message to transform")
+                logger.debug(f"✅ FINAL PR PAGE - Sending completion message to transform")
 
                 # 🔑 Send "finished" status for extraction worker
-                logger.info(f"🏁 [GITHUB] Sending extraction worker finished status for github_prs_commits_reviews_comments (final page)")
+                logger.debug(f"🏁 [GITHUB] Sending extraction worker finished status for github_prs_commits_reviews_comments (final page)")
                 try:
                     await self._send_worker_status("extraction", tenant_id, job_id, "finished", "github_prs_commits_reviews_comments")
-                    logger.info(f"✅ [GITHUB] Extraction worker finished status sent for github_prs_commits_reviews_comments")
+                    logger.debug(f"✅ [GITHUB] Extraction worker finished status sent for github_prs_commits_reviews_comments")
                 except Exception as ws_error:
                     logger.error(f"❌ [GITHUB] Error sending extraction finished status: {ws_error}")
 
@@ -1215,8 +1215,8 @@ class GitHubExtractionWorker:
             # (see early return above when not prs). This ensures we only send one completion
             # message per repository extraction, not multiple times.
 
-            logger.info(f"✅ PR extraction completed: {len(prs)} PRs processed")
-            logger.info(f"🔍 GUSTAVO - FIM")
+            logger.debug(f"✅ PR extraction completed: {len(prs)} PRs processed")
+            logger.debug(f"🔍 GUSTAVO - FIM")
             return {
                 'success': True,
                 'prs_processed': len(prs),
@@ -1282,7 +1282,7 @@ class GitHubExtractionWorker:
             Dictionary with extraction result
         """
         try:
-            logger.info(f"🚀 Extracting nested {nested_type} for PR {pr_node_id}")
+            logger.debug(f"🚀 Extracting nested {nested_type} for PR {pr_node_id}")
 
             from app.core.database_router import get_read_session_context, get_write_session_context
             from app.core.config import AppConfig
@@ -1293,7 +1293,7 @@ class GitHubExtractionWorker:
                 logger.error(f"owner and repo_name required for nested extraction")
                 return {'success': False, 'error': 'owner and repo_name required'}
 
-            logger.info(f"✅ Using owner and repo_name from message: {owner}/{repo_name}")
+            logger.debug(f"✅ Using owner and repo_name from message: {owner}/{repo_name}")
 
             # 🔑 Get integration and GitHub token (service-to-service, not data processing)
             with get_read_session_context() as db:
@@ -1315,7 +1315,7 @@ class GitHubExtractionWorker:
             if integration.settings and isinstance(integration.settings, dict):
                 sync_config = integration.settings.get('sync_config', {})
                 batch_size = sync_config.get('batch_size', 50)
-            logger.info(f"🔧 Using batch_size={batch_size} from integration settings")
+            logger.debug(f"🔧 Using batch_size={batch_size} from integration settings")
 
             # Initialize clients
             from app.etl.github.github_graphql_client import GitHubGraphQLClient
@@ -1323,7 +1323,7 @@ class GitHubExtractionWorker:
             queue_manager = QueueManager()
 
             # STEP 1: Fetch nested page based on type
-            logger.info(f"🔄 Fetching {nested_type} page for PR {pr_node_id}")
+            logger.debug(f"🔄 Fetching {nested_type} page for PR {pr_node_id}")
 
             try:
                 if nested_type == 'commits':
@@ -1354,7 +1354,7 @@ class GitHubExtractionWorker:
 
                 # 🔑 Send completion message to transform queue to signal job completion
                 # This allows the job to finish gracefully even though we hit rate limit
-                logger.info(f"📤 Sending completion message to transform queue due to rate limit in {nested_type}")
+                logger.debug(f"📤 Sending completion message to transform queue due to rate limit in {nested_type}")
                 queue_manager.publish_transform_job(
                     tenant_id=tenant_id,
                     integration_id=integration.id,
@@ -1412,7 +1412,7 @@ class GitHubExtractionWorker:
                     raw_data, pr_node_id  # 🔑 Use PR node_id as external_id
                 )
 
-            logger.info(f"💾 Stored nested {nested_type} data (has_more={has_more})")
+            logger.debug(f"💾 Stored nested {nested_type} data (has_more={has_more})")
 
             # STEP 3: Determine if this is the last item to queue
             # 🔑 last_item=true ONLY if:
@@ -1445,7 +1445,7 @@ class GitHubExtractionWorker:
                 token=token  # 🔑 Include token in message
             )
 
-            logger.info(f"📤 Queued {nested_type} page to transform (last_item={is_last_item}, last_job_item={is_last_job_item})")
+            logger.debug(f"📤 Queued {nested_type} page to transform (last_item={is_last_item}, last_job_item={is_last_job_item})")
 
             # STEP 5: If more pages exist, queue next nested page to extraction
             # 🔑 Forward last_pr_last_nested to next nested page
@@ -1473,12 +1473,12 @@ class GitHubExtractionWorker:
                     last_pr_last_nested=last_pr_last_nested,  # 🔑 Forward: last_pr_last_nested
                     token=token  # 🔑 CRITICAL: Forward token to nested extraction
                 )
-                logger.info(f"📤 Queued next {nested_type} page to extraction queue with last_repo={last_repo}, last_pr_last_nested={last_pr_last_nested}")
+                logger.debug(f"📤 Queued next {nested_type} page to extraction queue with last_repo={last_repo}, last_pr_last_nested={last_pr_last_nested}")
             # 🔑 NOTE: Do NOT send completion message here!
             # Completion message is only sent from main PR extraction when no more PR pages exist.
             # Nested pagination extraction doesn't know about other PRs or PR pages.
 
-            logger.info(f"✅ Nested {nested_type} extraction completed (items: {len(nested_data['nodes'])})")
+            logger.debug(f"✅ Nested {nested_type} extraction completed (items: {len(nested_data['nodes'])})")
             return {
                 'success': True,
                 'nested_type': nested_type,
@@ -1526,7 +1526,7 @@ class GitHubExtractionWorker:
             Dictionary with extraction result
         """
         try:
-            logger.info(f"⏭️ Resuming nested extraction for PR {pr_id} from checkpoint")
+            logger.debug(f"⏭️ Resuming nested extraction for PR {pr_id} from checkpoint")
 
             from app.core.database_router import get_read_session_context
 
@@ -1559,12 +1559,12 @@ class GitHubExtractionWorker:
 
                 if node_status.get('fetched') and not node_status.get('has_next_page'):
                     # Node is complete, skip it
-                    logger.info(f"⏭️  Skipping {nested_type} (already complete)")
+                    logger.debug(f"⏭️  Skipping {nested_type} (already complete)")
                     continue
 
                 if node_status.get('fetched') and node_status.get('has_next_page'):
                     # Continue pagination from saved cursor
-                    logger.info(f"🔄 Continuing {nested_type} pagination from cursor")
+                    logger.debug(f"🔄 Continuing {nested_type} pagination from cursor")
                     cursor = node_status.get('cursor')
 
                     result = await extract_nested_pagination(
@@ -1588,7 +1588,7 @@ class GitHubExtractionWorker:
 
                 elif not node_status.get('fetched'):
                     # Fetch from scratch
-                    logger.info(f"🔄 Fetching {nested_type} from scratch")
+                    logger.debug(f"🔄 Fetching {nested_type} from scratch")
 
                     result = await extract_nested_pagination(
                         tenant_id=tenant_id,
@@ -1609,7 +1609,7 @@ class GitHubExtractionWorker:
                             return result
                         logger.warning(f"Failed to fetch {nested_type}: {result.get('error')}")
 
-            logger.info(f"✅ Nested extraction recovery completed for PR {pr_id}")
+            logger.debug(f"✅ Nested extraction recovery completed for PR {pr_id}")
             return {'success': True, 'pr_id': pr_id}
 
         except Exception as e:
@@ -1708,7 +1708,7 @@ class GitHubExtractionWorker:
                     'tenant_id': tenant_id,
                     'checkpoint_data': json.dumps(checkpoint_data)
                 })
-                logger.info(f"✅ Saved checkpoint: {checkpoint_data}")
+                logger.debug(f"✅ Saved checkpoint: {checkpoint_data}")
         except Exception as e:
             logger.error(f"Error saving checkpoint: {e}")
 
@@ -1773,7 +1773,7 @@ class GitHubExtractionWorker:
                     'tenant_id': tenant_id,
                     'checkpoint_data': json.dumps(checkpoint_data)
                 })
-                logger.info(f"✅ Saved rate limit checkpoint: node_type={rate_limit_node_type}, reset_at={checkpoint_data['rate_limit_reset_at']}")
+                logger.debug(f"✅ Saved rate limit checkpoint: node_type={rate_limit_node_type}, reset_at={checkpoint_data['rate_limit_reset_at']}")
         except Exception as e:
             logger.error(f"Error saving rate limit checkpoint: {e}")
 
@@ -1807,7 +1807,7 @@ class GitHubExtractionWorker:
                     'tenant_id': tenant_id,
                     'job_start_time': job_start_time
                 })
-                logger.info(f"✅ Set last_run_started_at to {job_start_time} for job {job_id}")
+                logger.debug(f"✅ Set last_run_started_at to {job_start_time} for job {job_id}")
         except Exception as e:
             logger.error(f"Error setting job start time: {e}")
 

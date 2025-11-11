@@ -43,7 +43,7 @@ class ExtractionWorker(BaseWorker):
         super().__init__(queue_name)
         self.worker_number = worker_number
         self.tenant_ids = tenant_ids
-        logger.info(f"✅ Initialized ExtractionWorker router (queue: {queue_name}, worker: {worker_number})")
+        logger.debug(f"✅ Initialized ExtractionWorker router (queue: {queue_name}, worker: {worker_number})")
 
     async def process_message(self, message: Dict[str, Any]) -> bool:
         """
@@ -81,7 +81,7 @@ class ExtractionWorker(BaseWorker):
                 logger.info(f"🚀 [EXTRACTION] Sending WebSocket status update: extraction worker running for {extraction_type}")
                 try:
                     await self._send_worker_status("extraction", tenant_id, job_id, "running", extraction_type)
-                    logger.info(f"✅ [EXTRACTION] WebSocket status update completed for {extraction_type}")
+                    logger.debug(f"✅ [EXTRACTION] WebSocket status update completed for {extraction_type}")
                 except Exception as ws_error:
                     logger.error(f"❌ [EXTRACTION] Error sending WebSocket status: {ws_error}")
 
@@ -92,19 +92,19 @@ class ExtractionWorker(BaseWorker):
             result = False
             try:
                 if provider == 'jira':
-                    logger.info(f"📋 [DEBUG] Routing to JiraExtractionWorker for {extraction_type}")
+                    logger.debug(f"📋 [DEBUG] Routing to JiraExtractionWorker for {extraction_type}")
                     from app.etl.jira.jira_extraction_worker import JiraExtractionWorker
                     jira_worker = JiraExtractionWorker(status_manager=self.status_manager)
-                    logger.info(f"📋 [DEBUG] Calling jira_worker.process_jira_extraction")
+                    logger.debug(f"📋 [DEBUG] Calling jira_worker.process_jira_extraction")
                     result = await jira_worker.process_jira_extraction(extraction_type, message)
-                    logger.info(f"📋 [DEBUG] jira_worker.process_jira_extraction returned: {result}")
+                    logger.debug(f"📋 [DEBUG] jira_worker.process_jira_extraction returned: {result}")
                 elif provider == 'github':
-                    logger.info(f"📋 [DEBUG] Routing to GitHubExtractionWorker for {extraction_type}")
+                    logger.debug(f"📋 [DEBUG] Routing to GitHubExtractionWorker for {extraction_type}")
                     from app.etl.github.github_extraction_worker import GitHubExtractionWorker
                     github_worker = GitHubExtractionWorker(status_manager=self.status_manager)
-                    logger.info(f"📋 [DEBUG] Calling github_worker.process_github_extraction")
+                    logger.debug(f"📋 [DEBUG] Calling github_worker.process_github_extraction")
                     result = await github_worker.process_github_extraction(extraction_type, message)
-                    logger.info(f"📋 [DEBUG] github_worker.process_github_extraction returned: {result}")
+                    logger.debug(f"📋 [DEBUG] github_worker.process_github_extraction returned: {result}")
                 else:
                     logger.warning(f"❓ [DEBUG] Unknown provider: {provider} for extraction type: {extraction_type}")
                     result = False
@@ -119,7 +119,7 @@ class ExtractionWorker(BaseWorker):
             # (e.g., github_repositories finishes after LOOP 1 + LOOP 2, even though incoming message has last_item=False)
 
             if result:
-                logger.info(f"✅ [EXTRACTION] Successfully processed {extraction_type}")
+                logger.debug(f"✅ [EXTRACTION] Successfully processed {extraction_type}")
             else:
                 logger.error(f"❌ [EXTRACTION] Failed to process {extraction_type}")
 
@@ -142,7 +142,7 @@ class ExtractionWorker(BaseWorker):
             # Calculate delay: 2^retry_count seconds (1s, 2s, 4s)
             delay = 2 ** (retry_count - 1)
 
-            logger.info(f"Retrying message in {delay} seconds (attempt {retry_count})")
+            logger.debug(f"Retrying message in {delay} seconds (attempt {retry_count})")
 
             # Add retry count to message
             retry_message = message.copy()
@@ -160,7 +160,7 @@ class ExtractionWorker(BaseWorker):
 
                 success = queue_manager._publish_message(tier_queue, retry_message)
                 if success:
-                    logger.info(f"Message requeued for retry (attempt {retry_count})")
+                    logger.debug(f"Message requeued for retry (attempt {retry_count})")
                 else:
                     logger.error(f"Failed to requeue message for retry")
 

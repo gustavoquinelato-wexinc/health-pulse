@@ -104,15 +104,16 @@ const saveUnifiedColorSchemaToAPI = async (lightColors: ColorSchema, darkColors:
 
 
 
-const saveColorSchemaModeToAPI = async (mode: ColorSchemaMode): Promise<boolean> => {
-  try {
-    const response = await axios.post('/api/v1/admin/color-schema/mode', { mode })
-    return response.data.success
-  } catch (error) {
-    console.error('Failed to save color schema mode to API:', error)
-    return false
-  }
-}
+// Unused function - kept for potential future use
+// const saveColorSchemaModeToAPI = async (mode: ColorSchemaMode): Promise<boolean> => {
+//   try {
+//     const response = await axios.post('/api/v1/admin/color-schema/mode', { mode })
+//     return response.data.success
+//   } catch (error) {
+//     console.error('Failed to save color schema mode to API:', error)
+//     return false
+//   }
+// }
 
 // API functions for theme mode persistence (user-specific)
 const loadThemeModeFromAPI = async (): Promise<Theme | null> => {
@@ -270,14 +271,15 @@ export function ThemeProvider({ children }: ThemeProviderProps) {
   const colorSchema = colorSchemaState
 
   // Function to clear color cache (useful for testing)
-  const clearColorCache = () => {
-    try {
-      localStorage.removeItem('pulse_colors')
-      console.log('🗑️ Color cache cleared')
-    } catch (error) {
-      console.warn('Failed to clear color cache:', error)
-    }
-  }
+  // Commented out to avoid unused variable warning - uncomment if needed
+  // const clearColorCache = () => {
+  //   try {
+  //     localStorage.removeItem('pulse_colors')
+  //     console.log('🗑️ Color cache cleared')
+  //   } catch (error) {
+  //     console.warn('Failed to clear color cache:', error)
+  //   }
+  // }
 
   // Apply CSS variables whenever colorSchema changes
   useEffect(() => {
