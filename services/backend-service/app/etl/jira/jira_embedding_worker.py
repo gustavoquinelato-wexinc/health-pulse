@@ -29,24 +29,9 @@ from app.models.unified_models import (
     WorkItem, Changelog, Project, Status, Wit,
     WorkItemPrLink, WitHierarchy, WitMapping, StatusMapping, Workflow, QdrantVector
 )
+from app.etl.workers.embedding_worker_router import SOURCE_TYPE_MAPPING
 
 logger = get_logger(__name__)
-
-# Source type mapping for multi-agent architecture
-SOURCE_TYPE_MAPPING = {
-    # Jira Agent's scope (all Jira-related data including cross-links)
-    'work_items': 'JIRA',
-    'changelogs': 'JIRA',
-    'projects': 'JIRA',
-    'statuses': 'JIRA',
-    'statuses_mappings': 'JIRA',
-    'status_mappings': 'JIRA',  # Queue message name (maps to statuses_mappings table)
-    'workflows': 'JIRA',
-    'wits': 'JIRA',
-    'wits_hierarchies': 'JIRA',
-    'wits_mappings': 'JIRA',
-    'work_items_prs_links': 'JIRA',  # Jira agent owns the links
-}
 
 
 class JiraEmbeddingWorker:

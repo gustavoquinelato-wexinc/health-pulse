@@ -25,18 +25,9 @@ from sqlalchemy import text
 from app.core.logging_config import get_logger
 from app.core.database import get_database
 from app.models.unified_models import Pr, PrCommit, PrReview, PrComment, Repository, QdrantVector
+from app.etl.workers.embedding_worker_router import SOURCE_TYPE_MAPPING
 
 logger = get_logger(__name__)
-
-# Source type mapping for multi-agent architecture
-SOURCE_TYPE_MAPPING = {
-    # GitHub Agent's scope (all GitHub-related data + DORA metrics)
-    'prs': 'GITHUB',
-    'prs_commits': 'GITHUB',
-    'prs_reviews': 'GITHUB',
-    'prs_comments': 'GITHUB',
-    'repositories': 'GITHUB',
-}
 
 
 class GitHubEmbeddingWorker:
