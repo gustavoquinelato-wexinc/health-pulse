@@ -179,7 +179,11 @@ async def get_ai_performance_metrics(
             query_params["start_date"] = start_date
             query_params["end_date"] = end_date
         else:
-            date_filter = "AND created_at >= NOW() - INTERVAL '30 days'"
+            from app.core.utils import DateTimeHelper
+            from datetime import timedelta
+            thirty_days_ago = DateTimeHelper.now_default() - timedelta(days=30)
+            date_filter = "AND created_at >= :thirty_days_ago"
+            query_params["thirty_days_ago"] = thirty_days_ago
 
         # Get performance metrics from AI usage tracking
         # Note: Using placeholder values for avg_response_time since we don't have timing data
