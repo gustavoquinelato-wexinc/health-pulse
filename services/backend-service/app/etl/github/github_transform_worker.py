@@ -18,6 +18,7 @@ from app.etl.workers.bulk_operations import BulkOperations
 from app.core.logging_config import get_logger
 from app.core.database import get_database, get_write_session
 from app.etl.workers.queue_manager import QueueManager
+from app.core.utils import DateTimeHelper
 
 
 logger = get_logger(__name__)

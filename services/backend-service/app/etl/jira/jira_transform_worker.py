@@ -20,6 +20,7 @@ from app.etl.workers.bulk_operations import BulkOperations
 from app.models.unified_models import Project, Wit, CustomField
 from app.core.logging_config import get_logger
 from app.core.database import get_database, get_write_session
+from app.core.utils import DateTimeHelper
 
 logger = get_logger(__name__)
 
