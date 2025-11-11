@@ -379,7 +379,7 @@ class JiraExtractionWorker:
             # 🔑 Set new_last_sync_date to current time (extraction start time)
             # This will be used by transform worker to check for updated statuses
             from app.core.utils import DateTimeHelper
-            new_last_sync_date = DateTimeHelper.default_now().strftime('%Y-%m-%d %H:%M:%S')
+            new_last_sync_date = DateTimeHelper.now_default().strftime('%Y-%m-%d %H:%M:%S')
             logger.info(f"📅 Setting new_last_sync_date for statuses step: {new_last_sync_date}")
 
             # Get Jira client and integration settings
