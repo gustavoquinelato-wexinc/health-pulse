@@ -330,10 +330,10 @@ class ColorResolutionService:
                 setattr(color_settings, key, value)
             for key, value in variants.adaptive_colors.items():
                 setattr(color_settings, key, value)
-            
+
             # Update timestamp
-            from datetime import datetime
-            color_settings.last_updated_at = datetime.now()
+            from app.core.utils import DateTimeHelper
+            color_settings.last_updated_at = DateTimeHelper.now_default()
             
             # Commit changes
             db.commit()

@@ -14,7 +14,6 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import os
 from pathlib import Path
-from datetime import datetime
 from sqlalchemy import func, case, text
 
 from app.core.logging_config import get_logger
@@ -613,7 +612,7 @@ async def store_entity_vector(
                             "table_name": table_name,
                             "record_id": str(record_id),
                             "text_content": text_content[:1000],  # Truncate for storage
-                            "created_at": datetime.now().isoformat()
+                            "created_at": DateTimeHelper.now_default().isoformat()
                         }
                     }]
                 )
