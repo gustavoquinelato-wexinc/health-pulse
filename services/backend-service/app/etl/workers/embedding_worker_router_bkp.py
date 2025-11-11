@@ -84,35 +84,8 @@ class EmbeddingWorker(BaseWorker):
         self.tier = tier
         self.hybrid_provider = None
 
-    def _complete_etl_job_on_final_step(self, job_id: int, tenant_id: int):
-        """Complete ETL job when embedding worker finishes the final step."""
-        try:
-            from app.core.database import get_write_session
-            from sqlalchemy import text
-            from datetime import datetime, timezone
-
-            with get_write_session() as session:
-                # Update job status to FINISHED
-                update_query = text("""
-                    UPDATE etl_jobs
-                    SET status = 'FINISHED',
-                        last_run_completed_at = :completed_at,
-                        updated_at = :updated_at
-                    WHERE id = :job_id AND tenant_id = :tenant_id
-                """)
-
-                session.execute(update_query, {
-                    'job_id': job_id,
-                    'tenant_id': tenant_id,
-                    'completed_at': datetime.now(timezone.utc),
-                    'updated_at': datetime.now(timezone.utc)
-                })
-
-                session.commit()
-                logger.info(f"✅ ETL job {job_id} completed successfully by embedding worker")
-
-        except Exception as e:
-            logger.error(f"Error completing ETL job: {e}")
+    # NOTE: _complete_etl_job_on_final_step() method removed - now using WorkerStatusManager.complete_etl_job()
+    # This provides consistent job completion logic across all workers (extraction, transform, embedding)
 
     async def process_message(self, message: Dict[str, Any]) -> bool:
         """
@@ -171,7 +144,7 @@ class EmbeddingWorker(BaseWorker):
             # Handle job completion messages first
             if table_name and external_id is None and last_job_item:
                 logger.info(f"🎯 [JOB COMPLETION] Completing ETL job {job_id} from completion message (table={table_name})")
-                self._complete_etl_job(job_id, tenant_id, new_last_sync_date)
+                await self.status_manager.complete_etl_job(job_id, tenant_id, new_last_sync_date)
                 result = True
             else:
                 # Process the embedding message asynchronously
@@ -219,7 +192,7 @@ class EmbeddingWorker(BaseWorker):
                 if result:
                     # 🔑 Use new_last_sync_date (extraction end date) for job completion
                     # This ensures next run starts from the correct date
-                    self._complete_etl_job(job_id, tenant_id, new_last_sync_date)
+                    await self.status_manager.complete_etl_job(job_id, tenant_id, new_last_sync_date)
                     logger.info(f"✅ EMBEDDING WORKER: ETL job {job_id} marked as FINISHED with new_last_sync_date={new_last_sync_date}")
                 else:
                     self._update_job_status(job_id, overall_status="FAILED", message="ETL job failed during embedding")
@@ -1510,91 +1483,7 @@ class EmbeddingWorker(BaseWorker):
         except Exception as e:
             logger.error(f"Error updating job status: {e}")
 
-    def _complete_etl_job(self, job_id: int, tenant_id: int, last_sync_date: str = None):
-        """
-        Complete the ETL job by updating its status to FINISHED and setting completion fields.
-
-        This is called by the embedding worker when last_job_item=True:
-        1. Set status to FINISHED
-        2. Update last_run_finished_at
-        3. Update last_sync_date if provided
-        4. Calculate and set next_run
-        5. Clear error_message and reset retry_count
-        6. UI will automatically reset to READY after a few seconds
-
-        Args:
-            job_id: ETL job ID
-            tenant_id: Tenant ID
-            last_sync_date: Last sync date to update
-        """
-        try:
-            from app.core.database import get_write_session
-            from sqlalchemy import text
-            from datetime import timedelta
-            from app.core.utils import DateTimeHelper
-
-            with get_write_session() as session:
-                # First, fetch job details to calculate next_run
-                job_query = text("""
-                    SELECT last_run_started_at, schedule_interval_minutes, retry_interval_minutes, retry_count
-                    FROM etl_jobs
-                    WHERE id = :job_id AND tenant_id = :tenant_id
-                """)
-                job_result = session.execute(job_query, {
-                    'job_id': job_id,
-                    'tenant_id': tenant_id
-                }).fetchone()
-
-                if not job_result:
-                    logger.error(f"❌ Job {job_id} not found for completion")
-                    return
-
-                last_run_started_at, schedule_interval_minutes, retry_interval_minutes, retry_count = job_result
-
-                # Calculate next_run: use schedule_interval_minutes for normal completion
-                now = DateTimeHelper.now_default()
-                if schedule_interval_minutes and schedule_interval_minutes > 0:
-                    next_run = now + timedelta(minutes=schedule_interval_minutes)
-                else:
-                    # Default to 1 hour if not set
-                    next_run = now + timedelta(hours=1)
-
-                # 🔑 Set status to FINISHED with all completion fields
-                # UI will automatically reset to READY after a few seconds
-                update_query = text("""
-                    UPDATE etl_jobs
-                    SET status = jsonb_set(status, ARRAY['overall'], '"FINISHED"'::jsonb),
-                        last_run_finished_at = :now,
-                        last_updated_at = :now,
-                        next_run = :next_run,
-                        error_message = NULL,
-                        retry_count = 0
-                        """ + (", last_sync_date = :last_sync_date" if last_sync_date else "") + """
-                    WHERE id = :job_id AND tenant_id = :tenant_id
-                """)
-
-                params = {
-                    'job_id': job_id,
-                    'tenant_id': tenant_id,
-                    'now': now,
-                    'next_run': next_run
-                }
-                if last_sync_date:
-                    params['last_sync_date'] = last_sync_date
-
-                session.execute(update_query, params)
-                session.commit()
-
-                logger.info(f"🎯 [JOB COMPLETION] ETL job {job_id} marked as FINISHED")
-                logger.info(f"   last_run_finished_at: {now}")
-                logger.info(f"   next_run: {next_run}")
-                if last_sync_date:
-                    logger.info(f"   last_sync_date: {last_sync_date}")
-                logger.info(f"   UI will automatically reset to READY after a few seconds")
-
-        except Exception as e:
-            logger.error(f"❌ Error completing ETL job {job_id}: {e}")
-            import traceback
-            logger.error(f"Full traceback: {traceback.format_exc()}")
+    # NOTE: _complete_etl_job() method removed - now using WorkerStatusManager.complete_etl_job()
+    # This provides consistent job completion logic across all workers (extraction, transform, embedding)
 
 

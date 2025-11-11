@@ -376,6 +376,12 @@ class JiraExtractionWorker:
 
             logger.info(f"🏁 [JIRA] Starting statuses and relationships extraction")
 
+            # 🔑 Set new_last_sync_date to current time (extraction start time)
+            # This will be used by transform worker to check for updated statuses
+            from app.core.utils import DateTimeHelper
+            new_last_sync_date = DateTimeHelper.default_now().strftime('%Y-%m-%d %H:%M:%S')
+            logger.info(f"📅 Setting new_last_sync_date for statuses step: {new_last_sync_date}")
+
             # Get Jira client and integration settings
             integration, jira_client = self._get_jira_client(tenant_id, integration_id)
             if not integration or not jira_client:
@@ -437,6 +443,7 @@ class JiraExtractionWorker:
                     job_id=job_id,
                     provider='jira',
                     old_last_sync_date=old_last_sync_date,  # 🔑 Forward to transform
+                    new_last_sync_date=new_last_sync_date,  # 🔑 Forward to transform for comparison
                     first_item=is_first,  # True only for first project
                     last_item=is_last,    # True only for last project
                     last_job_item=False,  # Not the final step
@@ -569,24 +576,47 @@ class JiraExtractionWorker:
             )
 
             if not issues_response or not issues_response.get('issues'):
-                logger.warning(f"No issues found")
-                # Send completion message (no issues case)
-                queue_manager = QueueManager()
-                queue_manager.publish_transform_job(
-                    tenant_id=tenant_id,
-                    integration_id=integration_id,
-                    raw_data_id=None,  # Completion message
-                    data_type='jira_issues_with_changelogs',
-                    job_id=job_id,
-                    provider='jira',
-                    old_last_sync_date=old_last_sync_date,  # 🔑 Forward to transform
-                    new_last_sync_date=new_last_sync_date,  # 🔑 Forward to transform
-                    first_item=True,
-                    last_item=True,
-                    last_job_item=True,  # Skip Step 4 (no issues)
-                    token=token
-                )
+                logger.warning(f"No issues found - marking all remaining steps as finished")
+
+                # 🎯 OPTION 1: Mark all remaining steps as finished directly (current approach)
+                # This avoids sending unnecessary completion messages through the queue
+                # Step 3 (issues_with_changelogs): extraction, transform, embedding
                 await self._send_worker_status("extraction", tenant_id, job_id, "finished", "jira_issues_with_changelogs")
+                await self._send_worker_status("transform", tenant_id, job_id, "finished", "jira_issues_with_changelogs")
+                await self._send_worker_status("embedding", tenant_id, job_id, "finished", "jira_issues_with_changelogs")
+
+                # Step 4 (dev_status): extraction, transform, embedding
+                await self._send_worker_status("extraction", tenant_id, job_id, "finished", "jira_dev_status")
+                await self._send_worker_status("transform", tenant_id, job_id, "finished", "jira_dev_status")
+                await self._send_worker_status("embedding", tenant_id, job_id, "finished", "jira_dev_status")
+
+                # Mark overall job as FINISHED and update last_sync_date (using generic method)
+                await self.status_manager.complete_etl_job(
+                    job_id=job_id,
+                    tenant_id=tenant_id,
+                    last_sync_date=new_last_sync_date
+                )
+
+                logger.info(f"✅ All steps marked as finished and job marked as FINISHED (no issues to process)")
+
+                # 🎯 OPTION 2: Send completion message to transform (uncomment if you want the message to flow through workers)
+                # queue_manager = QueueManager()
+                # queue_manager.publish_transform_job(
+                #     tenant_id=tenant_id,
+                #     integration_id=integration_id,
+                #     raw_data_id=None,  # Completion message
+                #     data_type='jira_issues_with_changelogs',
+                #     job_id=job_id,
+                #     provider='jira',
+                #     old_last_sync_date=old_last_sync_date,  # 🔑 Forward to transform
+                #     new_last_sync_date=new_last_sync_date,  # 🔑 Forward to transform
+                #     first_item=True,
+                #     last_item=True,
+                #     last_job_item=True,  # Skip Step 4 (no issues)
+                #     token=token
+                # )
+                # await self._send_worker_status("extraction", tenant_id, job_id, "finished", "jira_issues_with_changelogs")
+
                 return True
 
             issues_list = issues_response.get('issues', [])

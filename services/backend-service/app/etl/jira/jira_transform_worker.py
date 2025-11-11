@@ -368,28 +368,35 @@ class JiraTransformHandler:
                     token=token
                 )
 
-            # 🎯 HANDLE NO UPDATES: If no projects and no WITs, send completion message to embedding
+            # 🎯 HANDLE NO UPDATES: If no projects and no WITs, mark both transform and embedding as finished
             if not has_projects and not has_wits and last_item:
-                logger.info(f"🎯 [PROJECTS] No updates found - sending completion message to embedding")
-                self._queue_entities_for_embedding(
-                    tenant_id=tenant_id,
-                    table_name='projects',  # Use projects table as the step identifier
-                    entities=[],  # Empty list signals completion
-                    job_id=job_id,
-                    message_type='jira_projects_and_issue_types',
-                    integration_id=integration_id,
-                    provider=provider,
-                    old_last_sync_date=old_last_sync_date,
-                    new_last_sync_date=new_last_sync_date,
-                    first_item=first_item,  # Preserve first_item flag
-                    last_item=last_item,  # Preserve last_item flag
-                    last_job_item=last_job_item,  # Preserve last_job_item flag
-                    token=token
-                )
-                logger.debug(f"✅ [PROJECTS] Completion message sent to embedding (no data to process)")
+                logger.info(f"🎯 [PROJECTS] No updates found - marking transform and embedding as finished")
 
-            # ✅ Send WebSocket status update when last_item=True
-            if last_item and job_id:
+                # 🎯 OPTION 1: Mark both steps as finished directly (current approach)
+                # This avoids sending unnecessary completion messages through the queue
+                await self._send_worker_status('transform', tenant_id, job_id, 'finished', 'jira_projects_and_issue_types')
+                await self._send_worker_status('embedding', tenant_id, job_id, 'finished', 'jira_projects_and_issue_types')
+                logger.debug(f"✅ [PROJECTS] Both transform and embedding steps marked as finished (no data to process)")
+
+                # 🎯 OPTION 2: Send completion message to embedding (uncomment if you want the message to flow through embedding worker)
+                # self._queue_entities_for_embedding(
+                #     tenant_id=tenant_id,
+                #     table_name='projects',  # Use projects table as the step identifier
+                #     entities=[],  # Empty list signals completion
+                #     job_id=job_id,
+                #     message_type='jira_projects_and_issue_types',
+                #     integration_id=integration_id,
+                #     provider=provider,
+                #     old_last_sync_date=old_last_sync_date,
+                #     new_last_sync_date=new_last_sync_date,
+                #     first_item=first_item,  # Preserve first_item flag
+                #     last_item=last_item,  # Preserve last_item flag
+                #     last_job_item=last_job_item,  # Preserve last_job_item flag
+                #     token=token
+                # )
+                # logger.debug(f"✅ [PROJECTS] Completion message sent to embedding (no data to process)")
+            # ✅ Send WebSocket status update when last_item=True (only if we have data to process)
+            elif last_item and job_id:
                 logger.info(f"🏁 [PROJECTS] Sending 'finished' status for transform step")
                 await self._send_worker_status('transform', tenant_id, job_id, 'finished', 'jira_projects_and_issue_types')
                 logger.debug(f"✅ [PROJECTS] Transform step marked as finished and WebSocket notification sent")
@@ -1433,52 +1440,81 @@ class JiraTransformHandler:
                 logger.debug(f"🎯 [STATUSES] Message check: message={message is not None}, last_item={message.get('last_item') if message else 'N/A'}")
 
                 if message and message.get('last_item'):
-                    logger.debug(f"🎯 [STATUSES] Last item received - queuing all distinct statuses to embedding")
-
-                    # Query all distinct status external_ids from statuses table for this tenant/integration
-                    statuses_query = text("""
-                        SELECT DISTINCT external_id
-                        FROM statuses
-                        WHERE tenant_id = :tenant_id AND integration_id = :integration_id
-                        ORDER BY external_id
-                    """)
-
-                    with self.get_db_session() as db_read:
-                        status_rows = db_read.execute(statuses_query, {
-                            'tenant_id': tenant_id,
-                            'integration_id': integration_id
-                        }).fetchall()
-
-                    status_external_ids = [row[0] for row in status_rows]
-                    logger.debug(f"🎯 [STATUSES] Found {len(status_external_ids)} distinct statuses to queue for embedding")
+                    logger.debug(f"🎯 [STATUSES] Last item received - checking for updated statuses")
 
                     # Get message info for forwarding
                     provider = message.get('provider') if message else 'jira'
                     old_last_sync_date = message.get('old_last_sync_date') if message else None  # 🔑 From extraction worker
-                    new_last_sync_date = message.get('new_last_sync_date') if message else None
+                    new_last_sync_date = message.get('new_last_sync_date') if message else None  # 🔑 Extraction start time
                     last_job_item = message.get('last_job_item', False)
                     first_item_flag = message.get('first_item', False)
                     token = message.get('token')  # 🔑 Extract token from message
 
-                    # 🎯 HANDLE NO STATUSES: If no statuses found, send completion message
+                    # 🎯 Query statuses updated AFTER new_last_sync_date
+                    # This ensures we only queue statuses that were actually updated during this extraction
+                    if new_last_sync_date:
+                        logger.debug(f"🎯 [STATUSES] Querying statuses updated after {new_last_sync_date}")
+                        statuses_query = text("""
+                            SELECT DISTINCT external_id
+                            FROM statuses
+                            WHERE tenant_id = :tenant_id
+                              AND integration_id = :integration_id
+                              AND last_updated_at > :new_last_sync_date
+                            ORDER BY external_id
+                        """)
+
+                        with self.get_db_session() as db_read:
+                            status_rows = db_read.execute(statuses_query, {
+                                'tenant_id': tenant_id,
+                                'integration_id': integration_id,
+                                'new_last_sync_date': new_last_sync_date
+                            }).fetchall()
+                    else:
+                        # Fallback: If no new_last_sync_date, query all statuses (first run scenario)
+                        logger.debug(f"🎯 [STATUSES] No new_last_sync_date - querying all statuses (first run)")
+                        statuses_query = text("""
+                            SELECT DISTINCT external_id
+                            FROM statuses
+                            WHERE tenant_id = :tenant_id AND integration_id = :integration_id
+                            ORDER BY external_id
+                        """)
+
+                        with self.get_db_session() as db_read:
+                            status_rows = db_read.execute(statuses_query, {
+                                'tenant_id': tenant_id,
+                                'integration_id': integration_id
+                            }).fetchall()
+
+                    status_external_ids = [row[0] for row in status_rows]
+                    logger.debug(f"🎯 [STATUSES] Found {len(status_external_ids)} statuses updated after {new_last_sync_date}")
+
+                    # 🎯 HANDLE NO UPDATED STATUSES: If no statuses were updated, mark both transform and embedding as finished
                     if not status_external_ids:
-                        logger.info(f"🎯 [STATUSES] No statuses found - sending completion message to embedding")
-                        self._queue_entities_for_embedding(
-                            tenant_id=tenant_id,
-                            table_name='statuses',
-                            entities=[],  # Empty list signals completion
-                            job_id=job_id,
-                            message_type='jira_statuses_and_relationships',
-                            integration_id=integration_id,
-                            provider=provider,
-                            old_last_sync_date=old_last_sync_date,
-                            new_last_sync_date=new_last_sync_date,
-                            first_item=first_item_flag,  # Preserve first_item flag
-                            last_item=True,  # This is the last (and only) message
-                            last_job_item=last_job_item,  # Preserve last_job_item flag
-                            token=token
-                        )
-                        logger.debug(f"✅ [STATUSES] Completion message sent to embedding (no data to process)")
+                        logger.info(f"🎯 [STATUSES] No updated statuses found - marking transform and embedding as finished")
+
+                        # 🎯 OPTION 1: Mark both steps as finished directly (current approach)
+                        # This avoids sending unnecessary completion messages through the queue
+                        await self._send_worker_status('transform', tenant_id, job_id, 'finished', 'jira_statuses_and_relationships')
+                        await self._send_worker_status('embedding', tenant_id, job_id, 'finished', 'jira_statuses_and_relationships')
+                        logger.debug(f"✅ [STATUSES] Both transform and embedding steps marked as finished (no updated statuses)")
+
+                        # 🎯 OPTION 2: Send completion message to embedding (uncomment if you want the message to flow through embedding worker)
+                        # self._queue_entities_for_embedding(
+                        #     tenant_id=tenant_id,
+                        #     table_name='statuses',
+                        #     entities=[],  # Empty list signals completion
+                        #     job_id=job_id,
+                        #     message_type='jira_statuses_and_relationships',
+                        #     integration_id=integration_id,
+                        #     provider=provider,
+                        #     old_last_sync_date=old_last_sync_date,
+                        #     new_last_sync_date=new_last_sync_date,
+                        #     first_item=first_item_flag,  # Preserve first_item flag
+                        #     last_item=True,  # This is the last (and only) message
+                        #     last_job_item=last_job_item,  # Preserve last_job_item flag
+                        #     token=token
+                        # )
+                        # logger.debug(f"✅ [STATUSES] Completion message sent to embedding (no updated statuses)")
                     else:
                         # Queue each distinct status with proper first_item/last_item flags
                         for i, external_id in enumerate(status_external_ids):
@@ -1502,12 +1538,12 @@ class JiraTransformHandler:
 
                         logger.debug(f"🎯 [STATUSES] Queued {len(status_external_ids)} distinct statuses for embedding")
 
-                    # ✅ Send WebSocket status update immediately after queuing
-                    # This updates database and sends WebSocket notification to UI
-                    if job_id:
-                        logger.debug(f"🏁 [STATUSES] Sending 'finished' status for transform step")
-                        await self._send_worker_status('transform', tenant_id, job_id, 'finished', 'jira_statuses_and_relationships')
-                        logger.debug(f"✅ [STATUSES] Transform step marked as finished and WebSocket notification sent")
+                        # ✅ Send WebSocket status update immediately after queuing
+                        # This updates database and sends WebSocket notification to UI
+                        if job_id:
+                            logger.debug(f"🏁 [STATUSES] Sending 'finished' status for transform step")
+                            await self._send_worker_status('transform', tenant_id, job_id, 'finished', 'jira_statuses_and_relationships')
+                            logger.debug(f"✅ [STATUSES] Transform step marked as finished and WebSocket notification sent")
                 else:
                     logger.debug(f"🎯 [STATUSES] Not last item (first_item={message.get('first_item') if message else False}, last_item={message.get('last_item') if message else False}) - skipping embedding queue")
 
