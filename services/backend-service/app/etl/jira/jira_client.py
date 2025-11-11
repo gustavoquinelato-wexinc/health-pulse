@@ -192,8 +192,13 @@ class JiraAPIClient:
             if project_keys:
                 missing_keys = set(project_keys) - set(returned_keys)
                 if missing_keys:
-                    logger.warning(f"⚠️ Missing projects from Jira API response: {missing_keys}")
-                    logger.warning(f"These projects may not exist, be archived, or you may not have access to them")
+                    logger.warning(f"⚠️ Missing projects from Jira API response: {list(missing_keys)}")
+                    logger.warning(f"Possible reasons:")
+                    logger.warning(f"  1. Projects are archived or deleted in Jira")
+                    logger.warning(f"  2. User doesn't have permission to access these projects")
+                    logger.warning(f"  3. Projects are hidden from the API user")
+                    logger.warning(f"  4. Project keys are misspelled in integration settings")
+                    logger.warning(f"ETL will continue with {len(projects)} accessible projects: {returned_keys}")
 
             return projects
 
