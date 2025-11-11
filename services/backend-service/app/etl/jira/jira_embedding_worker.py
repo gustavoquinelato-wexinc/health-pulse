@@ -18,17 +18,35 @@ Architecture:
 """
 
 import asyncio
-from typing import Dict, Any, Optional
+import uuid
+from typing import Dict, Any, Optional, List
+from datetime import datetime
 from sqlalchemy import text
 
 from app.core.logging_config import get_logger
 from app.core.database import get_database
 from app.models.unified_models import (
     WorkItem, Changelog, Project, Status, Wit,
-    WorkItemPrLink, WitHierarchy, WitMapping, StatusMapping, Workflow
+    WorkItemPrLink, WitHierarchy, WitMapping, StatusMapping, Workflow, QdrantVector
 )
 
 logger = get_logger(__name__)
+
+# Source type mapping for multi-agent architecture
+SOURCE_TYPE_MAPPING = {
+    # Jira Agent's scope (all Jira-related data including cross-links)
+    'work_items': 'JIRA',
+    'changelogs': 'JIRA',
+    'projects': 'JIRA',
+    'statuses': 'JIRA',
+    'statuses_mappings': 'JIRA',
+    'status_mappings': 'JIRA',  # Queue message name (maps to statuses_mappings table)
+    'workflows': 'JIRA',
+    'wits': 'JIRA',
+    'wits_hierarchies': 'JIRA',
+    'wits_mappings': 'JIRA',
+    'work_items_prs_links': 'JIRA',  # Jira agent owns the links
+}
 
 
 class JiraEmbeddingWorker:
@@ -424,35 +442,55 @@ class JiraEmbeddingWorker:
             return False
 
     async def _store_in_qdrant(self, tenant_id: int, entity_type: str, entity_id: int,
-                               embedding_vector: list, entity_data: Dict[str, Any]) -> bool:
-        """Store embedding vector in Qdrant."""
+                               embedding_vector: List[float], entity_data: Dict[str, Any]) -> bool:
+        """Store embedding vector in Qdrant with tenant isolation."""
         try:
-            from app.ai.qdrant_manager import QdrantManager
-            qdrant_manager = QdrantManager()
+            logger.info(f"🔄 [JIRA EMBEDDING] Storing embedding in Qdrant for {entity_type}_{entity_id}")
+            # Use PulseQdrantClient to store in Qdrant
+            from app.ai.qdrant_client import PulseQdrantClient
 
-            # Create tenant-specific collection name
-            collection_name = f"tenant_{tenant_id}"
+            qdrant_client = PulseQdrantClient()
+            await qdrant_client.initialize()
+            logger.info(f"✅ [JIRA EMBEDDING] Qdrant client initialized")
 
-            # Store vector with metadata
-            success = await qdrant_manager.upsert_vector(
+            # Use entity_type directly as collection name (should always be database table name now)
+            collection_name = f"tenant_{tenant_id}_{entity_type}"
+
+            # Create deterministic UUID for point ID (Qdrant requires UUID or unsigned integer)
+            unique_string = f"{tenant_id}_{entity_type}_{entity_id}"
+            point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, unique_string))
+
+            payload = {
+                'entity_type': entity_type,
+                'entity_id': entity_id,
+                'tenant_id': tenant_id,
+                'source_type': SOURCE_TYPE_MAPPING.get(entity_type, 'UNKNOWN'),
+                'created_at': datetime.now().isoformat(),
+                **entity_data  # Include entity data in payload
+            }
+
+            # Ensure collection exists
+            await qdrant_client.ensure_collection_exists(
                 collection_name=collection_name,
-                vector_id=f"{entity_type}_{entity_id}",
-                vector=embedding_vector,
-                payload={
-                    'tenant_id': tenant_id,
-                    'entity_type': entity_type,
-                    'entity_id': entity_id,
-                    'external_id': entity_data.get('external_id'),
-                    **entity_data
-                }
+                vector_size=len(embedding_vector)
             )
 
-            if success:
-                logger.debug(f"✅ [JIRA EMBEDDING] Stored in Qdrant: {entity_type} ID {entity_id}")
-            else:
-                logger.error(f"❌ [JIRA EMBEDDING] Failed to store in Qdrant: {entity_type} ID {entity_id}")
+            # Store using PulseQdrantClient
+            result = await qdrant_client.upsert_vectors(
+                collection_name=collection_name,
+                vectors=[{
+                    'id': point_id,
+                    'vector': embedding_vector,
+                    'payload': payload
+                }]
+            )
 
-            return success
+            if result.success:
+                logger.info(f"✅ [JIRA EMBEDDING] Stored vector in Qdrant: {point_id}")
+                return True
+            else:
+                logger.error(f"❌ [JIRA EMBEDDING] Failed to store vector in Qdrant: {point_id} - {result.error}")
+                return False
 
         except Exception as e:
             logger.error(f"❌ [JIRA EMBEDDING] Error storing in Qdrant: {e}")
