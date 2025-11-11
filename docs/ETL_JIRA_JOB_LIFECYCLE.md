@@ -298,9 +298,10 @@ Embedding Worker (updates last_sync_date when last_job_item=True)
 
 ### Critical Implementation Points
 
-1. **Extraction Worker**: Sets `new_last_sync_date = datetime.now()` at extraction start
-   - This captures the extraction start time for the next incremental run
+1. **Extraction Worker**: Sets `new_last_sync_date = DateTimeHelper.now_default()` at extraction start
+   - This captures the extraction start time in configured timezone (America/New_York from .env)
    - Uses `old_last_sync_date` for filtering (e.g., `updated >= '2025-11-11 14:00'` in JQL)
+   - **Important**: All timestamps use `DateTimeHelper.now_default()` for timezone consistency
 
 2. **Transform Worker**: Must forward both dates to embedding
    - `jira_transform_worker.py`: Extract `new_last_sync_date` from message

@@ -142,23 +142,34 @@ class EmbeddingWorker(BaseWorker):
                 logger.debug(f"📋 [EMBEDDING] Routing to {provider} embedding worker")
 
                 # Route to provider-specific worker
-                if provider == 'jira':
-                    from app.etl.jira.jira_embedding_worker import JiraEmbeddingWorker
-                    jira_worker = JiraEmbeddingWorker(
-                        status_manager=self.status_manager,
-                        queue_manager=self.queue_manager
-                    )
-                    result = await jira_worker.process_jira_embedding(message)
-                elif provider == 'github':
-                    from app.etl.github.github_embedding_worker import GitHubEmbeddingWorker
-                    github_worker = GitHubEmbeddingWorker(
-                        status_manager=self.status_manager,
-                        queue_manager=self.queue_manager
-                    )
-                    result = await github_worker.process_github_embedding(message)
-                else:
-                    logger.warning(f"❓ [EMBEDDING] Unknown provider: {provider}")
-                    result = False
+                # IMPORTANT: Must cleanup worker after processing to close database sessions
+                worker = None
+                try:
+                    if provider == 'jira':
+                        from app.etl.jira.jira_embedding_worker import JiraEmbeddingWorker
+                        worker = JiraEmbeddingWorker(
+                            status_manager=self.status_manager,
+                            queue_manager=self.queue_manager
+                        )
+                        result = await worker.process_jira_embedding(message)
+                    elif provider == 'github':
+                        from app.etl.github.github_embedding_worker import GitHubEmbeddingWorker
+                        worker = GitHubEmbeddingWorker(
+                            status_manager=self.status_manager,
+                            queue_manager=self.queue_manager
+                        )
+                        result = await worker.process_github_embedding(message)
+                    else:
+                        logger.warning(f"❓ [EMBEDDING] Unknown provider: {provider}")
+                        result = False
+                finally:
+                    # Cleanup worker to close database session and async clients
+                    if worker and hasattr(worker, 'cleanup'):
+                        try:
+                            await worker.cleanup()
+                            logger.debug(f"✅ [EMBEDDING] Worker cleanup completed for {provider}")
+                        except Exception as cleanup_error:
+                            logger.debug(f"Error during worker cleanup (suppressed): {cleanup_error}")
 
             # 🔔 Send WebSocket status update when last_item=true (embedding worker finished)
             # This applies to ALL messages (ETL step or individual entity)

@@ -344,7 +344,7 @@ class GitHubTransformHandler:
                         'repo_updated_at': self._parse_datetime(raw_repo_data.get('updated_at')),
                         'pushed_at': self._parse_datetime(raw_repo_data.get('pushed_at')),
                         'active': True,
-                        'last_updated_at': datetime.now()
+                        'last_updated_at': self._get_current_time()
                     }
 
                     upsert_query = text("""
@@ -1260,6 +1260,11 @@ class GitHubTransformHandler:
             return value
         except Exception:
             return None
+
+    def _get_current_time(self) -> datetime:
+        """Get current datetime in configured timezone for database timestamps."""
+        from app.core.utils import DateTimeHelper
+        return DateTimeHelper.now_default()
 
     def _calculate_pr_metrics(
         self,

@@ -163,23 +163,12 @@ class WEXGatewayProvider:
 
         return ""
 
-    async def cleanup(self):
-        """Cleanup async resources to prevent event loop errors"""
-        try:
-            if hasattr(self.client, 'close'):
-                await self.client.close()
-            elif hasattr(self.client, '_client') and hasattr(self.client._client, 'aclose'):
-                await self.client._client.aclose()
-        except Exception as e:
-            # Suppress cleanup errors to avoid noise in logs
-            pass
-
     async def health_check(self) -> Dict[str, Any]:
         """Check health of WEX Gateway connection"""
         try:
             # Simple test with a small embedding request
             test_response = await self.generate_embeddings(["health check test"])
-            
+
             return {
                 "status": "healthy" if test_response and len(test_response) > 0 else "unhealthy",
                 "provider": "WEX AI Gateway",
@@ -190,7 +179,7 @@ class WEXGatewayProvider:
                 "avg_response_time": self.avg_response_time,
                 "last_check": time.time()
             }
-            
+
         except Exception as e:
             return {
                 "status": "unhealthy",
@@ -225,10 +214,28 @@ class WEXGatewayProvider:
         }
 
     async def cleanup(self):
-        """Cleanup async resources to prevent event loop errors"""
+        """
+        Cleanup async resources to prevent event loop errors.
+
+        Properly closes the AsyncOpenAI client and its underlying httpx client
+        to prevent "Event loop is closed" errors during worker shutdown.
+        """
         try:
             if self.client:
-                await self.client.close()
-                logger.debug("WEX Gateway provider cleaned up")
+                # AsyncOpenAI client has a close() method that properly cleans up httpx
+                if hasattr(self.client, 'close'):
+                    await self.client.close()
+                    logger.debug("WEX Gateway AsyncOpenAI client closed")
+                # Fallback: try to close underlying httpx client directly
+                elif hasattr(self.client, '_client') and hasattr(self.client._client, 'aclose'):
+                    await self.client._client.aclose()
+                    logger.debug("WEX Gateway httpx client closed")
+        except RuntimeError as e:
+            # Suppress "Event loop is closed" errors during cleanup
+            if "Event loop is closed" in str(e):
+                logger.debug("Event loop already closed during WEX Gateway cleanup (expected)")
+            else:
+                logger.warning(f"RuntimeError during WEX Gateway cleanup: {e}")
         except Exception as e:
-            logger.warning(f"Error during WEX Gateway cleanup: {e}")
+            # Suppress other cleanup errors to avoid noise in logs
+            logger.debug(f"Error during WEX Gateway cleanup (suppressed): {e}")

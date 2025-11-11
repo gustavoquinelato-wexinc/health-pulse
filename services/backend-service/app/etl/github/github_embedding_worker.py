@@ -19,11 +19,11 @@ import asyncio
 import time
 import uuid
 from typing import Dict, Any, Optional, List
-from datetime import datetime
 from sqlalchemy import text
 
 from app.core.logging_config import get_logger
 from app.core.database import get_database
+from app.core.utils import DateTimeHelper
 from app.models.unified_models import Pr, PrCommit, PrReview, PrComment, Repository, QdrantVector
 from app.etl.workers.embedding_worker_router import SOURCE_TYPE_MAPPING
 
@@ -74,6 +74,20 @@ class GitHubEmbeddingWorker:
         except Exception as e:
             logger.error(f"❌ [GITHUB EMBEDDING] Failed to initialize hybrid provider: {e}")
             raise
+
+    async def cleanup(self):
+        """
+        Cleanup async resources to prevent event loop errors.
+
+        Called by BaseWorker after processing each message to ensure
+        httpx AsyncClient instances are properly closed before event loop closes.
+        """
+        try:
+            if self.hybrid_provider:
+                await self.hybrid_provider.cleanup()
+                logger.debug("✅ [GITHUB EMBEDDING] Hybrid provider cleaned up")
+        except Exception as e:
+            logger.debug(f"Error during GitHub embedding worker cleanup (suppressed): {e}")
 
     async def process_github_embedding(self, message: Dict[str, Any]) -> bool:
         """
@@ -452,7 +466,7 @@ class GitHubEmbeddingWorker:
                 'entity_id': entity_id,
                 'tenant_id': tenant_id,
                 'source_type': SOURCE_TYPE_MAPPING.get(entity_type, 'UNKNOWN'),
-                'created_at': datetime.now().isoformat(),
+                'created_at': DateTimeHelper.now_default().isoformat(),
                 **entity_data  # Include entity data in payload
             }
 
@@ -517,7 +531,7 @@ class GitHubEmbeddingWorker:
                 if existing:
                     # Update existing record
                     existing.active = True
-                    existing.last_updated_at = datetime.now()
+                    existing.last_updated_at = DateTimeHelper.now_default()
                     existing.qdrant_point_id = point_id
                     logger.debug(f"✅ [GITHUB EMBEDDING] Updated bridge table: {entity_type} ID {entity_id}")
                 else:
@@ -532,8 +546,8 @@ class GitHubEmbeddingWorker:
                         integration_id=integration_id,
                         tenant_id=tenant_id,
                         active=True,
-                        created_at=datetime.now(),
-                        last_updated_at=datetime.now()
+                        created_at=DateTimeHelper.now_default(),
+                        last_updated_at=DateTimeHelper.now_default()
                     )
                     session.add(new_vector)
                     logger.debug(f"✅ [GITHUB EMBEDDING] Inserted into bridge table: {entity_type} ID {entity_id}")

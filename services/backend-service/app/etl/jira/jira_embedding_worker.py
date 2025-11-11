@@ -20,8 +20,9 @@ Architecture:
 import asyncio
 import uuid
 from typing import Dict, Any, Optional, List
-from datetime import datetime
 from sqlalchemy import text
+
+from app.core.utils import DateTimeHelper
 
 from app.core.logging_config import get_logger
 from app.core.database import get_database
@@ -78,6 +79,20 @@ class JiraEmbeddingWorker:
         except Exception as e:
             logger.error(f"❌ [JIRA EMBEDDING] Failed to initialize hybrid provider: {e}")
             raise
+
+    async def cleanup(self):
+        """
+        Cleanup async resources to prevent event loop errors.
+
+        Called by BaseWorker after processing each message to ensure
+        httpx AsyncClient instances are properly closed before event loop closes.
+        """
+        try:
+            if self.hybrid_provider:
+                await self.hybrid_provider.cleanup()
+                logger.debug("✅ [JIRA EMBEDDING] Hybrid provider cleaned up")
+        except Exception as e:
+            logger.debug(f"Error during Jira embedding worker cleanup (suppressed): {e}")
 
     async def process_jira_embedding(self, message: Dict[str, Any]) -> bool:
         """
@@ -268,12 +283,18 @@ class JiraEmbeddingWorker:
                     ).first()
 
                     if entity:
+                        # Get status names from relationships
+                        from_status_name = entity.from_status.original_name if entity.from_status else None
+                        to_status_name = entity.to_status.original_name if entity.to_status else None
+
                         return {
                             'id': entity.id,
                             'external_id': entity.external_id,
-                            'field': entity.field,
-                            'from_value': entity.from_value,
-                            'to_value': entity.to_value,
+                            'changed_by': entity.changed_by,
+                            'from_status': from_status_name,
+                            'to_status': to_status_name,
+                            'transition_change_date': entity.transition_change_date,
+                            'time_in_status_seconds': entity.time_in_status_seconds,
                             'entity_type': entity_type,
                             'tenant_id': tenant_id
                         }
@@ -288,7 +309,11 @@ class JiraEmbeddingWorker:
                         return {
                             'id': entity.id,
                             'work_item_id': entity.work_item_id,
-                            'pr_id': entity.pr_id,
+                            'external_repo_id': entity.external_repo_id,
+                            'repo_full_name': entity.repo_full_name,
+                            'pull_request_number': entity.pull_request_number,
+                            'branch_name': entity.branch_name,
+                            'pr_status': entity.pr_status,
                             'entity_type': entity_type,
                             'tenant_id': tenant_id
                         }
@@ -339,18 +364,28 @@ class JiraEmbeddingWorker:
                 text_parts.append(f"Description: {entity_data['description']}")
 
         elif entity_type == 'changelogs':
-            if entity_data.get('field'):
-                text_parts.append(f"Field: {entity_data['field']}")
-            if entity_data.get('from_value'):
-                text_parts.append(f"From: {entity_data['from_value']}")
-            if entity_data.get('to_value'):
-                text_parts.append(f"To: {entity_data['to_value']}")
+            # Changelogs track status transitions
+            if entity_data.get('changed_by'):
+                text_parts.append(f"Changed By: {entity_data['changed_by']}")
+            if entity_data.get('from_status'):
+                text_parts.append(f"From Status: {entity_data['from_status']}")
+            if entity_data.get('to_status'):
+                text_parts.append(f"To Status: {entity_data['to_status']}")
+            if entity_data.get('time_in_status_seconds'):
+                text_parts.append(f"Time in Status: {entity_data['time_in_status_seconds']} seconds")
 
         elif entity_type == 'work_items_prs_links':
+            # Work item to PR link information
             if entity_data.get('work_item_id'):
                 text_parts.append(f"Work Item ID: {entity_data['work_item_id']}")
-            if entity_data.get('pr_id'):
-                text_parts.append(f"PR ID: {entity_data['pr_id']}")
+            if entity_data.get('repo_full_name'):
+                text_parts.append(f"Repository: {entity_data['repo_full_name']}")
+            if entity_data.get('pull_request_number'):
+                text_parts.append(f"PR Number: {entity_data['pull_request_number']}")
+            if entity_data.get('branch_name'):
+                text_parts.append(f"Branch: {entity_data['branch_name']}")
+            if entity_data.get('pr_status'):
+                text_parts.append(f"PR Status: {entity_data['pr_status']}")
 
         # Mapping tables
         elif entity_type == 'wits_hierarchies':
@@ -450,7 +485,7 @@ class JiraEmbeddingWorker:
                 'entity_id': entity_id,
                 'tenant_id': tenant_id,
                 'source_type': SOURCE_TYPE_MAPPING.get(entity_type, 'UNKNOWN'),
-                'created_at': datetime.now().isoformat(),
+                'created_at': DateTimeHelper.now_default().isoformat(),
                 **entity_data  # Include entity data in payload
             }
 
@@ -515,7 +550,7 @@ class JiraEmbeddingWorker:
                 if existing:
                     # Update existing record
                     existing.active = True
-                    existing.last_updated_at = datetime.now()
+                    existing.last_updated_at = DateTimeHelper.now_default()
                     existing.qdrant_point_id = point_id
                     logger.debug(f"✅ [JIRA EMBEDDING] Updated bridge table: {entity_type} ID {entity_id}")
                 else:
@@ -530,8 +565,8 @@ class JiraEmbeddingWorker:
                         integration_id=integration_id,
                         tenant_id=tenant_id,
                         active=True,
-                        created_at=datetime.now(),
-                        last_updated_at=datetime.now()
+                        created_at=DateTimeHelper.now_default(),
+                        last_updated_at=DateTimeHelper.now_default()
                     )
                     session.add(new_vector)
                     logger.debug(f"✅ [JIRA EMBEDDING] Inserted into bridge table: {entity_type} ID {entity_id}")

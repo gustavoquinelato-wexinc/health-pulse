@@ -1020,7 +1020,7 @@ class JiraTransformHandler:
                         'id': existing_project.id,
                         'key': project_key,
                         'name': project_name,
-                        'last_updated_at': datetime.now(timezone.utc)
+                        'last_updated_at': DateTimeHelper.now_default()
                     })
                 project_id = existing_project.id
             else:
@@ -1033,8 +1033,8 @@ class JiraTransformHandler:
                     'tenant_id': tenant_id,
                     'integration_id': integration_id,
                     'active': True,
-                    'created_at': datetime.now(timezone.utc),
-                    'last_updated_at': datetime.now(timezone.utc)
+                    'created_at': DateTimeHelper.now_default(),
+                    'last_updated_at': DateTimeHelper.now_default()
                 }
                 result['projects_to_insert'].append(project_insert_data)
                 project_id = None  # Will be set after insert
@@ -1157,7 +1157,7 @@ class JiraTransformHandler:
                         'description': wit_description,
                         'hierarchy_level': hierarchy_level,
                         'wits_mapping_id': wits_mapping_id,
-                        'last_updated_at': datetime.now(timezone.utc)
+                        'last_updated_at': DateTimeHelper.now_default()
                     })
                 else:
                     logger.debug(f"🔍 DEBUG: WIT {wit_name} is up to date, no update needed")
@@ -1173,8 +1173,8 @@ class JiraTransformHandler:
                     'tenant_id': tenant_id,
                     'integration_id': integration_id,
                     'active': True,
-                    'created_at': datetime.now(timezone.utc),
-                    'last_updated_at': datetime.now(timezone.utc)
+                    'created_at': DateTimeHelper.now_default(),
+                    'last_updated_at': DateTimeHelper.now_default()
                 }
                 result['wits_to_insert'].append(wit_insert_data)
 
@@ -1247,7 +1247,7 @@ class JiraTransformHandler:
                         'name': field_name,
                         'field_type': field_type,
                         'operations': json.dumps(operations) if operations else '[]',  # Convert to JSON string
-                        'last_updated_at': datetime.now(timezone.utc)
+                        'last_updated_at': DateTimeHelper.now_default()
                     })
             else:
                 # New custom field (global, no project_id)
@@ -1260,8 +1260,8 @@ class JiraTransformHandler:
                     'tenant_id': tenant_id,
                     'integration_id': integration_id,
                     'active': True,
-                    'created_at': datetime.now(timezone.utc),
-                    'last_updated_at': datetime.now(timezone.utc)
+                    'created_at': DateTimeHelper.now_default(),
+                    'last_updated_at': DateTimeHelper.now_default()
                 }
                 result['custom_fields_to_insert'].append(cf_insert_data)
 
@@ -2589,7 +2589,7 @@ class JiraTransformHandler:
             custom_field_mappings: Dict mapping Jira field IDs to work_items column names
                                   e.g., {'customfield_10024': 'custom_field_01'}
         """
-        from datetime import datetime, timezone
+        from app.core.utils import DateTimeHelper
 
         # Get existing issues
         external_ids = [issue.get('id') for issue in issues_data if issue.get('id')]
@@ -2608,7 +2608,7 @@ class JiraTransformHandler:
 
         issues_to_insert = []
         issues_to_update = []
-        current_time = datetime.now(timezone.utc)
+        current_time = DateTimeHelper.now_default()
 
         for issue in issues_data:
             try:
@@ -2759,7 +2759,8 @@ class JiraTransformHandler:
         statuses_map: Dict, job_id: int = None, message: Dict[str, Any] = None
     ) -> int:
         """Process and insert changelogs from issues data."""
-        from datetime import datetime, timezone
+        from datetime import timezone
+        from app.core.utils import DateTimeHelper
 
         # Get work_items map for changelog linking
         work_items_query = text("""
@@ -2786,7 +2787,7 @@ class JiraTransformHandler:
         existing_changelogs = {(row[0], row[1]) for row in existing_result}
 
         changelogs_to_insert = []
-        current_time = datetime.now(timezone.utc)
+        current_time = DateTimeHelper.now_default()
 
         for issue in issues_data:
             try:
@@ -2961,7 +2962,7 @@ class JiraTransformHandler:
 
         # Calculate metrics for each work item
         work_items_to_update = []
-        current_time = datetime.now(timezone.utc)
+        current_time = DateTimeHelper.now_default()
 
         for work_item_id, changelogs in changelogs_by_work_item.items():
             # Sort changelogs by transition_change_date DESC (newest first)
@@ -3241,7 +3242,7 @@ class JiraTransformHandler:
         self, db, dev_status_data: List[Dict], integration_id: int, tenant_id: int, job_id: int = None, message: Dict[str, Any] = None
     ) -> int:
         """Process dev_status data and insert/update work_items_prs_links table."""
-        from datetime import datetime, timezone
+        from app.core.utils import DateTimeHelper
 
         # Get work_items map
         work_items_query = text("""
@@ -3268,7 +3269,7 @@ class JiraTransformHandler:
         existing_links = {(row[0], row[1], row[2]) for row in existing_result}
 
         pr_links_to_insert = []
-        current_time = datetime.now(timezone.utc)
+        current_time = DateTimeHelper.now_default()
 
         for dev_status_item in dev_status_data:
             try:

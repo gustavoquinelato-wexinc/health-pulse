@@ -23,6 +23,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import text
 
 from app.core.logging_config import get_logger
+from app.core.utils import DateTimeHelper
 from app.models.unified_models import Integration
 from app.core.config import AppConfig
 from app.etl.github.github_graphql_client import GitHubGraphQLClient, GitHubRateLimitException
@@ -368,12 +369,12 @@ class GitHubExtractionWorker:
                     start_date = old_last_sync_date
                 else:
                     # Default: last 730 days
-                    start_date = (datetime.now() - timedelta(days=730)).strftime('%Y-%m-%d')
+                    start_date = (DateTimeHelper.now_default() - timedelta(days=730)).strftime('%Y-%m-%d')
 
                 # IMPORTANT: Capture current date at extraction start
                 # This is the END date of the search range and will be used as the new_last_sync_date
                 # for the NEXT job run (for incremental sync)
-                end_date = datetime.now().strftime('%Y-%m-%d')
+                end_date = DateTimeHelper.now_default().strftime('%Y-%m-%d')
 
                 logger.debug(f"📅 Search date range: {start_date} to {end_date}")
                 logger.debug(f"🔍 Repository filters: {name_filters}")
@@ -481,7 +482,7 @@ class GitHubExtractionWorker:
                             },
                             'search_filters': integration_data['name_filters'],
                             'organization': integration_data['org'],
-                            'extracted_at': datetime.now().isoformat(),  # Using module-level import from line 24
+                            'extracted_at': DateTimeHelper.now_default().isoformat(),
                             'repo_index': i + 1,
                             'total_repositories': len(all_repositories)
                         }
@@ -558,28 +559,47 @@ class GitHubExtractionWorker:
 
             # 🏁 Handle case when NO repositories were found
             if total_repositories == 0:
-                logger.debug(f"📤 No repositories found - sending completion message to transform queue")
-                # 🔑 Completion message pattern:
-                # - raw_data_id=None signals this is a closing message
-                # - last_job_item=True signals job completion
-                # - Transform worker will set its own status to finished and forward to embedding
-                # - Embedding worker will update its status and overall job status to finished
-                success = queue_manager.publish_transform_job(
-                    tenant_id=tenant_id,
-                    integration_id=integration_id,
-                    raw_data_id=None,  # 🔑 Completion message marker
-                    data_type='github_repositories',
+                logger.warning(f"No repositories found - marking all steps as finished")
+
+                # 🎯 OPTION 1: Mark all steps as finished directly (current approach)
+                # This avoids sending unnecessary completion messages through the queue
+                # Step 1 (repositories): extraction, transform, embedding
+                await self._send_worker_status("extraction", tenant_id, job_id, "finished", "github_repositories")
+                await self._send_worker_status("transform", tenant_id, job_id, "finished", "github_repositories")
+                await self._send_worker_status("embedding", tenant_id, job_id, "finished", "github_repositories")
+
+                # Step 2 (prs_commits_reviews_comments): extraction, transform, embedding
+                await self._send_worker_status("extraction", tenant_id, job_id, "finished", "github_prs_commits_reviews_comments")
+                await self._send_worker_status("transform", tenant_id, job_id, "finished", "github_prs_commits_reviews_comments")
+                await self._send_worker_status("embedding", tenant_id, job_id, "finished", "github_prs_commits_reviews_comments")
+
+                # Mark overall job as FINISHED and update last_sync_date (using generic method)
+                await self.status_manager.complete_etl_job(
                     job_id=job_id,
-                    provider='github',
-                    old_last_sync_date=old_last_sync_date,  # 🔑 Used for filtering (old_last_sync_date)
-                    new_last_sync_date=end_date,  # 🔑 Used for job completion (extraction end date)
-                    first_item=True,
-                    last_item=True,
-                    last_job_item=True,  # 🔑 Signal job completion - transform will forward to embedding
-                    token=token  # 🔑 Include token in message
+                    tenant_id=tenant_id,
+                    last_sync_date=end_date
                 )
-                if not success:
-                    logger.error(f"Failed to queue completion message for no repositories case")
+
+                logger.info(f"✅ All steps marked as finished and job marked as FINISHED (no repositories to process)")
+
+                # 🎯 OPTION 2: Send completion message to transform (uncomment if you want the message to flow through workers)
+                # queue_manager = QueueManager()
+                # success = queue_manager.publish_transform_job(
+                #     tenant_id=tenant_id,
+                #     integration_id=integration_id,
+                #     raw_data_id=None,  # 🔑 Completion message marker
+                #     data_type='github_repositories',
+                #     job_id=job_id,
+                #     provider='github',
+                #     old_last_sync_date=old_last_sync_date,  # 🔑 Used for filtering (old_last_sync_date)
+                #     new_last_sync_date=end_date,  # 🔑 Used for job completion (extraction end date)
+                #     first_item=True,
+                #     last_item=True,
+                #     last_job_item=True,  # 🔑 Signal job completion - transform will forward to embedding
+                #     token=token  # 🔑 Include token in message
+                # )
+                # if not success:
+                #     logger.error(f"Failed to queue completion message for no repositories case")
 
             return {
                 'success': True,
@@ -802,7 +822,7 @@ class GitHubExtractionWorker:
             # 🔑 IMPORTANT: Capture current date at start of extraction
             # This is the END date of the search range and will be used as new_last_sync_date
             # for the NEXT job run (for incremental sync)
-            extraction_end_date = datetime.now().strftime('%Y-%m-%d')
+            extraction_end_date = DateTimeHelper.now_default().strftime('%Y-%m-%d')
 
             from app.core.database_router import get_read_session_context, get_write_session_context
             from app.core.config import AppConfig
@@ -862,6 +882,8 @@ class GitHubExtractionWorker:
 
                 # 🔑 Send completion message to transform queue to signal job completion
                 # This allows the job to finish gracefully even though we hit rate limit
+                # NOTE: There may already be items queued to transform/embedding, so we need
+                # to let them process and use the completion message to close the job
                 logger.debug(f"📤 Sending completion message to transform queue due to rate limit")
                 queue_manager.publish_transform_job(
                     tenant_id=tenant_id,
@@ -893,25 +915,23 @@ class GitHubExtractionWorker:
             if not prs:
                 logger.warning(f"No PRs found in page for {owner}/{repo_name}")
 
-                # 🔑 If this is the last repository (last_repo=true), send completion message
+                # 🔑 If this is the last repository (last_repo=true), mark all steps as finished
                 if last_repo:
-                    logger.debug(f"🏁 [COMPLETION] No PRs found and this is the last repo - sending completion message")
-                    queue_manager.publish_transform_job(
-                        tenant_id=tenant_id,
-                        integration_id=integration.id,
-                        raw_data_id=None,  # 🔑 Completion message marker
-                        data_type='github_prs_commits_reviews_comments',
+                    logger.warning(f"No PRs found and this is the last repo - marking all remaining steps as finished")
+
+                    # Step 2 (prs_commits_reviews_comments): extraction, transform, embedding
+                    await self._send_worker_status("extraction", tenant_id, job_id, "finished", "github_prs_commits_reviews_comments")
+                    await self._send_worker_status("transform", tenant_id, job_id, "finished", "github_prs_commits_reviews_comments")
+                    await self._send_worker_status("embedding", tenant_id, job_id, "finished", "github_prs_commits_reviews_comments")
+
+                    # Mark overall job as FINISHED and update last_sync_date
+                    await self.status_manager.complete_etl_job(
                         job_id=job_id,
-                        provider='github',
-                        old_last_sync_date=old_last_sync_date,  # 🔑 Used for filtering (old_last_sync_date)
-                        new_last_sync_date=extraction_end_date,  # 🔑 Used for job completion (extraction end date)
-                        first_item=False,
-                        last_item=True,
-                        last_job_item=True,  # 🔑 Signal job completion
-                        last_repo=last_repo,
-                        token=token  # 🔑 Include token in message
+                        tenant_id=tenant_id,
+                        last_sync_date=extraction_end_date
                     )
-                    logger.debug(f"✅ Completion message queued to transform")
+
+                    logger.info(f"✅ All steps marked as finished and job marked as FINISHED (no PRs found on last repo)")
 
                 return {'success': True, 'prs_processed': 0}
 
@@ -924,8 +944,7 @@ class GitHubExtractionWorker:
 
             # 🔑 If no old_last_sync_date provided, use 2-year default (same as repository extraction)
             if not old_last_sync_date:
-                # Using module-level imports from line 24
-                two_years_ago = datetime.now() - timedelta(days=730)
+                two_years_ago = DateTimeHelper.now_default() - timedelta(days=730)
                 old_last_sync_date = two_years_ago.strftime('%Y-%m-%d')
                 logger.debug(f"📅 No old_last_sync_date provided, using 2-year default: {old_last_sync_date}")
 
@@ -1354,6 +1373,8 @@ class GitHubExtractionWorker:
 
                 # 🔑 Send completion message to transform queue to signal job completion
                 # This allows the job to finish gracefully even though we hit rate limit
+                # NOTE: There may already be items queued to transform/embedding, so we need
+                # to let them process and use the completion message to close the job
                 logger.debug(f"📤 Sending completion message to transform queue due to rate limit in {nested_type}")
                 queue_manager.publish_transform_job(
                     tenant_id=tenant_id,

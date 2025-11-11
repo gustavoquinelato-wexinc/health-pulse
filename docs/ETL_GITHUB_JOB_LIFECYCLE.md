@@ -77,12 +77,12 @@ GitHub has 2 steps:
 
 **Step 1 Completion (No Repositories Case)**
 - If NO repositories are extracted:
-  - Extraction sends completion message to transform queue with:
-    - `type: 'github_repositories'`
-    - `raw_data_id=None, first_item=True, last_item=True, last_job_item=True`
-    - ✅ `last_job_item=True` completes the job immediately (no PR extraction needed)
-  - Transform recognizes completion and forwards to embedding
-  - Embedding sends "finished" status and completes the job
+  - Extraction worker directly marks all steps as finished via WebSocket:
+    - Step 1 (repositories): extraction, transform, embedding → "finished"
+    - Step 2 (prs_commits_reviews_comments): extraction, transform, embedding → "finished"
+    - Overall job status → "FINISHED"
+    - Updates `last_sync_date` in database
+  - ✅ **Direct status updates** - no queue messages needed since no data was extracted
   - **Job ends** - no Step 2 (PRs) since there are no repositories
 
 **Step 2: PRs with Nested Data (Complex Multi-Phase) by Repository**
@@ -245,35 +245,54 @@ Step 1 (repositories) → Step 2 (PRs + nested pagination)
                         last_item=true, last_job_item=true
                         (on last nested item of last PR)
                                         ↓
-                                Job FINISHED
-```
-
-**Scenario 2: No Repositories (Skip to PRs)**
-```
-Step 1 (completion message) → Step 2 (PRs + nested pagination)
-                                        ↓
-                        last_item=true, last_job_item=true
-                        (on last nested item of last PR)
+                        Queue completion message to transform
                                         ↓
                                 Job FINISHED
 ```
 
-**Scenario 3: No PRs Found**
+**Scenario 2: No Repositories Found**
 ```
-Step 1 (repositories) → Step 2 (no PRs)
+Step 1 (no repositories)
+        ↓
+Direct WebSocket status updates:
+  - Step 1 (repos): extraction/transform/embedding → finished
+  - Step 2 (PRs): extraction/transform/embedding → finished
+  - Overall → FINISHED
+        ↓
+Job FINISHED (no queue messages)
+```
+
+**Scenario 3: No PRs Found on Last Repository**
+```
+Step 1 (repositories) → Step 2 (last repo has no PRs)
                                         ↓
-                        last_item=true, last_job_item=true
-                        (on completion message)
+                        Direct WebSocket status updates:
+                          - Step 2: extraction/transform/embedding → finished
+                          - Overall → FINISHED
+                                        ↓
+                                Job FINISHED (no queue messages)
+```
+
+**Scenario 4: Rate Limit Hit During PR Extraction**
+```
+Step 1 (repositories) → Step 2 (PRs extraction - rate limit hit)
+                                        ↓
+                        Save checkpoint for recovery
+                                        ↓
+                        Queue completion message to transform
+                        (allows already-queued items to process)
                                         ↓
                                 Job FINISHED
 ```
 
-**Scenario 4: PRs with No Nested Pagination**
+**Scenario 5: Rate Limit Hit During Nested Extraction**
 ```
-Step 1 (repositories) → Step 2 (PRs only, no nested)
+Step 1 (repositories) → Step 2 (nested data - rate limit hit)
                                         ↓
-                        last_item=true, last_job_item=true
-                        (on last PR message)
+                        Save checkpoint for recovery
+                                        ↓
+                        Queue completion message to transform
+                        (allows already-queued items to process)
                                         ↓
                                 Job FINISHED
 ```
@@ -282,10 +301,15 @@ Step 1 (repositories) → Step 2 (PRs only, no nested)
 
 ## GitHub Completion Flow
 
-1. **Extraction Worker** on final step (PRs) sends last_item=true, last_job_item=true when:
+### Queue-Based Completion (Normal Flow & Rate Limit Cases)
+
+Used when data was extracted and items may be queued to transform/embedding workers.
+
+1. **Extraction Worker** sends completion message with last_item=true, last_job_item=true when:
    - Last PR page with no nested pagination: on last PR message
    - Last PR page with nested pagination: on last nested type message
-   - No PRs found: on completion message with raw_data_id=None
+   - Rate limit hit during PR extraction: after saving checkpoint
+   - Rate limit hit during nested extraction: after saving checkpoint
 
 2. **Transform Worker** receives message with last_job_item=true:
    - Recognizes as job completion signal
@@ -297,9 +321,25 @@ Step 1 (repositories) → Step 2 (PRs only, no nested)
    - Calls `_complete_etl_job()` (because `last_job_item=True`)
    - Sets overall status to FINISHED
 
-4. **UI Timer** detects FINISHED:
+### Direct Status Update Completion (No Data Cases)
+
+Used when no data was extracted, so no items are queued to workers.
+
+1. **Extraction Worker** directly marks all steps as finished:
+   - **No repositories found**: Marks both Step 1 and Step 2 as finished (6 statuses total)
+   - **No PRs on last repository**: Marks only Step 2 as finished (3 statuses)
+   - Calls `status_manager.complete_etl_job()` to set overall status to FINISHED
+   - Updates `last_sync_date` in database
+
+2. **No queue messages sent** - instant completion without worker involvement
+
+### UI Reset Flow (Both Patterns)
+
+After job completion (overall status = FINISHED):
+
+1. **UI Timer** detects FINISHED:
    - Calls `checkJobCompletion` endpoint
-   - Checks if all steps are finished (or idle for Step 2 if no PRs)
+   - Checks if all steps are finished
    - Waits 30 seconds, then calls `resetJobStatus`
    - Resets all steps to "idle" and overall to "READY"
 
@@ -402,9 +442,10 @@ Embedding Worker (updates last_sync_date when last_job_item=True)
 
 ### Critical Implementation Points
 
-1. **Extraction Worker**: Sets `new_last_sync_date = datetime.now()` at extraction start
-   - This captures the extraction start time for the next incremental run
+1. **Extraction Worker**: Sets `new_last_sync_date = DateTimeHelper.now_default()` at extraction start
+   - This captures the extraction start time in configured timezone (America/New_York from .env)
    - Uses `old_last_sync_date` for filtering (e.g., `pushed:2025-11-11..2025-11-12`)
+   - **Important**: All timestamps use `DateTimeHelper.now_default()` for timezone consistency
 
 2. **Transform Worker - Regular Processing**: Must forward both dates to embedding
    - `github_transform_worker.py` line 265: Extract `new_last_sync_date` from message
