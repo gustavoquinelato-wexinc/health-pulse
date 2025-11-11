@@ -482,45 +482,107 @@ class JiraEmbeddingWorker:
             return False
 
     async def _update_bridge_table(self, tenant_id: int, entity_type: str, entity_id: int, message: Dict[str, Any]) -> bool:
-        """Update qdrant_vectors bridge table."""
+        """Update qdrant_vectors bridge table to track stored vectors."""
         try:
-            from app.models.unified_models import QdrantVector
-            from app.core.utils import DateTimeHelper
-
+            from app.models.unified_models import QdrantVector, Integration
             database = get_database()
 
+            # Get source_type from SOURCE_TYPE_MAPPING
+            source_type = SOURCE_TYPE_MAPPING.get(entity_type, 'UNKNOWN')
+
+            # Get integration_id from message or lookup
+            integration_id = message.get('integration_id')
+            if integration_id is None:
+                integration_id = await self._get_integration_id_for_source_type(tenant_id, source_type)
+                if integration_id is None:
+                    logger.error(f"❌ [JIRA EMBEDDING] No integration_id found for {source_type} in tenant {tenant_id}")
+                    return False
+
+            # Generate the same point ID as used in Qdrant storage
+            unique_string = f"{tenant_id}_{entity_type}_{entity_id}"
+            point_id = str(uuid.uuid5(uuid.NAMESPACE_DNS, unique_string))
+
             with database.get_write_session_context() as session:
-                # Check if record exists
+                # Check if record already exists (must match unique constraint)
                 existing = session.query(QdrantVector).filter(
+                    QdrantVector.source_type == source_type,
+                    QdrantVector.table_name == entity_type,
+                    QdrantVector.record_id == entity_id,
                     QdrantVector.tenant_id == tenant_id,
-                    QdrantVector.entity_type == entity_type,
-                    QdrantVector.entity_id == entity_id
+                    QdrantVector.vector_type == 'content'
                 ).first()
 
                 if existing:
                     # Update existing record
-                    existing.last_updated_at = DateTimeHelper.default_now()
                     existing.active = True
+                    existing.last_updated_at = datetime.now()
+                    existing.qdrant_point_id = point_id
                     logger.debug(f"✅ [JIRA EMBEDDING] Updated bridge table: {entity_type} ID {entity_id}")
                 else:
-                    # Insert new record
-                    new_record = QdrantVector(
+                    # Create new record
+                    new_vector = QdrantVector(
+                        source_type=source_type,
+                        table_name=entity_type,
+                        record_id=entity_id,
+                        qdrant_collection=f"tenant_{tenant_id}_{entity_type}",
+                        qdrant_point_id=point_id,
+                        vector_type='content',
+                        integration_id=integration_id,
                         tenant_id=tenant_id,
-                        entity_type=entity_type,
-                        entity_id=entity_id,
                         active=True,
-                        created_at=DateTimeHelper.default_now(),
-                        last_updated_at=DateTimeHelper.default_now()
+                        created_at=datetime.now(),
+                        last_updated_at=datetime.now()
                     )
-                    session.add(new_record)
+                    session.add(new_vector)
                     logger.debug(f"✅ [JIRA EMBEDDING] Inserted into bridge table: {entity_type} ID {entity_id}")
 
                 session.commit()
                 return True
 
         except Exception as e:
+            # Handle race condition: another worker may have inserted the same record
+            from psycopg2.errors import UniqueViolation
+            if isinstance(e.__cause__, UniqueViolation) or 'duplicate key' in str(e).lower():
+                logger.info(f"ℹ️ [JIRA EMBEDDING] Record already exists (race condition handled): {entity_type}_{entity_id}")
+                return True
+
             logger.error(f"❌ [JIRA EMBEDDING] Error updating bridge table: {e}")
             return False
+
+    async def _get_integration_id_for_source_type(self, tenant_id: int, source_type: str) -> Optional[int]:
+        """Get the integration_id for a given source_type (JIRA or GITHUB)."""
+        try:
+            from app.models.unified_models import Integration
+            database = get_database()
+
+            with database.get_read_session_context() as session:
+                # Map source_type to provider name
+                provider_mapping = {
+                    'JIRA': 'Jira',
+                    'GITHUB': 'GitHub'
+                }
+                provider_name = provider_mapping.get(source_type)
+
+                if not provider_name:
+                    logger.error(f"❌ [JIRA EMBEDDING] Unknown source_type: {source_type}")
+                    return None
+
+                # Find the integration for this tenant and provider
+                integration = session.query(Integration).filter(
+                    Integration.tenant_id == tenant_id,
+                    Integration.provider == provider_name,
+                    Integration.active == True
+                ).first()
+
+                if integration:
+                    return integration.id
+                else:
+                    logger.error(f"❌ [JIRA EMBEDDING] No active {provider_name} integration found for tenant {tenant_id}")
+                    return None
+
+        except Exception as e:
+            logger.error(f"❌ [JIRA EMBEDDING] Error getting integration_id: {e}")
+            return None
 
     async def _process_mapping_table(self, tenant_id: int, table_name: str) -> bool:
         """Process an entire Jira mapping table for embedding."""
