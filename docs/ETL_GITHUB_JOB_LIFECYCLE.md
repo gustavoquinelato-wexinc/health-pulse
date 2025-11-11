@@ -362,3 +362,84 @@ To verify token is properly forwarded through nested pagination:
 4. Confirm token is present in all embedding worker logs
 5. Token should NOT become `None` at any stage, especially during nested pagination
 
+---
+
+## Date Forwarding for Incremental Sync
+
+Every GitHub job uses **two date fields** for incremental sync:
+- `old_last_sync_date` (or `last_sync_date`): Used for filtering data during extraction (from previous job run)
+- `new_last_sync_date`: Extraction start time that will be saved for the next incremental run
+
+### Date Flow Through Pipeline
+
+**Step 1: github_repositories**
+```
+Job Start (reads last_sync_date from database)
+    ↓ old_last_sync_date in message
+Extraction Worker (sets new_last_sync_date = current date)
+    ↓ old_last_sync_date + new_last_sync_date in message
+Transform Queue
+    ↓ MUST forward both dates
+Transform Worker
+    ↓ old_last_sync_date + new_last_sync_date in message
+Embedding Queue
+    ↓ new_last_sync_date used for database update
+Embedding Worker (updates last_sync_date when last_job_item=True)
+```
+
+**Step 2: github_prs_commits_reviews_comments**
+```
+Extraction Worker (receives dates from Step 1)
+    ↓ old_last_sync_date + new_last_sync_date in message
+Transform Queue
+    ↓ MUST forward both dates
+Transform Worker
+    ↓ old_last_sync_date + new_last_sync_date in message
+Embedding Queue
+    ↓ new_last_sync_date used for database update
+Embedding Worker (updates last_sync_date when last_job_item=True)
+```
+
+### Critical Implementation Points
+
+1. **Extraction Worker**: Sets `new_last_sync_date = datetime.now()` at extraction start
+   - This captures the extraction start time for the next incremental run
+   - Uses `old_last_sync_date` for filtering (e.g., `pushed:2025-11-11..2025-11-12`)
+
+2. **Transform Worker - Regular Processing**: Must forward both dates to embedding
+   - `github_transform_worker.py` line 265: Extract `new_last_sync_date` from message
+   - `github_transform_worker.py` line 444: Forward `new_last_sync_date` to embedding queue
+
+3. **Transform Worker - Completion Messages**: Must forward both dates to embedding
+   - `github_transform_worker.py` line 188: Forward `new_last_sync_date` for repositories completion
+   - `github_transform_worker.py` line 213: Forward `new_last_sync_date` for PRs completion
+
+4. **Embedding Worker**: Updates database when `last_job_item=True`
+   - Calls `_complete_etl_job(job_id, tenant_id, new_last_sync_date)`
+   - Updates `last_sync_date` column in `etl_jobs` table
+   - Next run will use this value as `old_last_sync_date`
+
+### Incremental Sync Behavior
+
+**First Run (no last_sync_date in database)**
+- `old_last_sync_date = None`
+- Extraction uses 2-year default: `pushed:2023-11-12..2025-11-11`
+- Sets `new_last_sync_date = 2025-11-11`
+- Embedding worker updates database: `last_sync_date = 2025-11-11`
+
+**Second Run (last_sync_date exists in database)**
+- `old_last_sync_date = 2025-11-11` (from database)
+- Extraction uses incremental range: `pushed:2025-11-11..2025-11-12`
+- Sets `new_last_sync_date = 2025-11-12`
+- Embedding worker updates database: `last_sync_date = 2025-11-12`
+- **Saves API quota**: Only fetches repositories/PRs updated since last run
+
+### Date Verification for GitHub
+
+To verify dates are properly forwarded:
+1. Check logs for `new_last_sync_date` in extraction worker output
+2. Verify both dates appear in transform queue messages
+3. Verify both dates appear in embedding queue messages
+4. Confirm `last_sync_date` is updated in database after job completion
+5. Verify next run uses previous `new_last_sync_date` as `old_last_sync_date`
+
