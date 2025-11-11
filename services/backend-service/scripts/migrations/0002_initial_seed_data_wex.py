@@ -108,7 +108,7 @@ def apply(connection):
             VALUES
                 (%(tenant_id)s, 'premium_extraction_workers', '5', 'Number of workers for premium extraction queue', NOW(), NOW()),
                 (%(tenant_id)s, 'premium_transform_workers', '5', 'Number of workers for premium transform queue', NOW(), NOW()),
-                (%(tenant_id)s, 'premium_embedding_workers', '5', 'Number of workers for premium embedding queue', NOW(), NOW())
+                (%(tenant_id)s, 'premium_embedding_workers', '15', 'Number of workers for premium embedding queue', NOW(), NOW())
             ON CONFLICT (tenant_id, setting_key) DO UPDATE SET
                 setting_value = EXCLUDED.setting_value,
                 description = EXCLUDED.description,

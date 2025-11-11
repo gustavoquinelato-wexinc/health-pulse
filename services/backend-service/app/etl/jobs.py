@@ -361,7 +361,7 @@ async def get_job_details(
 
         query = text("""
             SELECT
-                id, job_name, status, active,
+                id, job_name, status->>'overall' as status, active,
                 schedule_interval_minutes, retry_interval_minutes,
                 integration_id, last_run_started_at, last_run_finished_at,
                 created_at, last_updated_at, error_message, retry_count,
