@@ -425,7 +425,9 @@ async def toggle_job_active(
 
         # Get current job
         query = text("""
-            SELECT job_name, active, integration_id
+            SELECT job_name, active, integration_id, last_run_started_at,
+                   schedule_interval_minutes, retry_interval_minutes,
+                   status->>'overall' as status, retry_count
             FROM etl_jobs
             WHERE id = :job_id AND tenant_id = :tenant_id
         """)
@@ -434,7 +436,8 @@ async def toggle_job_active(
         if not result:
             raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
 
-        job_name, current_active, integration_id = result
+        (job_name, current_active, integration_id, last_run_started_at,
+         schedule_interval_minutes, retry_interval_minutes, status, retry_count) = result
 
         # If activating job, check if integration is active (inactive integration cannot have active jobs)
         if request.active and integration_id:
@@ -449,13 +452,41 @@ async def toggle_job_active(
                     detail=f"Cannot activate job {job_name} while its integration is inactive. Activate the integration first."
                 )
 
-        # Update active status
-        update_query = text("""
-            UPDATE etl_jobs
-            SET active = :active, last_updated_at = NOW()
-            WHERE id = :job_id AND tenant_id = :tenant_id
-        """)
-        db.execute(update_query, {'job_id': job_id, 'tenant_id': tenant_id, 'active': request.active})
+        # If activating an inactive job, recalculate next_run
+        if request.active and not current_active:
+            # Recalculate next_run when activating
+            next_run = calculate_next_run(
+                last_run_started_at=last_run_started_at,
+                schedule_interval_minutes=schedule_interval_minutes,
+                retry_interval_minutes=retry_interval_minutes,
+                status=status,
+                retry_count=retry_count
+            )
+
+            # Update active status AND next_run
+            update_query = text("""
+                UPDATE etl_jobs
+                SET active = :active,
+                    next_run = :next_run,
+                    last_updated_at = NOW()
+                WHERE id = :job_id AND tenant_id = :tenant_id
+            """)
+            db.execute(update_query, {
+                'job_id': job_id,
+                'tenant_id': tenant_id,
+                'active': request.active,
+                'next_run': next_run
+            })
+            logger.info(f"Job {job_name} (ID: {job_id}) activated with next_run recalculated to {next_run}")
+        else:
+            # Just update active status (deactivating or already active)
+            update_query = text("""
+                UPDATE etl_jobs
+                SET active = :active, last_updated_at = NOW()
+                WHERE id = :job_id AND tenant_id = :tenant_id
+            """)
+            db.execute(update_query, {'job_id': job_id, 'tenant_id': tenant_id, 'active': request.active})
+
         db.commit()
 
         action = "activated" if request.active else "deactivated"
