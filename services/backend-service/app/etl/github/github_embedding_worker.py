@@ -49,7 +49,28 @@ class GitHubEmbeddingWorker:
         self.status_manager = status_manager
         self.queue_manager = queue_manager
         self.hybrid_provider = None
+        self._initialize_hybrid_provider()
         logger.debug("✅ Initialized GitHubEmbeddingWorker")
+
+    def _initialize_hybrid_provider(self):
+        """Initialize the hybrid provider with a persistent database session."""
+        try:
+            from app.ai.hybrid_provider_manager import HybridProviderManager
+            from app.core.database import get_database
+
+            # Create a persistent database session for the hybrid provider
+            # Use read session since initialization mainly reads provider configs
+            db = get_database()
+            db_session = db.get_read_session()
+
+            self.hybrid_provider = HybridProviderManager(db_session)
+            # Note: Providers will be initialized per tenant when processing messages
+
+            logger.info(f"✅ [GITHUB EMBEDDING] Hybrid provider manager created")
+
+        except Exception as e:
+            logger.error(f"❌ [GITHUB EMBEDDING] Failed to initialize hybrid provider: {e}")
+            raise
 
     async def process_github_embedding(self, message: Dict[str, Any]) -> bool:
         """
@@ -95,16 +116,7 @@ class GitHubEmbeddingWorker:
     async def _process_entity(self, tenant_id: int, entity_type: str, entity_id: str, message: Dict[str, Any]) -> bool:
         """Process a single GitHub entity for embedding."""
         try:
-            # Initialize HybridProviderManager if not already done
-            if not self.hybrid_provider:
-                from app.ai.hybrid_provider_manager import HybridProviderManager
-                from app.core.database import get_database
-
-                # Create a database session for the hybrid provider
-                db = get_database()
-                db_session = db.get_read_session()
-                self.hybrid_provider = HybridProviderManager(db_session)
-
+            # Initialize providers for this tenant if not already done
             if not self.hybrid_provider.providers:
                 logger.info(f"🔄 [GITHUB EMBEDDING] Initializing providers for tenant {tenant_id}")
                 init_success = await self.hybrid_provider.initialize_providers(tenant_id)
