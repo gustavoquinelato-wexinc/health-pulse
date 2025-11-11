@@ -452,15 +452,18 @@ class GitHubTransformHandler:
                 logger.debug(f"Queued repo {repo_info['full_name']} for embedding (first={repo_first_item}, last={repo_last_item}, job_end={repo_last_job_item})")
 
             # ✅ Mark raw data as completed after all repos are queued
+            from app.core.utils import DateTimeHelper
+            now = DateTimeHelper.now_default()
+
             update_query = text("""
                 UPDATE raw_extraction_data
                 SET status = 'completed',
-                    last_updated_at = NOW(),
+                    last_updated_at = :now,
                     error_details = NULL
                 WHERE id = :raw_data_id
             """)
             with database.get_write_session_context() as db:
-                db.execute(update_query, {'raw_data_id': raw_data_id})
+                db.execute(update_query, {'raw_data_id': raw_data_id, 'now': now})
                 db.commit()
 
             logger.debug(f"Processed {len(repos_to_queue)} repositories - marked raw_data_id={raw_data_id} as completed")
@@ -769,14 +772,17 @@ class GitHubTransformHandler:
                 logger.debug(f"✅ Inserted {len(nested_data)} {nested_type} for PR {pr_id}")
 
                 # Mark raw data as completed
+                from app.core.utils import DateTimeHelper
+                now = DateTimeHelper.now_default()
+
                 update_query = text("""
                     UPDATE raw_extraction_data
                     SET status = 'completed',
-                        last_updated_at = NOW(),
+                        last_updated_at = :now,
                         error_details = NULL
                     WHERE id = :raw_data_id
                 """)
-                db.execute(update_query, {'raw_data_id': raw_data_id})
+                db.execute(update_query, {'raw_data_id': raw_data_id, 'now': now})
 
                 # 🔑 ALWAYS queue nested entities to embedding, regardless of pagination
                 # first_item/last_item flags are ONLY for WebSocket status updates

@@ -52,6 +52,10 @@ def complete_etl_job(job_id: int, last_sync_date: str, tenant_id: int):
 
             # Calculate next_run using the same logic as in jobs.py
             from app.etl.jobs import calculate_next_run
+            from app.core.utils import DateTimeHelper
+
+            now = DateTimeHelper.now_default()
+
             next_run = calculate_next_run(
                 last_run_started_at=last_run_started_at,
                 schedule_interval_minutes=schedule_interval_minutes,
@@ -63,9 +67,9 @@ def complete_etl_job(job_id: int, last_sync_date: str, tenant_id: int):
             update_query = text("""
                 UPDATE etl_jobs
                 SET status = 'FINISHED',
-                    last_run_finished_at = NOW(),
+                    last_run_finished_at = :now,
                     last_sync_date = :last_sync_date,
-                    last_updated_at = NOW(),
+                    last_updated_at = :now,
                     next_run = :next_run
                 WHERE id = :job_id AND tenant_id = :tenant_id
             """)
@@ -74,7 +78,8 @@ def complete_etl_job(job_id: int, last_sync_date: str, tenant_id: int):
                 'job_id': job_id,
                 'tenant_id': tenant_id,
                 'last_sync_date': last_sync_date,
-                'next_run': next_run
+                'next_run': next_run,
+                'now': now
             })
             session.commit()
 

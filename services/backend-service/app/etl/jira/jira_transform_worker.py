@@ -642,6 +642,9 @@ class JiraTransformHandler:
             bool: True if processing succeeded
         """
         try:
+            from app.core.utils import DateTimeHelper
+            now = DateTimeHelper.now_default()
+
             with self.get_db_session() as session:
                 # 1. Get raw data
                 raw_data = self._get_raw_data(session, raw_data_id)
@@ -681,7 +684,7 @@ class JiraTransformHandler:
                         UPDATE custom_fields
                         SET name = :name,
                             field_type = :field_type,
-                            last_updated_at = NOW()
+                            last_updated_at = :now
                         WHERE external_id = :external_id
                         AND tenant_id = :tenant_id
                         AND integration_id = :integration_id
@@ -691,7 +694,8 @@ class JiraTransformHandler:
                         'field_type': field_type,
                         'external_id': field_id,
                         'tenant_id': tenant_id,
-                        'integration_id': integration_id
+                        'integration_id': integration_id,
+                        'now': now
                     })
                 else:
                     # Insert new field
@@ -702,7 +706,7 @@ class JiraTransformHandler:
                             tenant_id, integration_id, active, created_at, last_updated_at
                         ) VALUES (
                             :external_id, :name, :field_type, :operations,
-                            :tenant_id, :integration_id, TRUE, NOW(), NOW()
+                            :tenant_id, :integration_id, TRUE, :created_at, :last_updated_at
                         )
                     """)
                     session.execute(insert_query, {
@@ -711,7 +715,9 @@ class JiraTransformHandler:
                         'field_type': field_type,
                         'operations': None,  # No operations for special fields
                         'tenant_id': tenant_id,
-                        'integration_id': integration_id
+                        'integration_id': integration_id,
+                        'created_at': now,
+                        'last_updated_at': now
                     })
 
                 # 5. Auto-map development field if this is the development field
@@ -749,12 +755,15 @@ class JiraTransformHandler:
     def _update_raw_data_status(self, session, raw_data_id: int, status: str):
         """Update raw data processing status."""
         try:
+            from app.core.utils import DateTimeHelper
+            now = DateTimeHelper.now_default()
+
             query = text("""
                 UPDATE raw_extraction_data
-                SET status = :status, last_updated_at = NOW()
+                SET status = :status, last_updated_at = :now
                 WHERE id = :raw_data_id
             """)
-            session.execute(query, {'raw_data_id': raw_data_id, 'status': status})
+            session.execute(query, {'raw_data_id': raw_data_id, 'status': status, 'now': now})
         except Exception as e:
             logger.error(f"Error updating raw data status: {e}")
             raise
@@ -806,14 +815,15 @@ class JiraTransformHandler:
                 update_query = text("""
                     UPDATE custom_fields_mapping
                     SET development_field_id = :field_id,
-                        last_updated_at = NOW()
+                        last_updated_at = :now
                     WHERE tenant_id = :tenant_id
                     AND integration_id = :integration_id
                 """)
                 session.execute(update_query, {
                     'field_id': custom_field_db_id,
                     'tenant_id': tenant_id,
-                    'integration_id': integration_id
+                    'integration_id': integration_id,
+                    'now': now
                 })
                 logger.debug(f"Auto-mapped development field {development_field_id} to development_field_id")
             else:
@@ -824,13 +834,15 @@ class JiraTransformHandler:
                         active, created_at, last_updated_at
                     ) VALUES (
                         :tenant_id, :integration_id, :field_id,
-                        true, NOW(), NOW()
+                        true, :created_at, :last_updated_at
                     )
                 """)
                 session.execute(insert_query, {
                     'tenant_id': tenant_id,
                     'integration_id': integration_id,
-                    'field_id': custom_field_db_id
+                    'field_id': custom_field_db_id,
+                    'created_at': now,
+                    'last_updated_at': now
                 })
                 logger.debug(f"Created custom_fields_mapping and auto-mapped development field {development_field_id}")
 
@@ -1413,14 +1425,17 @@ class JiraTransformHandler:
                 relationships_processed = self._process_project_status_relationships_data(db, project_statuses_data, integration_id, tenant_id)
 
                 # Update raw data status to completed
+                from app.core.utils import DateTimeHelper
+                now = DateTimeHelper.now_default()
+
                 update_query = text("""
                     UPDATE raw_extraction_data
                     SET status = 'completed',
-                        last_updated_at = NOW(),
+                        last_updated_at = :now,
                         error_details = NULL
                     WHERE id = :raw_data_id
                 """)
-                db.execute(update_query, {'raw_data_id': raw_data_id})
+                db.execute(update_query, {'raw_data_id': raw_data_id, 'now': now})
 
                 # Commit all changes BEFORE queueing for vectorization
                 db.commit()
@@ -1563,8 +1578,11 @@ class JiraTransformHandler:
             Dict with 'count', 'statuses_to_insert', and 'statuses_to_update'
         """
         try:
+            from app.core.utils import DateTimeHelper
+
             statuses_to_insert = []
             statuses_to_update = []
+            now = DateTimeHelper.now_default()
 
             # Get existing statuses
             existing_query = text("""
@@ -1636,13 +1654,18 @@ class JiraTransformHandler:
 
             # Bulk insert new statuses
             if statuses_to_insert:
+                # Add timestamps to each record
+                for status in statuses_to_insert:
+                    status['created_at'] = now
+                    status['last_updated_at'] = now
+
                 insert_query = text("""
                     INSERT INTO statuses (
                         external_id, original_name, category, description, status_mapping_id,
                         integration_id, tenant_id, active, created_at, last_updated_at
                     ) VALUES (
                         :external_id, :original_name, :category, :description, :status_mapping_id,
-                        :integration_id, :tenant_id, TRUE, NOW(), NOW()
+                        :integration_id, :tenant_id, TRUE, :created_at, :last_updated_at
                     )
                 """)
                 db.execute(insert_query, statuses_to_insert)
@@ -1650,11 +1673,15 @@ class JiraTransformHandler:
 
             # Bulk update existing statuses
             if statuses_to_update:
+                # Add timestamp to each record
+                for status in statuses_to_update:
+                    status['last_updated_at'] = now
+
                 update_query = text("""
                     UPDATE statuses
                     SET original_name = :original_name, category = :category,
                         description = :description, status_mapping_id = :status_mapping_id,
-                        last_updated_at = NOW()
+                        last_updated_at = :last_updated_at
                     WHERE id = :id
                 """)
                 db.execute(update_query, statuses_to_update)
@@ -2079,14 +2106,17 @@ class JiraTransformHandler:
                 )
 
                 # Update raw data status to completed
+                from app.core.utils import DateTimeHelper
+                now = DateTimeHelper.now_default()
+
                 update_query = text("""
                     UPDATE raw_extraction_data
                     SET status = 'completed',
-                        last_updated_at = NOW(),
+                        last_updated_at = :now,
                         error_details = NULL
                     WHERE id = :raw_data_id
                 """)
-                db.execute(update_query, {'raw_data_id': raw_data_id})
+                db.execute(update_query, {'raw_data_id': raw_data_id, 'now': now})
                 db.commit()
 
                 logger.debug(f"Processed {issues_processed} issues and {changelogs_processed} changelogs - marked raw_data_id={raw_data_id} as completed")
@@ -2099,17 +2129,21 @@ class JiraTransformHandler:
 
             # Mark raw data as failed
             try:
+                from app.core.utils import DateTimeHelper
+                now = DateTimeHelper.now_default()
+
                 with self.get_db_session() as db:
                     error_query = text("""
                         UPDATE raw_extraction_data
                         SET status = 'failed',
                             error_details = CAST(:error_details AS jsonb),
-                            last_updated_at = NOW()
+                            last_updated_at = :now
                         WHERE id = :raw_data_id
                     """)
                     db.execute(error_query, {
                         'raw_data_id': raw_data_id,
-                        'error_details': json.dumps({'error': str(e)[:500]})  # Proper JSON format
+                        'error_details': json.dumps({'error': str(e)[:500]}),  # Proper JSON format
+                        'now': now
                     })
                     db.commit()
             except Exception as update_error:
@@ -2166,14 +2200,17 @@ class JiraTransformHandler:
                 # Note: dev_status extraction is now handled by extraction worker, not transform worker
 
                 # Update raw data status to completed
+                from app.core.utils import DateTimeHelper
+                now = DateTimeHelper.now_default()
+
                 update_query = text("""
                     UPDATE raw_extraction_data
                     SET status = 'completed',
-                        last_updated_at = NOW(),
+                        last_updated_at = :now,
                         error_details = NULL
                     WHERE id = :raw_data_id
                 """)
-                db.execute(update_query, {'raw_data_id': raw_data_id})
+                db.execute(update_query, {'raw_data_id': raw_data_id, 'now': now})
                 db.commit()
 
                 logger.debug(f"Processed issue {issue.get('key')} with {changelogs_processed} changelogs - marked raw_data_id={raw_data_id} as completed")
@@ -2186,17 +2223,21 @@ class JiraTransformHandler:
 
             # Mark raw data as failed
             try:
+                from app.core.utils import DateTimeHelper
+                now = DateTimeHelper.now_default()
+
                 with self.get_db_session() as db:
                     error_query = text("""
                         UPDATE raw_extraction_data
                         SET status = 'failed',
                             error_details = CAST(:error_details AS jsonb),
-                            last_updated_at = NOW()
+                            last_updated_at = :now
                         WHERE id = :raw_data_id
                     """)
                     db.execute(error_query, {
                         'raw_data_id': raw_data_id,
-                        'error_details': json.dumps({'error': str(e)[:500]})
+                        'error_details': json.dumps({'error': str(e)[:500]}),
+                        'now': now
                     })
                     db.commit()
             except Exception as update_error:
@@ -2285,14 +2326,17 @@ class JiraTransformHandler:
                 # Note: dev_status extraction is now handled by extraction worker, not transform worker
 
                 # Update raw data status to completed
+                from app.core.utils import DateTimeHelper
+                now = DateTimeHelper.now_default()
+
                 update_query = text("""
                     UPDATE raw_extraction_data
                     SET status = 'completed',
-                        last_updated_at = NOW(),
+                        last_updated_at = :now,
                         error_details = NULL
                     WHERE id = :raw_data_id
                 """)
-                db.execute(update_query, {'raw_data_id': raw_data_id})
+                db.execute(update_query, {'raw_data_id': raw_data_id, 'now': now})
                 db.commit()
 
                 logger.debug(f"Processed issue {issue.get('key')} with {changelogs_processed} changelogs - marked raw_data_id={raw_data_id} as completed")
@@ -2313,17 +2357,21 @@ class JiraTransformHandler:
 
             # Mark raw data as failed
             try:
+                from app.core.utils import DateTimeHelper
+                now = DateTimeHelper.now_default()
+
                 with self.get_db_session() as db:
                     error_query = text("""
                         UPDATE raw_extraction_data
                         SET status = 'failed',
                             error_details = CAST(:error_details AS jsonb),
-                            last_updated_at = NOW()
+                            last_updated_at = :now
                         WHERE id = :raw_data_id
                     """)
                     db.execute(error_query, {
                         'raw_data_id': raw_data_id,
-                        'error_details': json.dumps({'error': str(e)[:500]})
+                        'error_details': json.dumps({'error': str(e)[:500]}),
+                        'now': now
                     })
                     db.commit()
             except Exception as update_error:
@@ -3192,14 +3240,17 @@ class JiraTransformHandler:
 
                 # Update raw data status to completed
                 from sqlalchemy import text
+                from app.core.utils import DateTimeHelper
+                now = DateTimeHelper.now_default()
+
                 update_query = text("""
                     UPDATE raw_extraction_data
                     SET status = 'completed',
-                        last_updated_at = NOW(),
+                        last_updated_at = :now,
                         error_details = NULL
                     WHERE id = :raw_data_id
                 """)
-                db.execute(update_query, {'raw_data_id': raw_data_id})
+                db.execute(update_query, {'raw_data_id': raw_data_id, 'now': now})
                 db.commit()
 
                 logger.debug(f"Processed {pr_links_processed} PR links from dev_status - marked raw_data_id={raw_data_id} as completed")
@@ -3218,17 +3269,21 @@ class JiraTransformHandler:
             try:
                 with self.get_db_session() as db:
                     from sqlalchemy import text
+                    from app.core.utils import DateTimeHelper
+                    now = DateTimeHelper.now_default()
+
                     update_query = text("""
                         UPDATE raw_extraction_data
                         SET status = 'failed',
-                            last_updated_at = NOW(),
+                            last_updated_at = :now,
                             error_details = CAST(:error_details AS jsonb)
                         WHERE id = :raw_data_id
                     """)
                     import json
                     db.execute(update_query, {
                         'raw_data_id': raw_data_id,
-                        'error_details': json.dumps({'error': str(e), 'traceback': traceback.format_exc()})
+                        'error_details': json.dumps({'error': str(e), 'traceback': traceback.format_exc()}),
+                        'now': now
                     })
                     db.commit()
             except Exception as update_error:
@@ -3606,6 +3661,9 @@ class JiraTransformHandler:
         try:
             from app.core.database import get_database
             from sqlalchemy import text
+            from app.core.utils import DateTimeHelper
+
+            now = DateTimeHelper.now_default()
 
             database = get_database()
             with database.get_write_session_context() as session:
@@ -3622,12 +3680,13 @@ class JiraTransformHandler:
                                 ELSE status->'overall'
                             END
                         ),
-                        last_updated_at = NOW()
+                        last_updated_at = :now
                     WHERE id = :job_id
                 """)
 
                 session.execute(update_query, {
-                    'job_id': job_id
+                    'job_id': job_id,
+                    'now': now
                 })
                 session.commit()
 
