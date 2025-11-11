@@ -98,7 +98,12 @@ class GitHubEmbeddingWorker:
             # Initialize HybridProviderManager if not already done
             if not self.hybrid_provider:
                 from app.ai.hybrid_provider_manager import HybridProviderManager
-                self.hybrid_provider = HybridProviderManager()
+                from app.core.database import get_database
+
+                # Create a database session for the hybrid provider
+                db = get_database()
+                db_session = db.get_read_session()
+                self.hybrid_provider = HybridProviderManager(db_session)
 
             if not self.hybrid_provider.providers:
                 logger.info(f"🔄 [GITHUB EMBEDDING] Initializing providers for tenant {tenant_id}")
