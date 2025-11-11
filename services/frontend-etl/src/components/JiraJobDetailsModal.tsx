@@ -1,13 +1,12 @@
 import { useEffect, useState } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
-import { X, Clock, AlertCircle, Calendar, Activity, Database } from 'lucide-react'
+import { X, Clock, AlertCircle, Activity, Database } from 'lucide-react'
 import { useAuth } from '../contexts/AuthContext'
 import { etlApi } from '../services/etlApiService'
 
 interface JobDetails {
   id: number
   job_name: string
-  execution_order: number
   status: string
   active: boolean
   integration_id?: number
@@ -123,21 +122,13 @@ export default function JiraJobDetailsModal({ jobId, onClose }: JiraJobDetailsMo
             {jobDetails && !loading && (
               <div className="space-y-6">
                 {/* Status Overview */}
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="card p-4">
                     <div className="flex items-center space-x-2 mb-2">
                       <Activity className="w-4 h-4 text-secondary" />
                       <span className="text-sm text-secondary">Status</span>
                     </div>
                     <p className="text-lg font-semibold text-primary">{jobDetails.status}</p>
-                  </div>
-
-                  <div className="card p-4">
-                    <div className="flex items-center space-x-2 mb-2">
-                      <Calendar className="w-4 h-4 text-secondary" />
-                      <span className="text-sm text-secondary">Execution Order</span>
-                    </div>
-                    <p className="text-lg font-semibold text-primary">#{jobDetails.execution_order}</p>
                   </div>
 
                   <div className="card p-4">
