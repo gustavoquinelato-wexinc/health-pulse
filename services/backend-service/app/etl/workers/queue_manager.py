@@ -330,7 +330,7 @@ class QueueManager:
         job_id: int = None,
         integration_id: int = None,
         provider: str = None,
-        last_sync_date: str = None,
+        old_last_sync_date: str = None,
         new_last_sync_date: str = None,
         first_item: bool = False,
         last_item: bool = False,
@@ -348,7 +348,7 @@ class QueueManager:
             job_id: ETL job ID (for completion tracking)
             integration_id: Integration ID
             provider: Provider name (jira, github, etc.)
-            last_sync_date: Last sync date used for filtering (old_last_sync_date)
+            old_last_sync_date: Old last sync date used for filtering
             new_last_sync_date: New last sync date to update on completion (extraction end date)
             first_item: True if this is the first item in the queue
             last_item: True if this is the last item that completes the job
@@ -368,7 +368,7 @@ class QueueManager:
             'provider': provider,
             'first_item': first_item,
             'last_item': last_item,
-            'last_sync_date': last_sync_date,  # 🔑 Used for filtering (old_last_sync_date)
+            'old_last_sync_date': old_last_sync_date,  # 🔑 Used for filtering (old_last_sync_date)
             'new_last_sync_date': new_last_sync_date,  # 🔑 Used for job completion (extraction end date)
             'last_job_item': last_job_item,
             'token': token,  # 🔑 Job execution token for tracking

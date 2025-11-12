@@ -751,7 +751,8 @@ async def queue_custom_fields_for_processing(
             tenant_id=tenant_id,
             integration_id=integration_id,
             raw_data_id=raw_data_id,
-            data_type='jira_custom_fields'
+            data_type='jira_custom_fields',
+            provider='jira'  # 🔑 Required for router to route to JiraTransformHandler
         )
 
         if success:
@@ -831,7 +832,8 @@ async def queue_special_fields_for_processing(
             tenant_id=tenant_id,
             integration_id=integration_id,
             raw_data_id=raw_data_id,
-            data_type='jira_special_fields'  # Generic data type for worker routing
+            data_type='jira_special_fields',  # Generic data type for worker routing
+            provider='jira'  # 🔑 Required for router to route to JiraTransformHandler
         )
 
         if success:

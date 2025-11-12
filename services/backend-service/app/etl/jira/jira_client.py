@@ -181,7 +181,24 @@ class JiraAPIClient:
 
             # API 3 returns: {"values": [...], "total": 12, "maxResults": 50, ...}
             projects = result.get('values', [])
-            logger.info(f"Successfully fetched {len(projects)} projects")
+            total = result.get('total', 0)
+
+            # Log project keys that were returned
+            returned_keys = [p.get('key') for p in projects]
+            logger.info(f"Successfully fetched {len(projects)} projects out of {total} total")
+            logger.info(f"Returned project keys: {returned_keys}")
+
+            # Check if we got all requested projects
+            if project_keys:
+                missing_keys = set(project_keys) - set(returned_keys)
+                if missing_keys:
+                    logger.warning(f"⚠️ Missing projects from Jira API response: {list(missing_keys)}")
+                    logger.warning(f"Possible reasons:")
+                    logger.warning(f"  1. Projects are archived or deleted in Jira")
+                    logger.warning(f"  2. User doesn't have permission to access these projects")
+                    logger.warning(f"  3. Projects are hidden from the API user")
+                    logger.warning(f"  4. Project keys are misspelled in integration settings")
+                    logger.warning(f"ETL will continue with {len(projects)} accessible projects: {returned_keys}")
 
             return projects
 

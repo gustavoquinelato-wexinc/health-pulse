@@ -7,7 +7,6 @@ from fastapi import APIRouter, HTTPException, Depends, status
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
-from datetime import datetime
 
 from app.core.logging_config import get_logger
 from app.core.database import get_database, get_db_session
@@ -223,12 +222,13 @@ async def ai_health_check(
                     limit=1
                 )
 
+                from app.core.utils import DateTimeHelper
                 return {
                     "status": "healthy" if test_result["success"] else "degraded",
                     "ai_providers": "available",
                     "vector_database": "connected" if test_result["success"] else "error",
                     "tenant_id": user.tenant_id,
-                    "timestamp": datetime.utcnow().isoformat()
+                    "timestamp": DateTimeHelper.now_default().isoformat()
                 }
             finally:
                 # Cleanup AI providers to prevent event loop errors
@@ -236,9 +236,10 @@ async def ai_health_check(
 
     except Exception as e:
         logger.error(f"AI health check failed: {e}")
+        from app.core.utils import DateTimeHelper
         return {
             "status": "unhealthy",
             "error": str(e),
             "tenant_id": user.tenant_id,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": DateTimeHelper.now_default().isoformat()
         }

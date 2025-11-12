@@ -32,6 +32,11 @@ async def lead_time_trend(
     try:
         database = get_database()
 
+        # Calculate date range for filtering
+        from app.core.utils import DateTimeHelper
+        from datetime import timedelta
+        one_year_ago = DateTimeHelper.now_default() - timedelta(days=365)
+
         with database.get_read_session_context() as session:
             # Build the optimized DORA query with dynamic filters
             base_query = """
@@ -82,7 +87,7 @@ async def lead_time_trend(
                 AND im.wit_to IN ('Story', 'Tech Enhancement')
                 AND i.total_lead_time_seconds > 0
                 AND i.tenant_id = :tenant_id
-                AND i.work_last_completed_at >= NOW() - INTERVAL '365 days'
+                AND i.work_last_completed_at >= :one_year_ago
                 AND EXISTS (
                     SELECT 1
                     FROM work_items_prs_links jprl
@@ -102,7 +107,7 @@ async def lead_time_trend(
 
             # Build dynamic WHERE conditions
             where_conditions = []
-            params = {'tenant_id': user.tenant_id}
+            params = {'tenant_id': user.tenant_id, 'one_year_ago': one_year_ago}
 
             if team:
                 where_conditions.append("AND i.team ILIKE :team")
@@ -500,7 +505,8 @@ async def generate_forecast(
         if last_date_str:
             last_date = datetime.fromisoformat(last_date_str.replace('Z', '+00:00')).replace(tzinfo=None)
         else:
-            last_date = datetime.now()
+            from app.core.utils import DateTimeHelper
+            last_date = DateTimeHelper.now_default()
 
         # Generate forecast based on selected model
         forecast_data = []

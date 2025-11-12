@@ -13,7 +13,6 @@ from typing import Dict, List, Optional
 import json
 import asyncio
 import time
-from datetime import datetime
 
 router = APIRouter()
 logger = get_logger(__name__)
@@ -87,12 +86,13 @@ class JobWebSocketManager:
                     status_data = json_lib.loads(status_json) if isinstance(status_json, str) else status_json
 
                     # Send complete database JSON structure (same format as job_status_update)
+                    from app.core.utils import DateTimeHelper
                     status_message = {
                         "type": "job_status_update",
                         "tenant_id": tenant_id,
                         "job_id": job_id,
                         "status": status_data,  # Complete database JSON structure
-                        "timestamp": datetime.now().isoformat()
+                        "timestamp": DateTimeHelper.now_default().isoformat()
                     }
 
                     await websocket.send_text(json.dumps(status_message))
@@ -104,12 +104,13 @@ class JobWebSocketManager:
                         "steps": {}
                     }
 
+                    from app.core.utils import DateTimeHelper
                     status_message = {
                         "type": "job_status_update",
                         "tenant_id": tenant_id,
                         "job_id": job_id,
                         "status": default_status,
-                        "timestamp": datetime.now().isoformat()
+                        "timestamp": DateTimeHelper.now_default().isoformat()
                     }
 
                     await websocket.send_text(json.dumps(status_message))
@@ -148,6 +149,7 @@ class JobWebSocketManager:
             logger.debug(f"[JOB-WS] No connections for channel {channel}")
             return
 
+        from app.core.utils import DateTimeHelper
         status_data = {
             "type": "worker_status",
             "worker_type": worker_type,
@@ -155,7 +157,7 @@ class JobWebSocketManager:
             "step": step,
             "tenant_id": tenant_id,
             "job_id": job_id,
-            "timestamp": datetime.now().isoformat(),
+            "timestamp": DateTimeHelper.now_default().isoformat(),
             "error_message": error_message
         }
 
@@ -187,12 +189,13 @@ class JobWebSocketManager:
             if channel not in self.connections:
                 continue
 
+            from app.core.utils import DateTimeHelper
             status_data = {
                 "type": "job_status_update",
                 "tenant_id": tenant_id,
                 "job_id": job_id,
                 "status": status_json,  # The same JSON structure from database
-                "timestamp": datetime.now().isoformat()
+                "timestamp": DateTimeHelper.now_default().isoformat()
             }
 
             # Store latest status
@@ -495,41 +498,45 @@ class SessionWebSocketManager:
 
     async def broadcast_logout(self, user_id: int, reason: str = "logout"):
         """Broadcast logout event to all user's connections."""
+        from app.core.utils import DateTimeHelper
         message = {
             "type": "SESSION_INVALIDATED",
             "event": "logout",
             "reason": reason,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": DateTimeHelper.now_default().isoformat()
         }
         await self.broadcast_to_user(user_id, message, "logout")
 
     async def broadcast_login(self, user_id: int, user_email: str):
         """Broadcast login event to all user's connections (for multi-device sync)."""
+        from app.core.utils import DateTimeHelper
         message = {
             "type": "SESSION_CREATED",
             "event": "login",
             "user_email": user_email,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": DateTimeHelper.now_default().isoformat()
         }
         await self.broadcast_to_user(user_id, message, "login")
 
     async def broadcast_color_schema_change(self, user_id: int, colors: dict):
         """Broadcast color schema change to all user's connections."""
+        from app.core.utils import DateTimeHelper
         message = {
             "type": "COLOR_SCHEMA_UPDATED",
             "event": "color_change",
             "colors": colors,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": DateTimeHelper.now_default().isoformat()
         }
         await self.broadcast_to_user(user_id, message, "color_change")
 
     async def broadcast_theme_mode_change(self, user_id: int, theme_mode: str):
         """Broadcast theme mode (dark/light) change to all user's connections."""
+        from app.core.utils import DateTimeHelper
         message = {
             "type": "THEME_MODE_UPDATED",
             "event": "theme_change",
             "theme_mode": theme_mode,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": DateTimeHelper.now_default().isoformat()
         }
         await self.broadcast_to_user(user_id, message, "theme_change")
 
@@ -834,9 +841,10 @@ async def websocket_session_endpoint(websocket: WebSocket, token: str = Query(..
                 try:
                     message = json.loads(data)
                     if message.get("type") == "ping":
+                        from app.core.utils import DateTimeHelper
                         await websocket.send_text(json.dumps({
                             "type": "pong",
-                            "timestamp": datetime.utcnow().isoformat()
+                            "timestamp": DateTimeHelper.now_default().isoformat()
                         }))
                 except json.JSONDecodeError:
                     logger.warning(f"[SessionWS] Invalid JSON from user {user_email}: {data}")

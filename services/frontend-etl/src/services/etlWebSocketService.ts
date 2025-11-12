@@ -24,6 +24,7 @@ export interface JobProgress {
   embedding: WorkerStatus
   isActive: boolean
   overall?: 'READY' | 'RUNNING' | 'FINISHED' | 'FAILED'  // 🔑 Add overall status from database
+  token?: string | null  // 🔑 Job execution token for tracking completion
   steps?: {
     [stepName: string]: StepStatus
   }

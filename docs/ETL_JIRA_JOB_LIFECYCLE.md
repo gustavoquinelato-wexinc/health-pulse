@@ -271,3 +271,68 @@ To verify token is properly forwarded:
 3. Confirm token is present in embedding worker logs
 4. Token should NOT become `None` at any stage
 
+---
+
+## Date Forwarding for Incremental Sync
+
+Every Jira job uses **two date fields** for incremental sync:
+- `old_last_sync_date` (or `last_sync_date`): Used for filtering data during extraction (from previous job run)
+- `new_last_sync_date`: Extraction start time that will be saved for the next incremental run
+
+### Date Flow Through Pipeline
+
+**All Steps (same pattern for all 4 steps)**
+```
+Job Start (reads last_sync_date from database)
+    ↓ old_last_sync_date in message
+Extraction Worker (sets new_last_sync_date = current date)
+    ↓ old_last_sync_date + new_last_sync_date in message
+Transform Queue
+    ↓ MUST forward both dates
+Transform Worker
+    ↓ old_last_sync_date + new_last_sync_date in message
+Embedding Queue
+    ↓ new_last_sync_date used for database update
+Embedding Worker (updates last_sync_date when last_job_item=True)
+```
+
+### Critical Implementation Points
+
+1. **Extraction Worker**: Sets `new_last_sync_date = DateTimeHelper.now_default()` at extraction start
+   - This captures the extraction start time in configured timezone (America/New_York from .env)
+   - Uses `old_last_sync_date` for filtering (e.g., `updated >= '2025-11-11 14:00'` in JQL)
+   - **Important**: All timestamps use `DateTimeHelper.now_default()` for timezone consistency
+
+2. **Transform Worker**: Must forward both dates to embedding
+   - `jira_transform_worker.py`: Extract `new_last_sync_date` from message
+   - Forward `new_last_sync_date` to embedding queue in all steps
+
+3. **Embedding Worker**: Updates database when `last_job_item=True`
+   - Calls `_complete_etl_job(job_id, tenant_id, new_last_sync_date)`
+   - Updates `last_sync_date` column in `etl_jobs` table
+   - Next run will use this value as `old_last_sync_date`
+
+### Incremental Sync Behavior
+
+**First Run (no last_sync_date in database)**
+- `old_last_sync_date = None`
+- Extraction uses no date filter (fetches all issues)
+- Sets `new_last_sync_date = 2025-11-11 14:00:00`
+- Embedding worker updates database: `last_sync_date = 2025-11-11 14:00:00`
+
+**Second Run (last_sync_date exists in database)**
+- `old_last_sync_date = 2025-11-11 14:00:00` (from database)
+- Extraction uses incremental filter: `updated >= '2025-11-11 14:00'` in JQL
+- Sets `new_last_sync_date = 2025-11-12 10:00:00`
+- Embedding worker updates database: `last_sync_date = 2025-11-12 10:00:00`
+- **Saves API quota**: Only fetches issues updated since last run
+
+### Date Verification for Jira
+
+To verify dates are properly forwarded:
+1. Check logs for `new_last_sync_date` in extraction worker output
+2. Verify both dates appear in transform queue messages
+3. Verify both dates appear in embedding queue messages
+4. Confirm `last_sync_date` is updated in database after job completion
+5. Verify next run uses previous `new_last_sync_date` as `old_last_sync_date`
+

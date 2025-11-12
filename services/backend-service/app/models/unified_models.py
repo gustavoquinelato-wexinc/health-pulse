@@ -12,6 +12,7 @@ from typing import Dict, Any, Optional, List, Union, TYPE_CHECKING
 import json
 from datetime import datetime, timezone
 import uuid
+from app.core.utils import DateTimeHelper
 
 if TYPE_CHECKING:
     from sqlalchemy.sql.elements import ColumnElement
@@ -36,8 +37,8 @@ class Tenant(Base):
     color_schema_mode = Column(String(10), nullable=True, default='default', quote=False, name="color_schema_mode")
     tier = Column(String(20), nullable=False, default='premium', quote=False, name="tier")  # premium only for MVP
     active = Column(Boolean, nullable=False, default=True, quote=False, name="active")
-    created_at = Column(DateTime, quote=False, name="created_at", default=func.now())
-    last_updated_at = Column(DateTime, quote=False, name="last_updated_at", default=func.now())
+    created_at = Column(DateTime, quote=False, name="created_at", default=DateTimeHelper.now_default)
+    last_updated_at = Column(DateTime, quote=False, name="last_updated_at", default=DateTimeHelper.now_default)
 
 
 
@@ -85,8 +86,8 @@ class BaseEntity:
     """Base class with audit fields for client-level entities (no integration)."""
     tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, quote=False, name="tenant_id")
     active = Column(Boolean, nullable=False, default=True, quote=False, name="active")
-    created_at = Column(DateTime, quote=False, name="created_at", default=func.now())
-    last_updated_at = Column(DateTime, quote=False, name="last_updated_at", default=func.now())
+    created_at = Column(DateTime, quote=False, name="created_at", default=DateTimeHelper.now_default)
+    last_updated_at = Column(DateTime, quote=False, name="last_updated_at", default=DateTimeHelper.now_default)
 
 
 class IntegrationBaseEntity:
@@ -94,8 +95,8 @@ class IntegrationBaseEntity:
     integration_id = Column(Integer, ForeignKey('integrations.id'), nullable=False, quote=False, name="integration_id")
     tenant_id = Column(Integer, ForeignKey('tenants.id'), nullable=False, quote=False, name="tenant_id")
     active = Column(Boolean, nullable=False, default=True, quote=False, name="active")
-    created_at = Column(DateTime, quote=False, name="created_at", default=func.now())
-    last_updated_at = Column(DateTime, quote=False, name="last_updated_at", default=func.now())
+    created_at = Column(DateTime, quote=False, name="created_at", default=DateTimeHelper.now_default)
+    last_updated_at = Column(DateTime, quote=False, name="last_updated_at", default=DateTimeHelper.now_default)
 
 
 # Note: WorkerConfig table removed - using shared worker pools based on tenant tier instead
@@ -1159,7 +1160,7 @@ class MigrationHistory(Base):
     id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
     migration_number = Column(String(10), nullable=False, unique=True, quote=False, name="migration_number")
     migration_name = Column(String(255), nullable=False, quote=False, name="migration_name")
-    applied_at = Column(DateTime, quote=False, name="applied_at", default=func.now())
+    applied_at = Column(DateTime, quote=False, name="applied_at", default=DateTimeHelper.now_default)
     rollback_at = Column(DateTime, nullable=True, quote=False, name="rollback_at")
     status = Column(String(20), nullable=False, default='applied', quote=False, name="status")  # 'applied', 'rolled_back'
 
@@ -1176,7 +1177,7 @@ class DoraMarketBenchmark(Base):
     metric_name = Column(String(50), nullable=False, quote=False, name="metric_name")
     metric_value = Column(String(50), nullable=False, quote=False, name="metric_value")
     metric_unit = Column(String(20), nullable=True, quote=False, name="metric_unit")
-    created_at = Column(DateTime, quote=False, name="created_at", server_default=func.now())
+    created_at = Column(DateTime, quote=False, name="created_at", default=DateTimeHelper.now_default)
 
 
 class DoraMetricInsight(Base):
@@ -1188,7 +1189,7 @@ class DoraMetricInsight(Base):
     report_year = Column(Integer, nullable=False, quote=False, name="report_year")
     metric_name = Column(String(50), nullable=False, quote=False, name="metric_name")
     insight_text = Column(Text, nullable=False, quote=False, name="insight_text")
-    created_at = Column(DateTime, quote=False, name="created_at", server_default=func.now())
+    created_at = Column(DateTime, quote=False, name="created_at", default=DateTimeHelper.now_default)
 
 
 # Color Management Tables
@@ -1284,7 +1285,7 @@ class AIPerformanceMetric(Base, BaseEntity):
     metric_name = Column(String(100), nullable=False, quote=False, name="metric_name")
     metric_value = Column(Float, nullable=False, quote=False, name="metric_value")
     metric_unit = Column(String(20), nullable=True, quote=False, name="metric_unit")
-    measurement_timestamp = Column(DateTime, nullable=False, default=func.now(), quote=False, name="measurement_timestamp")
+    measurement_timestamp = Column(DateTime, nullable=False, default=DateTimeHelper.now_default, quote=False, name="measurement_timestamp")
     context_data = Column(Text, nullable=True, quote=False, name="context_data")  # JSON as text
     service_name = Column(String(50), nullable=True, quote=False, name="service_name")  # 'backend', 'etl', 'ai'
 
@@ -1364,7 +1365,7 @@ class AIUsageTracking(Base):
     total_tokens = Column(Integer, default=0, quote=False, name="total_tokens")
     cost = Column(Numeric(10, 4), default=0.0, quote=False, name="cost")
     request_metadata = Column(JSON, default={}, quote=False, name="request_metadata")
-    created_at = Column(DateTime(timezone=True), default=func.now(), quote=False, name="created_at")
+    created_at = Column(DateTime(timezone=True), default=DateTimeHelper.now_default, quote=False, name="created_at")
 
     # Relationships
     tenant = relationship("Tenant", back_populates="ai_usage_trackings")
@@ -1389,7 +1390,7 @@ class VectorizationQueue(Base):
     status = Column(String(20), nullable=False, default='pending', quote=False, name="status")  # 'pending', 'processing', 'completed', 'failed'
 
     # Timestamps
-    created_at = Column(DateTime, default=func.now(), quote=False, name="created_at")
+    created_at = Column(DateTime, default=DateTimeHelper.now_default, quote=False, name="created_at")
     started_at = Column(DateTime, quote=False, name="started_at")
     completed_at = Column(DateTime, quote=False, name="completed_at")
 
@@ -1421,8 +1422,8 @@ class ProjectIssueType(Base, IntegrationBaseEntity):
     jira_issuetype_description = Column(Text, quote=False, name="jira_issuetype_description")
     hierarchy_level = Column(Integer, quote=False, name="hierarchy_level")
     is_subtask = Column(Boolean, default=False, quote=False, name="is_subtask")
-    discovered_at = Column(DateTime, quote=False, name="discovered_at", default=func.now())
-    last_seen_at = Column(DateTime, quote=False, name="last_seen_at", default=func.now())
+    discovered_at = Column(DateTime, quote=False, name="discovered_at", default=DateTimeHelper.now_default)
+    last_seen_at = Column(DateTime, quote=False, name="last_seen_at", default=DateTimeHelper.now_default)
     is_active = Column(Boolean, default=True, quote=False, name="is_active")
 
     # Relationships

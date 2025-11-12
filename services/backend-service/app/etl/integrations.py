@@ -115,6 +115,9 @@ async def create_integration(
                 )
 
             # Create new integration
+            from app.core.utils import DateTimeHelper
+            now = DateTimeHelper.now_default()
+
             new_integration = Integration(
                 provider=create_data.provider,
                 type=create_data.type,
@@ -124,8 +127,8 @@ async def create_integration(
                 logo_filename=create_data.logo_filename,
                 tenant_id=user.tenant_id,
                 active=create_data.active,
-                created_at=datetime.utcnow(),
-                last_updated_at=datetime.utcnow()
+                created_at=now,
+                last_updated_at=now
             )
 
             # Encrypt password if provided
@@ -190,7 +193,8 @@ async def update_integration(
                 key = AppConfig.load_key()
                 integration.password = AppConfig.encrypt_token(update_data.password, key)  # type: ignore
 
-            integration.last_updated_at = datetime.utcnow()
+            from app.core.utils import DateTimeHelper
+            integration.last_updated_at = DateTimeHelper.now_default()
 
             session.commit()
 
@@ -291,8 +295,9 @@ async def toggle_integration_active(
                     )
 
             # Update integration status
+            from app.core.utils import DateTimeHelper
             integration.active = new_active_status
-            integration.last_updated_at = datetime.utcnow()
+            integration.last_updated_at = DateTimeHelper.now_default()
             session.commit()
 
             action = "activated" if new_active_status else "deactivated"

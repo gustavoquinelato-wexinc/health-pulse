@@ -24,7 +24,33 @@ _logging_configured = False
 # Set the log level you want to see (DEBUG, INFO, WARNING, ERROR, CRITICAL)
 LOG_LEVEL = logging.INFO  # Change this to control log verbosity
 # Set to True to disable log filters and see ALL logs at the configured level
-DISABLE_LOG_FILTERS = False  # Set to True to see all logs, False to use keyword filtering
+DISABLE_LOG_FILTERS = True  # Set to True to see all logs, False to use keyword filtering
+
+
+class AsyncioEventLoopFilter(logging.Filter):
+    """Filter to suppress harmless asyncio event loop closure errors during shutdown."""
+
+    def filter(self, record):
+        """Suppress 'Event loop is closed' errors from httpx AsyncClient cleanup."""
+        if hasattr(record, 'msg') and isinstance(record.msg, str):
+            # Suppress "Task exception was never retrieved" with "Event loop is closed"
+            if 'Task exception was never retrieved' in record.msg:
+                return False
+            if 'Event loop is closed' in record.msg:
+                return False
+            # Suppress httpx AsyncClient.aclose() errors during shutdown
+            if 'AsyncClient.aclose()' in record.msg and 'RuntimeError' in record.msg:
+                return False
+
+        # Check exception info
+        if record.exc_info:
+            exc_type, exc_value, exc_tb = record.exc_info
+            if exc_type and exc_value:
+                # Suppress RuntimeError: Event loop is closed
+                if exc_type.__name__ == 'RuntimeError' and 'Event loop is closed' in str(exc_value):
+                    return False
+
+        return True
 
 
 class TokenMaskingFilter(logging.Filter):
@@ -260,6 +286,11 @@ def _silence_third_party_loggers():
     # Uvicorn logger - keep at WARNING unless LOG_LEVEL is DEBUG
     if LOG_LEVEL > logging.DEBUG:
         logging.getLogger("uvicorn").setLevel(logging.WARNING)
+
+    # Suppress harmless asyncio event loop closure errors during shutdown
+    asyncio_logger = logging.getLogger("asyncio")
+    asyncio_logger.addFilter(AsyncioEventLoopFilter())
+    asyncio_logger.setLevel(logging.WARNING)  # Only show warnings and above
 
 
 def get_logger(name: Optional[str] = None) -> logging.Logger:

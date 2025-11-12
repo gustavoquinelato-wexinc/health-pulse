@@ -127,11 +127,28 @@ class BaseWorker(ABC):
             try:
                 success = loop.run_until_complete(self.process_message(message))
 
+                # Call cleanup on worker if it has a cleanup method
+                # This ensures httpx AsyncClient instances are closed before event loop closes
+                if hasattr(self, 'cleanup') and callable(getattr(self, 'cleanup')):
+                    try:
+                        loop.run_until_complete(self.cleanup())
+                        logger.debug(f"Worker cleanup completed for {self.__class__.__name__}")
+                    except Exception as cleanup_error:
+                        logger.debug(f"Error during worker cleanup (suppressed): {cleanup_error}")
+
                 # Properly shutdown async resources before closing loop
                 # This gives pending tasks (like HTTP connection cleanup) time to complete
                 pending = asyncio.all_tasks(loop)
                 if pending:
                     loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+
+                # Give extra time for httpx AsyncClient cleanup tasks to complete
+                # This prevents "Event loop is closed" errors from httpx.aclose()
+                try:
+                    # Wait a brief moment for any remaining cleanup tasks
+                    loop.run_until_complete(asyncio.sleep(0.01))
+                except Exception:
+                    pass
 
             finally:
                 # Shutdown async generators and close the loop
@@ -140,7 +157,11 @@ class BaseWorker(ABC):
                 except Exception:
                     pass
                 finally:
-                    loop.close()
+                    # Suppress any remaining cleanup warnings from httpx
+                    import warnings
+                    with warnings.catch_warnings():
+                        warnings.filterwarnings("ignore", category=RuntimeWarning)
+                        loop.close()
 
             if success:
                 logger.debug(f"Message processed successfully: {message.get('type', 'unknown')}")

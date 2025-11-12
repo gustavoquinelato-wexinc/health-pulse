@@ -6,7 +6,7 @@ import pytest
 import sys
 sys.path.insert(0, 'services/backend-service')
 
-from app.workers.embedding_worker import EmbeddingWorker
+from app.etl.github.github_embedding_worker import GitHubEmbeddingWorker
 
 
 class TestEmbeddingWorkerTextExtraction:
@@ -14,7 +14,7 @@ class TestEmbeddingWorkerTextExtraction:
 
     def setup_method(self):
         """Setup test fixtures"""
-        self.worker = EmbeddingWorker(tier='premium')
+        self.worker = GitHubEmbeddingWorker()
 
     def test_extract_text_for_prs_commits(self):
         """Test text extraction for PR commits"""
