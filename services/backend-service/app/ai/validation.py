@@ -462,6 +462,7 @@ class QueryResultValidator:
 import hashlib
 from datetime import datetime, timedelta
 from typing import Optional
+from app.core.utils import DateTimeHelper
 
 class SelfHealingMemory:
     """
@@ -507,7 +508,7 @@ class SelfHealingMemory:
                 'learning_context': feedback.learning_context,
                 'pattern_hash': pattern_hash,
                 'validation_passed': False,
-                'created_at': datetime.now()
+                'created_at': DateTimeHelper.now_default()
             }
 
             # Insert learning record (would use SQLAlchemy ORM in full implementation)
@@ -532,7 +533,7 @@ class SelfHealingMemory:
                 'pattern_hash': pattern_hash,
                 'error_pattern': feedback.specific_issue,
                 'failure_count': 1,  # Would increment if exists
-                'last_seen_at': datetime.now(),
+                'last_seen_at': DateTimeHelper.now_default(),
                 'pattern_metadata': {
                     'error_type': feedback.error_type.value,
                     'common_intent_keywords': self._extract_keywords(feedback.user_intent),
@@ -657,7 +658,7 @@ class SelfHealingMemory:
             healing_record = {
                 'pattern_hash': pattern_hash,
                 'successful_query': successful_query,
-                'healed_at': datetime.now(),
+                'healed_at': DateTimeHelper.now_default(),
                 'tenant_id': tenant_id
             }
 

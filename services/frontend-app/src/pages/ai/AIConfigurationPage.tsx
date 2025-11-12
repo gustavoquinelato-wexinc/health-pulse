@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Plus, Edit, X, TestTube, Brain, Check, AlertCircle, Settings, Play, Pause } from 'lucide-react';
+import { Plus, Edit, X, TestTube, Check, AlertCircle, Settings, Play, Pause } from 'lucide-react';
 import { useAuth } from '../../contexts/AuthContext';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';

@@ -1,6 +1,6 @@
 import axios from 'axios'
 import { motion } from 'framer-motion'
-import { User, Accessibility, Lock, Eye, EyeOff } from 'lucide-react'
+import { User, Accessibility, Lock } from 'lucide-react'
 import { useEffect, useState } from 'react'
 import CollapsedSidebar from '../components/CollapsedSidebar'
 import Header from '../components/Header'

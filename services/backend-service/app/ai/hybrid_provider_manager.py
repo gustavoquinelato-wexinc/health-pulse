@@ -491,14 +491,30 @@ class HybridProviderManager:
             }
 
     async def cleanup(self):
-        """Cleanup all provider resources to prevent event loop errors"""
+        """
+        Cleanup all provider resources to prevent event loop errors.
+
+        This includes:
+        - Closing all provider async clients (AsyncOpenAI, httpx, etc.)
+        - Closing the database session to prevent connection pool exhaustion
+        """
         try:
+            # Cleanup all providers
             for provider_key, provider in self.providers.items():
                 if hasattr(provider, 'cleanup'):
                     try:
                         await provider.cleanup()
                     except Exception as e:
                         logger.warning(f"Error cleaning up provider {provider_key}: {e}")
+
+            # Close database session to return connection to pool
+            if self.db_session:
+                try:
+                    self.db_session.close()
+                    logger.debug("HybridProviderManager database session closed")
+                except Exception as e:
+                    logger.warning(f"Error closing database session: {e}")
+
             logger.debug("HybridProviderManager cleaned up all providers")
         except Exception as e:
             logger.warning(f"Error during HybridProviderManager cleanup: {e}")

@@ -93,8 +93,9 @@ async def receive_frontend_log(
             logger.debug(f"Frontend: {log_entry.message}", **log_data)
         else:
             logger.info(f"Frontend: {log_entry.message}", **log_data)
-        
-        return {"status": "logged", "timestamp": datetime.utcnow().isoformat()}
+
+        from app.core.utils import DateTimeHelper
+        return {"status": "logged", "timestamp": DateTimeHelper.now_default().isoformat()}
         
     except Exception as e:
         # Use system logger for errors in log processing
@@ -184,12 +185,13 @@ async def receive_frontend_log_batch(
             tenant_id=current_user.tenant_id
         )
         
+        from app.core.utils import DateTimeHelper
         return {
             "status": "processed",
             "total": len(log_batch.logs),
             "processed": processed_count,
             "errors": error_count,
-            "timestamp": datetime.utcnow().isoformat()
+            "timestamp": DateTimeHelper.now_default().isoformat()
         }
         
     except Exception as e:

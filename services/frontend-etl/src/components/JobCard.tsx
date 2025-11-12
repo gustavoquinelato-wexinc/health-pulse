@@ -850,8 +850,12 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
         <div className="mt-4">
           {/* Step-Based Progress Display */}
           <div className="mt-3 space-y-1.5">
-            {/* Steps Grid - 4 steps per row on desktop, 2 on mobile */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+            {/* Steps Grid - Dynamic columns based on number of steps */}
+            <div className={`grid gap-2 text-xs ${
+              getAvailableSteps().length === 2
+                ? 'grid-cols-1 md:grid-cols-2'  // 2 steps: full width on desktop
+                : 'grid-cols-2 md:grid-cols-4'  // 4 steps: 4 columns on desktop
+            }`}>
               {getAvailableSteps().map((stepName) => {
                 const stepDisplayName = getStepDisplayName(stepName)
 

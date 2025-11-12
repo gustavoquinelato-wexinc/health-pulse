@@ -207,8 +207,3 @@ export function useCentralizedAuth() {
   }
   return context
 }
-
-// Utility function
-function generateRandomState(): string {
-  return Math.random().toString(36).substring(2, 15) + Math.random().toString(36).substring(2, 15)
-}

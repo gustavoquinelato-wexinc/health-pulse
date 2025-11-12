@@ -124,6 +124,9 @@ async def store_raw_data(
         
         # Insert raw data record
         from sqlalchemy import text
+        from app.core.utils import DateTimeHelper
+        now = DateTimeHelper.now_default()
+
         insert_query = text("""
             INSERT INTO raw_extraction_data (
                 tenant_id, integration_id, entity_type, external_id,
@@ -132,10 +135,10 @@ async def store_raw_data(
             ) VALUES (
                 :tenant_id, :integration_id, :entity_type, :external_id,
                 :raw_data::jsonb, :extraction_metadata::jsonb, 'pending',
-                NOW(), TRUE
+                :created_at, TRUE
             ) RETURNING id
         """)
-        
+
         import json
         result = db.execute(insert_query, {
             'tenant_id': tenant_id,
@@ -143,7 +146,8 @@ async def store_raw_data(
             'entity_type': request.entity_type,
             'external_id': request.external_id,
             'raw_data': json.dumps(request.raw_data),
-            'extraction_metadata': json.dumps(request.extraction_metadata) if request.extraction_metadata else None
+            'extraction_metadata': json.dumps(request.extraction_metadata) if request.extraction_metadata else None,
+            'created_at': now
         })
         
         raw_data_id = result.fetchone()[0]  # type: ignore
@@ -304,21 +308,25 @@ async def update_raw_data_status(
         from sqlalchemy import text
         import json
         
+        from app.core.utils import DateTimeHelper
+        now = DateTimeHelper.now_default()
+
         update_query = text("""
             UPDATE raw_extraction_data
-            SET 
+            SET
                 processing_status = :status,
                 error_details = :error_details::jsonb,
-                processed_at = CASE WHEN :status IN ('completed', 'failed') THEN NOW() ELSE processed_at END
+                processed_at = CASE WHEN :status IN ('completed', 'failed') THEN :processed_at ELSE processed_at END
             WHERE id = :raw_data_id AND tenant_id = :tenant_id
             RETURNING id
         """)
-        
+
         result = db.execute(update_query, {
             'raw_data_id': raw_data_id,
             'tenant_id': tenant_id,
             'status': request.processing_status,
-            'error_details': json.dumps(request.error_details) if request.error_details else None
+            'error_details': json.dumps(request.error_details) if request.error_details else None,
+            'processed_at': now
         })
         
         if hasattr(result, 'rowcount') and getattr(result, 'rowcount', 1) == 0:

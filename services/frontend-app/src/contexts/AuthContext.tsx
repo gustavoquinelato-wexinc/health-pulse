@@ -98,9 +98,6 @@ export function AuthProvider({ children }: AuthProviderProps) {
         // Get current theme from localStorage/database
         const colorSchemaMode = await getColorSchemaMode()
 
-        // Get current theme (will be used by ThemeContext)
-        const currentTheme = localStorage.getItem('pulse_theme') || 'light'
-
         // CRITICAL FIX: Filter by color_schema_mode to get the correct colors
         const lightRegular = colorData.find((c: any) =>
           c.theme_mode === 'light' &&
@@ -587,7 +584,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
               document.documentElement.setAttribute('data-theme', mode)
               ;(window as any).__INITIAL_THEME__ = mode
             },
-            onColorSchemaChange: (colors: any) => {
+            onColorSchemaChange: () => {
               console.log('[SessionWS] Color schema changed')
               // Refresh color schema
               refreshUserColors()
@@ -681,7 +678,7 @@ export function AuthProvider({ children }: AuthProviderProps) {
           role: user.role,
           is_admin: user.is_admin,
           tenant_id: user.tenant_id,  // ✅ CRITICAL: Include tenant_id for multi-client isolation
-          colorSchemaData
+          colorSchemaData: colorSchemaData || undefined  // Convert null to undefined for type compatibility
         }
 
         // Set user data (already contains color schema)

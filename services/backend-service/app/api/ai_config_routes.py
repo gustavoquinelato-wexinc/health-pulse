@@ -14,7 +14,6 @@ from pydantic import BaseModel
 from typing import Optional, List, Dict, Any
 import os
 from pathlib import Path
-from datetime import datetime
 from sqlalchemy import func, case, text
 
 from app.core.logging_config import get_logger
@@ -179,7 +178,11 @@ async def get_ai_performance_metrics(
             query_params["start_date"] = start_date
             query_params["end_date"] = end_date
         else:
-            date_filter = "AND created_at >= NOW() - INTERVAL '30 days'"
+            from app.core.utils import DateTimeHelper
+            from datetime import timedelta
+            thirty_days_ago = DateTimeHelper.now_default() - timedelta(days=30)
+            date_filter = "AND created_at >= :thirty_days_ago"
+            query_params["thirty_days_ago"] = thirty_days_ago
 
         # Get performance metrics from AI usage tracking
         # Note: Using placeholder values for avg_response_time since we don't have timing data
@@ -311,12 +314,15 @@ async def create_ai_provider(
         db = get_database()
         
         # Insert new AI provider
+        from app.core.utils import DateTimeHelper
+        now = DateTimeHelper.now_default()
+
         query = text("""
             INSERT INTO integrations (
                 tenant_id, provider, type, base_url, ai_model,
                 ai_model_config, cost_config, active, created_at, last_updated_at
             ) VALUES (:tenant_id, :provider, 'AI', :base_url, :ai_model,
-                     :ai_model_config, :cost_config, :active, NOW(), NOW())
+                     :ai_model_config, :cost_config, :active, :created_at, :last_updated_at)
             RETURNING id
         """)
 
@@ -329,7 +335,9 @@ async def create_ai_provider(
                 "ai_model": provider_config.ai_model,
                 "ai_model_config": provider_config.ai_model_config,
                 "cost_config": provider_config.cost_config,
-                "active": provider_config.active
+                "active": provider_config.active,
+                "created_at": now,
+                "last_updated_at": now
             })
             provider_id = result.fetchone()[0]
         
@@ -363,25 +371,29 @@ async def update_ai_provider(
         if not existing:
             raise HTTPException(status_code=404, detail="AI provider not found")
 
-            # Update AI provider
-            update_query = text("""
-                UPDATE integrations SET
-                    provider = :provider, base_url = :base_url, ai_model = :ai_model,
-                    ai_model_config = :ai_model_config, cost_config = :cost_config,
-                    active = :active, last_updated_at = NOW()
-                WHERE id = :provider_id AND tenant_id = :tenant_id
-            """)
+        # Update AI provider
+        from app.core.utils import DateTimeHelper
+        now = DateTimeHelper.now_default()
 
-            session.execute(update_query, {
-                "provider": provider_config.provider,
-                "base_url": provider_config.base_url,
-                "ai_model": provider_config.ai_model,
-                "ai_model_config": provider_config.ai_model_config,
-                "cost_config": provider_config.cost_config,
-                "active": provider_config.active,
-                "provider_id": provider_id,
-                "tenant_id": user.tenant_id
-            })
+        update_query = text("""
+            UPDATE integrations SET
+                provider = :provider, base_url = :base_url, ai_model = :ai_model,
+                ai_model_config = :ai_model_config, cost_config = :cost_config,
+                active = :active, last_updated_at = :last_updated_at
+            WHERE id = :provider_id AND tenant_id = :tenant_id
+        """)
+
+        session.execute(update_query, {
+            "provider": provider_config.provider,
+            "base_url": provider_config.base_url,
+            "ai_model": provider_config.ai_model,
+            "ai_model_config": provider_config.ai_model_config,
+            "cost_config": provider_config.cost_config,
+            "active": provider_config.active,
+            "provider_id": provider_id,
+            "tenant_id": user.tenant_id,
+            "last_updated_at": now
+        })
 
         return {
             "success": True,
@@ -600,7 +612,7 @@ async def store_entity_vector(
                             "table_name": table_name,
                             "record_id": str(record_id),
                             "text_content": text_content[:1000],  # Truncate for storage
-                            "created_at": datetime.now().isoformat()
+                            "created_at": DateTimeHelper.now_default().isoformat()
                         }
                     }]
                 )
@@ -970,8 +982,9 @@ async def bulk_vector_operations(
 
                             if update_result.success:
                                 # Update bridge record metadata
+                                from app.core.utils import DateTimeHelper
                                 existing_vector.vector_metadata = entity_data
-                                existing_vector.updated_at = datetime.utcnow()
+                                existing_vector.updated_at = DateTimeHelper.now_default()
                                 vectors_updated += 1
                             else:
                                 vectors_failed += 1

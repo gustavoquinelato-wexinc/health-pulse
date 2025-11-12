@@ -6,7 +6,6 @@ Enhanced with ML infrastructure monitoring for Phase 1-4.
 from fastapi import APIRouter, Depends
 from sqlalchemy.orm import Session
 from sqlalchemy import text
-from datetime import datetime
 from typing import Dict, Any
 
 from app.core.database import get_read_session, get_ml_session_context, test_vector_column_access
@@ -86,21 +85,23 @@ async def check_database_health():
                 except Exception:
                     vector_status[f'{table}_with_embeddings'] = "column_not_available"
 
+            from app.core.utils import DateTimeHelper
             return {
                 "status": "healthy",
                 "database_connection": "ok",
                 "ml_tables": ml_tables_status,
                 "vector_columns": vector_status,
-                "timestamp": datetime.utcnow()
+                "timestamp": DateTimeHelper.now_default()
             }
         finally:
             session.close()
 
     except Exception as e:
+        from app.core.utils import DateTimeHelper
         return {
             "status": "unhealthy",
             "error": str(e),
-            "timestamp": datetime.utcnow()
+            "timestamp": DateTimeHelper.now_default()
         }
 
 
@@ -126,20 +127,22 @@ async def check_ml_health():
             # Test vector column access
             vector_access = test_vector_column_access()
 
+            from app.core.utils import DateTimeHelper
             return {
                 "status": "healthy" if pgvector_status["available"] else "degraded",
                 "postgresml": postgresml_status,
                 "pgvector": pgvector_status,
                 "vector_columns_accessible": vector_access,
                 "replica_connection": "ok",
-                "timestamp": datetime.utcnow()
+                "timestamp": DateTimeHelper.now_default()
             }
 
     except Exception as e:
+        from app.core.utils import DateTimeHelper
         return {
             "status": "unhealthy",
             "error": str(e),
-            "timestamp": datetime.utcnow()
+            "timestamp": DateTimeHelper.now_default()
         }
 
 
@@ -166,11 +169,12 @@ async def comprehensive_health_check():
         else:
             overall_status = "healthy"
 
+        from app.core.utils import DateTimeHelper
         return {
             "status": overall_status,
             "service": "Backend Service",
             "version": "1.0.0",
-            "timestamp": datetime.utcnow(),
+            "timestamp": DateTimeHelper.now_default(),
             "components": {
                 "basic": {
                     "status": basic_health.status,
@@ -189,8 +193,9 @@ async def comprehensive_health_check():
 
     except Exception as e:
         logger.error(f"Error in comprehensive health check: {e}")
+        from app.core.utils import DateTimeHelper
         return {
             "status": "unhealthy",
             "error": str(e),
-            "timestamp": datetime.utcnow()
+            "timestamp": DateTimeHelper.now_default()
         }
