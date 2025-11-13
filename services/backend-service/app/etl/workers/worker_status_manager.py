@@ -47,22 +47,19 @@ class WorkerStatusManager:
             with self.database.get_write_session_context() as write_session:
                 if step_type:
                     # Update specific step status (e.g., github_repositories extraction = running)
-                    # Use string formatting for the status value to avoid parameter binding issues
+                    # Build SQL with all values embedded to avoid parameter binding issues
                     from app.core.utils import DateTimeHelper
                     now = DateTimeHelper.now_default()
 
-                    update_query = text(f"""
+                    # Build the SQL query with all values embedded
+                    sql = f"""
                         UPDATE etl_jobs
-                        SET status = jsonb_set(status, ARRAY['steps', :step_type, :step], '"{status}"'::jsonb),
-                            last_updated_at = :now
-                        WHERE id = :job_id
-                    """)
-                    write_session.execute(update_query, {
-                        'step_type': step_type,
-                        'step': step,
-                        'job_id': job_id,
-                        'now': now
-                    })
+                        SET status = jsonb_set(status, ARRAY['steps', '{step_type}', '{step}'], '"{status}"'::jsonb),
+                            last_updated_at = '{now.isoformat()}'::timestamp
+                        WHERE id = {job_id}
+                    """
+                    update_query = text(sql)
+                    write_session.execute(update_query)
                     write_session.commit()
                     logger.info(f"📝 Updated database: job {job_id}, step {step_type}, {step} = {status}")
                 else:
@@ -143,35 +140,56 @@ class WorkerStatusManager:
                     # Default to 1 hour if not set
                     next_run = now + timedelta(hours=1)
 
-                # 🔑 Set status to FINISHED with all completion fields
-                # UI will automatically reset to READY after a few seconds
-                update_query = text("""
-                    UPDATE etl_jobs
-                    SET status = jsonb_set(status, ARRAY['overall'], '"FINISHED"'::jsonb),
-                        last_run_finished_at = :now,
-                        last_updated_at = :now,
-                        next_run = :next_run,
-                        error_message = NULL,
-                        retry_count = 0
-                        """ + (", last_sync_date = :last_sync_date" if last_sync_date else "") + """
-                    WHERE id = :job_id AND tenant_id = :tenant_id
-                """)
+                # 🔑 Calculate reset_deadline (30 seconds from now for initial countdown)
+                reset_deadline = now + timedelta(seconds=30)
+                reset_deadline_iso = reset_deadline.isoformat()
 
-                params = {
-                    'job_id': job_id,
-                    'tenant_id': tenant_id,
-                    'now': now,
-                    'next_run': next_run
-                }
+                # 🔑 Set status to FINISHED with reset_deadline and reset_attempt
+                # The reset scheduler will automatically check and reset the job
+                # Build SQL with all values embedded to avoid parameter binding issues
                 if last_sync_date:
-                    params['last_sync_date'] = last_sync_date
+                    sql = f"""
+                        UPDATE etl_jobs
+                        SET status = jsonb_set(
+                              jsonb_set(
+                                jsonb_set(status, ARRAY['overall'], '"FINISHED"'::jsonb),
+                                ARRAY['reset_deadline'], to_jsonb('{reset_deadline_iso}'::text)
+                              ),
+                              ARRAY['reset_attempt'], to_jsonb(0)
+                            ),
+                            last_run_finished_at = '{now.isoformat()}'::timestamp,
+                            last_updated_at = '{now.isoformat()}'::timestamp,
+                            next_run = '{next_run.isoformat()}'::timestamp,
+                            last_sync_date = '{last_sync_date}'::timestamp,
+                            error_message = NULL,
+                            retry_count = 0
+                        WHERE id = {job_id} AND tenant_id = {tenant_id}
+                    """
+                else:
+                    sql = f"""
+                        UPDATE etl_jobs
+                        SET status = jsonb_set(
+                              jsonb_set(
+                                jsonb_set(status, ARRAY['overall'], '"FINISHED"'::jsonb),
+                                ARRAY['reset_deadline'], to_jsonb('{reset_deadline_iso}'::text)
+                              ),
+                              ARRAY['reset_attempt'], to_jsonb(0)
+                            ),
+                            last_run_finished_at = '{now.isoformat()}'::timestamp,
+                            last_updated_at = '{now.isoformat()}'::timestamp,
+                            next_run = '{next_run.isoformat()}'::timestamp,
+                            error_message = NULL,
+                            retry_count = 0
+                        WHERE id = {job_id} AND tenant_id = {tenant_id}
+                    """
 
-                session.execute(update_query, params)
+                session.execute(text(sql))
                 session.commit()
 
                 logger.info(f"🎯 [JOB COMPLETION] ETL job {job_id} marked as FINISHED")
                 logger.info(f"   last_run_finished_at: {now}")
                 logger.info(f"   next_run: {next_run}")
+                logger.info(f"   reset_deadline: {reset_deadline} (30s countdown)")
                 if last_sync_date:
                     logger.info(f"   last_sync_date: {last_sync_date}")
 
@@ -194,7 +212,13 @@ class WorkerStatusManager:
                         status_json=job_status
                     )
                     logger.info(f"✅ WebSocket notification sent with overall status FINISHED")
-                    logger.info(f"   UI will automatically reset to READY after a few seconds")
+                    logger.info(f"   Reset scheduler will check and reset job automatically")
+
+            # 🔑 Schedule the reset check task (runs in 30 seconds)
+            # This is a system-level task that runs even if no users are logged in
+            from app.etl.workers.job_reset_scheduler import schedule_reset_check_task
+            schedule_reset_check_task(job_id, tenant_id, delay_seconds=30)
+            logger.info(f"📅 Scheduled automatic reset check for job {job_id} in 30 seconds")
 
         except Exception as e:
             logger.error(f"❌ Error completing ETL job {job_id}: {e}")

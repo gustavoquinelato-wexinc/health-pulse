@@ -318,8 +318,11 @@ Used when data was extracted and items may be queued to transform/embedding work
 
 3. **Embedding Worker** receives message with last_job_item=true:
    - Sends "finished" status for embedding step (because `last_item=True`)
-   - Calls `_complete_etl_job()` (because `last_job_item=True`)
+   - Calls `complete_etl_job()` (because `last_job_item=True`)
    - Sets overall status to FINISHED
+   - Sets `reset_deadline` = current time + 30 seconds
+   - Sets `reset_attempt` = 0
+   - Schedules delayed task to check and reset job
 
 ### Direct Status Update Completion (No Data Cases)
 
@@ -329,19 +332,29 @@ Used when no data was extracted, so no items are queued to workers.
    - **No repositories found**: Marks both Step 1 and Step 2 as finished (6 statuses total)
    - **No PRs on last repository**: Marks only Step 2 as finished (3 statuses)
    - Calls `status_manager.complete_etl_job()` to set overall status to FINISHED
+   - Sets `reset_deadline` = current time + 30 seconds
+   - Sets `reset_attempt` = 0
+   - Schedules delayed task to check and reset job
    - Updates `last_sync_date` in database
 
 2. **No queue messages sent** - instant completion without worker involvement
 
-### UI Reset Flow (Both Patterns)
+### System-Level Reset Flow (Both Patterns)
 
 After job completion (overall status = FINISHED):
 
-1. **UI Timer** detects FINISHED:
-   - Calls `checkJobCompletion` endpoint
-   - Checks if all steps are finished
-   - Waits 30 seconds, then calls `resetJobStatus`
-   - Resets all steps to "idle" and overall to "READY"
+1. **Backend Scheduler** (`job_reset_scheduler.py`):
+   - After 30 seconds, runs `check_and_reset_job()` task
+   - Verifies all steps are finished
+   - Checks embedding queue for remaining messages with job token
+   - **If work remains**: Extends deadline (60s, 180s, 300s) and reschedules
+   - **If all complete**: Resets job to READY
+
+2. **UI Countdown** (system-level, not per-session):
+   - Receives `reset_deadline` via WebSocket
+   - Calculates remaining time: `deadline - current_time`
+   - Displays "Resetting in 30s", "Resetting in 29s", etc.
+   - All users see the same countdown
 
 ---
 

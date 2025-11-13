@@ -199,14 +199,24 @@ Step 1 → Step 2 (multiple projects → multiple statuses) → Step 3 (completi
 
 3. **Embedding Worker** receives message:
    - Sends "finished" status for embedding step (because `last_item=True`)
-   - Calls `_complete_etl_job()` (because `last_job_item=True`)
+   - Calls `complete_etl_job()` (because `last_job_item=True`)
    - Sets overall status to FINISHED
+   - Sets `reset_deadline` = current time + 30 seconds
+   - Sets `reset_attempt` = 0
+   - Schedules delayed task to check and reset job
 
-4. **UI Timer** detects FINISHED:
-   - Calls `checkJobCompletion` endpoint
-   - Checks if all steps are finished
-   - Waits 30 seconds, then calls `resetJobStatus`
-   - Resets all steps to "idle" and overall to "READY"
+4. **Backend Scheduler** (`job_reset_scheduler.py`):
+   - After 30 seconds, runs `check_and_reset_job()` task
+   - Verifies all steps are finished
+   - Checks embedding queue for remaining messages with job token
+   - **If work remains**: Extends deadline (60s, 180s, 300s) and reschedules
+   - **If all complete**: Resets job to READY
+
+5. **UI Countdown** (system-level, not per-session):
+   - Receives `reset_deadline` via WebSocket
+   - Calculates remaining time: `deadline - current_time`
+   - Displays "Resetting in 30s", "Resetting in 29s", etc.
+   - All users see the same countdown
 
 ---
 

@@ -121,7 +121,7 @@ class JobCardResponse(BaseModel):
     """Response schema for job card display."""
     id: int
     job_name: str
-    status: str  # 'READY', 'RUNNING', 'FINISHED', 'FAILED'
+    status: Dict[str, Any]  # Full status JSON including overall, token, reset_deadline, reset_attempt, steps
     active: bool
     schedule_interval_minutes: int
     retry_interval_minutes: int
@@ -294,10 +294,11 @@ async def get_job_cards(
 
     try:
         from sqlalchemy import text
+        import json
 
         query = text("""
             SELECT
-                id, job_name, status->>'overall' as status, active,
+                id, job_name, status, active,
                 schedule_interval_minutes, retry_interval_minutes,
                 integration_id, last_run_started_at, last_run_finished_at,
                 error_message, retry_count, last_updated_at
@@ -310,6 +311,11 @@ async def get_job_cards(
 
         job_cards = []
         for row in results:
+            # Parse status JSON
+            status_json = row[2]
+            if isinstance(status_json, str):
+                status_json = json.loads(status_json)
+
             # Get integration info
             integration_type, logo_filename = get_integration_info(db, row[6])
 
@@ -318,14 +324,14 @@ async def get_job_cards(
                 last_run_started_at=row[7],
                 schedule_interval_minutes=row[4],
                 retry_interval_minutes=row[5],
-                status=row[2],
+                status=status_json.get('overall', 'READY'),
                 retry_count=row[10]
             )
 
             job_cards.append(JobCardResponse(
                 id=row[0],
                 job_name=row[1],
-                status=row[2],
+                status=status_json,  # Full status JSON
                 active=row[3],
                 schedule_interval_minutes=row[4],
                 retry_interval_minutes=row[5],
@@ -555,7 +561,13 @@ async def run_job_now(
         if not result:
             raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
 
-        job_name, current_status, active, integration_id, provider, integration_active = result
+        job_name, status_json, active, integration_id, provider, integration_active = result
+
+        # Parse status JSON to extract overall status
+        import json
+        if isinstance(status_json, str):
+            status_json = json.loads(status_json)
+        current_status = status_json.get('overall', 'READY')
 
         logger.info(f"📊 JOB STATUS CHECK: Job '{job_name}' current status = {current_status}")
 
@@ -569,6 +581,10 @@ async def run_job_now(
             logger.warning(f"⚠️ ALREADY RUNNING: Job '{job_name}' is already RUNNING - rejecting request")
             raise HTTPException(status_code=400, detail=f"Job {job_name} is already running")
 
+        if current_status == 'FINISHED':
+            logger.warning(f"⚠️ JOB FINISHING: Job '{job_name}' is FINISHED and resetting - rejecting request")
+            raise HTTPException(status_code=400, detail=f"Job {job_name} is resetting. Please wait a moment and try again.")
+
         # Set to RUNNING and record start time with proper timezone
         # Use atomic update to prevent race conditions
         from app.core.utils import DateTimeHelper
@@ -577,14 +593,19 @@ async def run_job_now(
         job_token = str(uuid.uuid4())  # 🔑 Generate unique token for this job execution
 
         # Use atomic update with WHERE clause to prevent race conditions
-        # 🔑 Set both overall status to RUNNING and token for this execution
+        # 🔑 Set overall status to RUNNING, set token, and clear reset_deadline/reset_attempt
         # Also clear error_message when transitioning to RUNNING
         update_query = text("""
             UPDATE etl_jobs
             SET status = jsonb_set(
-                  jsonb_set(status, ARRAY['overall'], to_jsonb('RUNNING'::text)),
-                  ARRAY['token'],
-                  to_jsonb(CAST(:token AS text))
+                  jsonb_set(
+                    jsonb_set(
+                      jsonb_set(status, ARRAY['overall'], to_jsonb('RUNNING'::text)),
+                      ARRAY['token'], to_jsonb(CAST(:token AS text))
+                    ),
+                    ARRAY['reset_deadline'], 'null'::jsonb
+                  ),
+                  ARRAY['reset_attempt'], to_jsonb(0)
                 ),
                 last_run_started_at = :now,
                 last_updated_at = :now,
@@ -888,11 +909,11 @@ async def _queue_jira_extraction_job(tenant_id: int, integration_id: int, job_id
                 # 🔑 Get last_sync_date for incremental sync
                 last_sync_date = result[1]
                 if last_sync_date:
-                    # Convert datetime to string format (YYYY-MM-DD)
+                    # Convert datetime to string format with FULL TIMESTAMP (YYYY-MM-DD HH:MM:SS)
                     if isinstance(last_sync_date, str):
-                        old_last_sync_date = last_sync_date.split(' ')[0]  # Take date part only
+                        old_last_sync_date = last_sync_date  # Keep full timestamp
                     else:
-                        old_last_sync_date = last_sync_date.strftime('%Y-%m-%d')
+                        old_last_sync_date = last_sync_date.strftime('%Y-%m-%d %H:%M:%S')
                     logger.info(f"📅 Using last_sync_date from database: {old_last_sync_date}")
                 else:
                     logger.info(f"📅 No last_sync_date found in database, extraction will use 2-year default")
@@ -1034,11 +1055,11 @@ async def _queue_github_extraction_job(tenant_id: int, integration_id: int, job_
                 # 🔑 Get last_sync_date for incremental sync
                 last_sync_date = result[1]
                 if last_sync_date:
-                    # Convert datetime to string format (YYYY-MM-DD)
+                    # Convert datetime to string format with FULL TIMESTAMP (YYYY-MM-DD HH:MM:SS)
                     if isinstance(last_sync_date, str):
-                        old_last_sync_date = last_sync_date.split(' ')[0]  # Take date part only
+                        old_last_sync_date = last_sync_date  # Keep full timestamp
                     else:
-                        old_last_sync_date = last_sync_date.strftime('%Y-%m-%d')
+                        old_last_sync_date = last_sync_date.strftime('%Y-%m-%d %H:%M:%S')
                     logger.info(f"📅 Using last_sync_date from database: {old_last_sync_date}")
                 else:
                     logger.info(f"📅 No last_sync_date found in database, extraction will use 2-year default")
@@ -1479,8 +1500,10 @@ async def reset_job_status(
         # Set overall status to READY
         current_status['overall'] = 'READY'
 
-        # 🔑 Clear the token when resetting to READY
+        # 🔑 Clear the token, reset_deadline, and reset_attempt when resetting to READY
         current_status['token'] = None
+        current_status['reset_deadline'] = None
+        current_status['reset_attempt'] = 0
 
         # Update database
         update_query = text("""

@@ -526,6 +526,8 @@ def apply(connection):
                 "status": {
                     "overall": "READY",
                     "token": None,  # 🔑 Execution token - generated when job starts running
+                    "reset_deadline": None,  # 🔑 System-level reset countdown deadline
+                    "reset_attempt": 0,  # 🔑 Reset attempt counter for exponential backoff
                     "steps": {
                         "jira_projects_and_issue_types": {
                             "order": 1,
@@ -566,6 +568,8 @@ def apply(connection):
                 "status": {
                     "overall": "READY",
                     "token": None,  # 🔑 Execution token - generated when job starts running
+                    "reset_deadline": None,  # 🔑 System-level reset countdown deadline
+                    "reset_attempt": 0,  # 🔑 Reset attempt counter for exponential backoff
                     "steps": {
                         "github_repositories": {
                             "order": 1,
@@ -592,6 +596,8 @@ def apply(connection):
                 "status": {
                     "overall": "READY",
                     "token": None,  # 🔑 Execution token - generated when job starts running
+                    "reset_deadline": None,  # 🔑 System-level reset countdown deadline
+                    "reset_attempt": 0,  # 🔑 Reset attempt counter for exponential backoff
                     "steps": {
                         "wex_fabric_data": {
                             "order": 1,
@@ -611,6 +617,8 @@ def apply(connection):
                 "status": {
                     "overall": "READY",
                     "token": None,  # 🔑 Execution token - generated when job starts running
+                    "reset_deadline": None,  # 🔑 System-level reset countdown deadline
+                    "reset_attempt": 0,  # 🔑 Reset attempt counter for exponential backoff
                     "steps": {
                         "wex_ad_users": {
                             "order": 1,
