@@ -175,16 +175,16 @@ async def extend_deadline_and_reschedule(job_id: int, tenant_id: int, status: Di
         
         # Get current reset attempt count
         reset_attempt = status.get('reset_attempt', 0)
-        
+
         # Calculate next interval
         next_interval = calculate_next_interval(reset_attempt + 1)
-        
-        # Calculate new deadline
-        now = DateTimeHelper.now_default()
-        new_deadline = now + timedelta(seconds=next_interval)
-        
+
+        # Calculate new deadline with timezone info for proper frontend calculation
+        now_with_tz = DateTimeHelper.now_default_with_tz()
+        new_deadline_with_tz = now_with_tz + timedelta(seconds=next_interval)
+
         # Update status JSON
-        status['reset_deadline'] = new_deadline.isoformat()
+        status['reset_deadline'] = new_deadline_with_tz.isoformat()
         status['reset_attempt'] = reset_attempt + 1
         
         # Update database

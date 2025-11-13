@@ -141,8 +141,10 @@ class WorkerStatusManager:
                     next_run = now + timedelta(hours=1)
 
                 # 🔑 Calculate reset_deadline (30 seconds from now for initial countdown)
-                reset_deadline = now + timedelta(seconds=30)
-                reset_deadline_iso = reset_deadline.isoformat()
+                # Use timezone-aware datetime for proper frontend calculation
+                now_with_tz = DateTimeHelper.now_default_with_tz()
+                reset_deadline_with_tz = now_with_tz + timedelta(seconds=30)
+                reset_deadline_iso = reset_deadline_with_tz.isoformat()
 
                 # 🔑 Set status to FINISHED with reset_deadline and reset_attempt
                 # The reset scheduler will automatically check and reset the job
@@ -189,7 +191,7 @@ class WorkerStatusManager:
                 logger.info(f"🎯 [JOB COMPLETION] ETL job {job_id} marked as FINISHED")
                 logger.info(f"   last_run_finished_at: {now}")
                 logger.info(f"   next_run: {next_run}")
-                logger.info(f"   reset_deadline: {reset_deadline} (30s countdown)")
+                logger.info(f"   reset_deadline: {reset_deadline_iso} (30s countdown)")
                 if last_sync_date:
                     logger.info(f"   last_sync_date: {last_sync_date}")
 

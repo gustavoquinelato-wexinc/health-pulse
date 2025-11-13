@@ -367,11 +367,6 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
             setJobToken(data.token)
           }
 
-          // 🔑 Update reset deadline from WebSocket data
-          if (data.reset_deadline !== undefined) {
-            setResetDeadline(data.reset_deadline)
-          }
-
           // 🔑 CRITICAL FIX: Use the overall status from database directly
           // Don't try to calculate it from individual worker statuses
           // The backend already has the correct overall status
@@ -405,6 +400,12 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
             // the remaining time based on reset_deadline from the WebSocket data
             // No need to manually set countdown here - just let the effect handle it
 
+            // 🔑 Update reset deadline from WebSocket data (only if not already set)
+            // This prevents the deadline from being overwritten when backend extends it
+            if (data.reset_deadline !== undefined && !resetDeadline) {
+              setResetDeadline(data.reset_deadline)
+            }
+
             // 🔑 Update the status to FINISHED
             setRealTimeStatus('FINISHED')
 
@@ -417,6 +418,15 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
             setRealTimeStatus('READY')
             setResetCountdown(null)
             setResetDeadline(null)
+
+            // 🔑 Explicitly update jobProgress to ensure step statuses are reset
+            // This helps with browser compatibility (Edge sometimes doesn't update properly)
+            setJobProgress({
+              ...data,
+              extraction: { status: 'idle' },
+              transform: { status: 'idle' },
+              embedding: { status: 'idle' }
+            })
           }
         }
       })
