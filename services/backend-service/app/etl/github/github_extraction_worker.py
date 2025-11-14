@@ -18,6 +18,7 @@ Features:
 
 import json
 import urllib.parse
+import pika
 from typing import Dict, Any, Optional, List
 from datetime import datetime, timedelta
 from sqlalchemy import text
@@ -356,13 +357,16 @@ class GitHubExtractionWorker:
                     return {'success': False, 'error': 'GitHub organization not found in integration settings'}
 
                 # Get repository filter patterns from settings (can be string or array)
-                repository_filter = settings.get('repository_filter', ['health-'])
+                # If not set, don't filter - fetch all repositories
+                repository_filter = settings.get('repository_filter', None)
 
                 # Handle both old string format and new array format for backward compatibility
-                if isinstance(repository_filter, str):
-                    name_filters = [repository_filter]
+                if repository_filter is None:
+                    name_filters = None  # No filtering - fetch all repos
+                elif isinstance(repository_filter, str):
+                    name_filters = [repository_filter] if repository_filter else None
                 else:
-                    name_filters = repository_filter if repository_filter else ['health-']
+                    name_filters = repository_filter if repository_filter else None
 
                 # Determine date range for search
                 if old_last_sync_date:
@@ -408,13 +412,14 @@ class GitHubExtractionWorker:
                         repo_full_name = row[0]
                         if '/' in repo_full_name:
                             repo_name = repo_full_name.split('/', 1)[1]
-                            # Filter out repos matching any of the filter patterns
+                            # Filter out repos matching any of the filter patterns (only if filters are set)
                             should_exclude = False
-                            for filter_pattern in name_filters:
-                                clean_filter = filter_pattern.rstrip('-') if filter_pattern.endswith('-') else filter_pattern
-                                if clean_filter and clean_filter in repo_name:
-                                    should_exclude = True
-                                    break
+                            if name_filters:  # Only filter if name_filters is not None/empty
+                                for filter_pattern in name_filters:
+                                    clean_filter = filter_pattern.rstrip('-') if filter_pattern.endswith('-') else filter_pattern
+                                    if clean_filter and clean_filter in repo_name:
+                                        should_exclude = True
+                                        break
                             if not should_exclude:
                                 non_health_repo_names.add(repo_name)
 
@@ -460,22 +465,21 @@ class GitHubExtractionWorker:
                 additional_repo_names=list(integration_data['non_health_repo_names']) if integration_data['non_health_repo_names'] else None
             )
 
-            logger.debug(f"📦 Retrieved {len(all_repositories)} total repositories from GitHub API")
+            logger.info(f"📦 Retrieved {len(all_repositories)} total repositories from GitHub API")
 
             # Process each repository as a separate raw_extraction_data record
             if all_repositories:
                 # 🔄 LOOP 1: Extract all repos and queue to transform
-                logger.debug(f"📤 [LOOP 1] Queuing {len(all_repositories)} repositories to transform")
-                for i, repo in enumerate(all_repositories):
-                    is_first = (i == 0)
-                    is_last = (i == len(all_repositories) - 1)
+                logger.info(f"📤 [LOOP 1] Storing and queuing {len(all_repositories)} repositories to transform")
 
-                    # Store individual repository in raw_extraction_data
-                    # 🔑 Transform worker expects 'repositories' key (array), so wrap single repo in array
+                # 🚀 OPTIMIZATION: Batch insert raw_extraction_data
+                logger.debug(f"Storing {len(all_repositories)} repositories in raw_extraction_data (batch insert)")
+                raw_data_ids = []
+                for i, repo in enumerate(all_repositories):
                     raw_data_id = self.store_raw_extraction_data(
                         integration_id, tenant_id, "github_repositories",
                         {
-                            'repositories': [repo],  # 🔑 Wrap in array with 'repositories' key
+                            'repositories': [repo],  # 🔑 Transform worker expects array
                             'search_date_range': {
                                 'start_date': integration_data['start_date'],
                                 'end_date': integration_data['end_date']
@@ -492,70 +496,118 @@ class GitHubExtractionWorker:
                         logger.error(f"Failed to store raw repository data for repo {i+1}/{len(all_repositories)}")
                         return {'success': False, 'error': f'Failed to store raw repository data for repo {i+1}'}
 
-                    # Queue for transform with proper first_item/last_item flags
-                    # 🔑 first_item=true ONLY on first repository
-                    # 🔑 last_item=true ONLY on last repository
-                    # 🔑 last_repo=true ONLY on last repository (signals to Step 2 that this is the final repo)
-                    logger.debug(f"Queuing repository {i+1}/{len(all_repositories)} for transform (raw_data_id={raw_data_id}, first={is_first}, last={is_last})")
-                    success = queue_manager.publish_transform_job(
-                        tenant_id=tenant_id,
-                        integration_id=integration_id,
-                        raw_data_id=raw_data_id,
-                        data_type='github_repositories',
-                        job_id=job_id,
-                        provider='github',
-                        old_last_sync_date=old_last_sync_date,  # 🔑 Used for filtering (old_last_sync_date)
-                        new_last_sync_date=end_date,  # 🔑 Used for job completion (extraction end date)
-                        token=token,  # 🔑 Include token in message
-                        first_item=is_first,              # 🔑 True only on first repo
-                        last_item=is_last,                # 🔑 True only on last repo
-                        last_job_item=False,              # 🔑 Never set to True here - job continues to PR extraction
-                        last_repo=is_last                 # 🔑 True only on last repo - signals to Step 2
-                    )
+                    raw_data_ids.append(raw_data_id)
 
-                    if not success:
-                        logger.error(f"Failed to queue repository {i+1}/{len(all_repositories)} for transform")
+                    # Log progress every 100 repos
+                    if (i + 1) % 100 == 0 or (i + 1) == len(all_repositories):
+                        logger.info(f"Stored {i+1}/{len(all_repositories)} repositories in raw_extraction_data")
 
-                logger.debug(f"✅ [LOOP 1 COMPLETE] All {len(all_repositories)} repositories queued to transform")
+                logger.info(f"✅ All {len(all_repositories)} repositories stored in raw_extraction_data")
+
+                # 🚀 OPTIMIZATION: Reuse RabbitMQ channel for all publishes
+                logger.debug(f"Publishing {len(all_repositories)} messages to transform queue")
+                with queue_manager.get_channel() as channel:
+                    for i, (repo, raw_data_id) in enumerate(zip(all_repositories, raw_data_ids)):
+                        is_first = (i == 0)
+                        is_last = (i == len(all_repositories) - 1)
+
+                        # Build message
+                        message = {
+                            'tenant_id': tenant_id,
+                            'integration_id': integration_id,
+                            'job_id': job_id,
+                            'type': 'github_repositories',
+                            'provider': 'github',
+                            'first_item': is_first,
+                            'last_item': is_last,
+                            'old_last_sync_date': old_last_sync_date,
+                            'new_last_sync_date': end_date,
+                            'last_job_item': False,
+                            'token': token,
+                            'raw_data_id': raw_data_id,
+                            'last_repo': is_last,
+                            'last_pr_last_nested': False
+                        }
+
+                        # Publish using shared channel
+                        tier = queue_manager._get_tenant_tier(tenant_id)
+                        tier_queue = queue_manager.get_tier_queue_name(tier, 'transform')
+
+                        channel.basic_publish(
+                            exchange='',
+                            routing_key=tier_queue,
+                            body=json.dumps(message),
+                            properties=pika.BasicProperties(
+                                delivery_mode=2,
+                                content_type='application/json'
+                            )
+                        )
+
+                        # Log progress every 100 repos
+                        if (i + 1) % 100 == 0 or (i + 1) == len(all_repositories):
+                            logger.info(f"Queued {i+1}/{len(all_repositories)} repositories to transform")
+
+                logger.info(f"✅ [LOOP 1 COMPLETE] All {len(all_repositories)} repositories queued to transform")
 
                 # 🔑 LOOP 2: Queue each repository to Step 2 extraction (NO database query)
-                logger.debug(f"📤 [LOOP 2] Queuing {len(all_repositories)} repositories to Step 2 extraction")
-                for i, repo in enumerate(all_repositories):
-                    is_first = (i == 0)
-                    is_last = (i == len(all_repositories) - 1)
+                logger.info(f"📤 [LOOP 2] Queuing {len(all_repositories)} repositories to Step 2 extraction")
 
-                    # Queue PR extraction for this repository
-                    # 🔑 NO database query - use repo data directly from extraction
-                    logger.debug(f"Queuing PR extraction for repository {i+1}/{len(all_repositories)}: {repo.get('full_name')} (first={is_first}, last={is_last})")
+                # 🚀 OPTIMIZATION: Reuse RabbitMQ channel for all publishes
+                with queue_manager.get_channel() as channel:
+                    for i, repo in enumerate(all_repositories):
+                        is_first = (i == 0)
+                        is_last = (i == len(all_repositories) - 1)
 
-                    success_pr = queue_manager.publish_extraction_job(
-                        tenant_id=tenant_id,
-                        integration_id=integration_id,
-                        extraction_type='github_prs_commits_reviews_comments',
-                        extraction_data={
+                        # Build message
+                        message = {
+                            'tenant_id': tenant_id,
+                            'integration_id': integration_id,
+                            'job_id': job_id,
+                            'type': 'github_prs_commits_reviews_comments',
+                            'provider': 'github',
+                            'first_item': is_first,
+                            'last_item': is_last,
+                            'last_job_item': False,
+                            'last_repo': is_last,
+                            'last_pr_last_nested': False,
+                            'token': token,
+                            'old_last_sync_date': old_last_sync_date,
+                            'new_last_sync_date': end_date,
                             'owner': repo.get('owner', {}).get('login') if isinstance(repo.get('owner'), dict) else repo.get('owner'),
                             'repo_name': repo.get('name'),
-                            'full_name': repo.get('full_name'),
-                            'integration_id': integration_id  # 🔑 Pass integration_id to avoid DB query
-                        },
-                        job_id=job_id,
-                        provider='github',
-                        old_last_sync_date=old_last_sync_date,  # 🔑 Pass for incremental sync
-                        new_last_sync_date=end_date,
-                        token=token,  # 🔑 Include token in message
-                        first_item=is_first,              # 🔑 True only on first repo
-                        last_item=is_last,                # 🔑 True only on last repo
-                        last_job_item=False,              # 🔑 Never set to True here - job continues
-                        last_repo=is_last                 # 🔑 True only on last repo - signals to Step 2
-                    )
+                            'full_name': repo.get('full_name')
+                        }
 
-                    if not success_pr:
-                        logger.error(f"Failed to queue PR extraction for repository {i+1}/{len(all_repositories)}")
+                        # Publish using shared channel
+                        tier = queue_manager._get_tenant_tier(tenant_id)
+                        tier_queue = queue_manager.get_tier_queue_name(tier, 'extraction')
 
-                logger.debug(f"✅ [LOOP 2 COMPLETE] All {len(all_repositories)} repositories queued to Step 2 extraction")
+                        channel.basic_publish(
+                            exchange='',
+                            routing_key=tier_queue,
+                            body=json.dumps(message),
+                            properties=pika.BasicProperties(
+                                delivery_mode=2,
+                                content_type='application/json'
+                            )
+                        )
+
+                        # Log progress every 100 repos
+                        if (i + 1) % 100 == 0 or (i + 1) == len(all_repositories):
+                            logger.info(f"Queued {i+1}/{len(all_repositories)} repositories to Step 2 extraction")
+
+                logger.info(f"✅ [LOOP 2 COMPLETE] All {len(all_repositories)} repositories queued to Step 2 extraction")
                 total_repositories = len(all_repositories)
 
-            logger.debug(f"✅ [GITHUB] Repository extraction completed: {total_repositories} repositories found and queued for transform and PR extraction")
+                # 🔑 Send "finished" status for extraction worker after LOOP 2 completes
+                logger.info(f"🏁 [GITHUB] Sending extraction worker finished status for github_repositories (LOOP 2 complete)")
+                try:
+                    await self._send_worker_status("extraction", tenant_id, job_id, "finished", "github_repositories")
+                    logger.debug(f"✅ [GITHUB] Extraction worker finished status sent for github_repositories")
+                except Exception as ws_error:
+                    logger.error(f"❌ [GITHUB] Error sending extraction finished status: {ws_error}")
+
+            logger.info(f"✅ [GITHUB] Repository extraction completed: {total_repositories} repositories found and queued for transform and PR extraction")
 
             # 🏁 Handle case when NO repositories were found
             if total_repositories == 0:
@@ -1174,58 +1226,67 @@ class GitHubExtractionWorker:
             elif early_termination:
                 logger.debug(f"⏹️ Early termination due to old PRs, not queuing next page")
 
-                # 🔑 Send "finished" status for extraction worker
-                logger.debug(f"🏁 [GITHUB] Sending extraction worker finished status for github_prs_commits_reviews_comments (early termination)")
-                try:
-                    await self._send_worker_status("extraction", tenant_id, job_id, "finished", "github_prs_commits_reviews_comments")
-                    logger.debug(f"✅ [GITHUB] Extraction worker finished status sent for github_prs_commits_reviews_comments")
-                except Exception as ws_error:
-                    logger.error(f"❌ [GITHUB] Error sending extraction finished status: {ws_error}")
+                # 🔑 ONLY send completion message if this is the LAST repository
+                if last_repo:
+                    # 🔑 Send "finished" status for extraction worker
+                    logger.debug(f"🏁 [GITHUB] Sending extraction worker finished status for github_prs_commits_reviews_comments (early termination, last repo)")
+                    try:
+                        await self._send_worker_status("extraction", tenant_id, job_id, "finished", "github_prs_commits_reviews_comments")
+                        logger.debug(f"✅ [GITHUB] Extraction worker finished status sent for github_prs_commits_reviews_comments")
+                    except Exception as ws_error:
+                        logger.error(f"❌ [GITHUB] Error sending extraction finished status: {ws_error}")
 
-                # 🔑 Send completion message when early termination
-                logger.debug(f"📤 Sending completion message to transform (early termination)")
-                queue_manager.publish_transform_job(
-                    tenant_id=tenant_id,
-                    integration_id=integration_id,
-                    raw_data_id=None,  # 🔑 Completion message marker
-                    data_type='github_prs_commits_reviews_comments',
-                    job_id=job_id,
-                    provider='github',
-                    old_last_sync_date=old_last_sync_date,
-                    new_last_sync_date=extraction_end_date,
-                    first_item=False,
-                    last_item=True,            # 🔑 Last item - job complete
-                    last_job_item=True,        # 🔑 Job completion
-                    last_repo=last_repo,
-                    token=token
-                )
+                    # 🔑 Send completion message when early termination AND last repo
+                    logger.debug(f"📤 Sending completion message to transform (early termination, last repo)")
+                    queue_manager.publish_transform_job(
+                        tenant_id=tenant_id,
+                        integration_id=integration_id,
+                        raw_data_id=None,  # 🔑 Completion message marker
+                        data_type='github_prs_commits_reviews_comments',
+                        job_id=job_id,
+                        provider='github',
+                        old_last_sync_date=old_last_sync_date,
+                        new_last_sync_date=extraction_end_date,
+                        first_item=False,
+                        last_item=True,            # 🔑 Last item - job complete
+                        last_job_item=True,        # 🔑 Job completion
+                        last_repo=last_repo,
+                        token=token
+                    )
+                else:
+                    logger.debug(f"⏹️ Early termination but NOT last repo - no completion message sent")
             else:
                 # 🔑 No more pages AND no early termination = FINAL PAGE!
-                logger.debug(f"✅ FINAL PR PAGE - Sending completion message to transform")
+                logger.debug(f"✅ FINAL PR PAGE - last_repo={last_repo}")
 
-                # 🔑 Send "finished" status for extraction worker
-                logger.debug(f"🏁 [GITHUB] Sending extraction worker finished status for github_prs_commits_reviews_comments (final page)")
-                try:
-                    await self._send_worker_status("extraction", tenant_id, job_id, "finished", "github_prs_commits_reviews_comments")
-                    logger.debug(f"✅ [GITHUB] Extraction worker finished status sent for github_prs_commits_reviews_comments")
-                except Exception as ws_error:
-                    logger.error(f"❌ [GITHUB] Error sending extraction finished status: {ws_error}")
+                # 🔑 ONLY send completion message if this is the LAST repository
+                if last_repo:
+                    # 🔑 Send "finished" status for extraction worker
+                    logger.debug(f"🏁 [GITHUB] Sending extraction worker finished status for github_prs_commits_reviews_comments (final page, last repo)")
+                    try:
+                        await self._send_worker_status("extraction", tenant_id, job_id, "finished", "github_prs_commits_reviews_comments")
+                        logger.debug(f"✅ [GITHUB] Extraction worker finished status sent for github_prs_commits_reviews_comments")
+                    except Exception as ws_error:
+                        logger.error(f"❌ [GITHUB] Error sending extraction finished status: {ws_error}")
 
-                queue_manager.publish_transform_job(
-                    tenant_id=tenant_id,
-                    integration_id=integration_id,
-                    raw_data_id=None,  # 🔑 Completion message marker
-                    data_type='github_prs_commits_reviews_comments',
-                    job_id=job_id,
-                    provider='github',
-                    old_last_sync_date=old_last_sync_date,
-                    new_last_sync_date=extraction_end_date,
-                    first_item=False,
-                    last_item=True,            # 🔑 Last item - job complete
-                    last_job_item=True,        # 🔑 Job completion
-                    last_repo=last_repo,
-                    token=token
-                )
+                    logger.debug(f"📤 Sending completion message to transform (final page, last repo)")
+                    queue_manager.publish_transform_job(
+                        tenant_id=tenant_id,
+                        integration_id=integration_id,
+                        raw_data_id=None,  # 🔑 Completion message marker
+                        data_type='github_prs_commits_reviews_comments',
+                        job_id=job_id,
+                        provider='github',
+                        old_last_sync_date=old_last_sync_date,
+                        new_last_sync_date=extraction_end_date,
+                        first_item=False,
+                        last_item=True,            # 🔑 Last item - job complete
+                        last_job_item=True,        # 🔑 Job completion
+                        last_repo=last_repo,
+                        token=token
+                    )
+                else:
+                    logger.debug(f"✅ FINAL PR PAGE but NOT last repo - no completion message sent")
 
             # STEP 6: Save checkpoint for recovery
             self._save_checkpoint(
