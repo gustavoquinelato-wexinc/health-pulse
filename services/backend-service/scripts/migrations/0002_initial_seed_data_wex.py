@@ -108,7 +108,7 @@ def apply(connection):
             VALUES
                 (%(tenant_id)s, 'premium_extraction_workers', '5', 'Number of workers for premium extraction queue', NOW(), NOW()),
                 (%(tenant_id)s, 'premium_transform_workers', '5', 'Number of workers for premium transform queue', NOW(), NOW()),
-                (%(tenant_id)s, 'premium_embedding_workers', '5', 'Number of workers for premium embedding queue', NOW(), NOW())
+                (%(tenant_id)s, 'premium_embedding_workers', '15', 'Number of workers for premium embedding queue', NOW(), NOW())
             ON CONFLICT (tenant_id, setting_key) DO UPDATE SET
                 setting_value = EXCLUDED.setting_value,
                 description = EXCLUDED.description,
@@ -559,6 +559,8 @@ def apply(connection):
                 "status": {
                     "overall": "READY",
                     "token": None,  # 🔑 Execution token - generated when job starts running
+                    "reset_deadline": None,  # 🔑 System-level reset countdown deadline
+                    "reset_attempt": 0,  # 🔑 Reset attempt counter for exponential backoff
                     "steps": {
                         "jira_projects_and_issue_types": {
                             "order": 1,
@@ -599,6 +601,8 @@ def apply(connection):
                 "status": {
                     "overall": "READY",
                     "token": None,  # 🔑 Execution token - generated when job starts running
+                    "reset_deadline": None,  # 🔑 System-level reset countdown deadline
+                    "reset_attempt": 0,  # 🔑 Reset attempt counter for exponential backoff
                     "steps": {
                         "github_repositories": {
                             "order": 1,
@@ -625,6 +629,8 @@ def apply(connection):
                 "status": {
                     "overall": "READY",
                     "token": None,  # 🔑 Execution token - generated when job starts running
+                    "reset_deadline": None,  # 🔑 System-level reset countdown deadline
+                    "reset_attempt": 0,  # 🔑 Reset attempt counter for exponential backoff
                     "steps": {
                         "wex_fabric_data": {
                             "order": 1,
@@ -644,6 +650,8 @@ def apply(connection):
                 "status": {
                     "overall": "READY",
                     "token": None,  # 🔑 Execution token - generated when job starts running
+                    "reset_deadline": None,  # 🔑 System-level reset countdown deadline
+                    "reset_attempt": 0,  # 🔑 Reset attempt counter for exponential backoff
                     "steps": {
                         "wex_ad_users": {
                             "order": 1,

@@ -776,7 +776,10 @@ class JiraTransformHandler:
         """
         try:
             import os
+            from app.core.utils import DateTimeHelper
+
             development_field_id = os.getenv('JIRA_DEVELOPMENT_FIELD_ID', 'customfield_10000')
+            now = DateTimeHelper.now_default()
 
             # Check if development field exists in custom_fields
             check_query = text("""
@@ -2770,6 +2773,7 @@ class JiraTransformHandler:
         provider = message.get('provider') if message else 'jira'
         old_last_sync_date = message.get('old_last_sync_date') if message else None  # 🔑 From extraction worker
         new_last_sync_date = message.get('new_last_sync_date') if message else None
+        token = message.get('token') if message else None  # 🔑 Execution token for job tracking
 
         # Bulk insert new issues
         if issues_to_insert:
@@ -2781,7 +2785,8 @@ class JiraTransformHandler:
                                              message_type='jira_issues_with_changelogs', integration_id=integration_id,
                                              provider=provider, old_last_sync_date=old_last_sync_date,
                                              new_last_sync_date=new_last_sync_date,
-                                             first_item=first_item, last_item=last_item, last_job_item=last_job_item)
+                                             first_item=first_item, last_item=last_item, last_job_item=last_job_item,
+                                             token=token)  # 🔑 Include token in message
 
         # Bulk update existing issues
         if issues_to_update:

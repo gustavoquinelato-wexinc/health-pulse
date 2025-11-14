@@ -6,7 +6,6 @@ This document provides an overview of the ETL system architecture, job orchestra
 
 - **[ETL_JIRA_JOB_LIFECYCLE.md](ETL_JIRA_JOB_LIFECYCLE.md)** - Detailed Jira job lifecycle with 4-step extraction process
 - **[ETL_GITHUB_JOB_LIFECYCLE.md](ETL_GITHUB_JOB_LIFECYCLE.md)** - Detailed GitHub job lifecycle with 2-step extraction and nested pagination
-- **[ETL_UI_RESET_FLOW.md](ETL_UI_RESET_FLOW.md)** - UI reset flow after job completion
 
 ## 🏗️ ETL Architecture Overview
 
@@ -782,8 +781,47 @@ This ensures embedding worker knows when to send status updates and when to comp
 
 Only triggered when `last_job_item=True`:
 - Sets overall status to FINISHED
+- Sets `reset_deadline` = current time + 30 seconds (ISO timestamp)
+- Sets `reset_attempt` = 0
 - Updates last_run_finished_at timestamp
 - Updates last_sync_date with provided value
+- Schedules delayed task to check job completion and reset to READY
+
+#### System-Level Reset Countdown
+
+After job completion, the system uses a **backend-managed countdown** (not UI-managed):
+
+**Flow:**
+1. **Job Finishes**: Embedding worker calls `complete_etl_job()`:
+   - Sets `reset_deadline` = now + 30 seconds
+   - Sets `reset_attempt` = 0
+   - Schedules delayed task via `job_reset_scheduler.py`
+
+2. **Scheduled Check** (after 30s): Backend runs `check_and_reset_job()`:
+   - Verifies all steps are finished
+   - Checks embedding queue for remaining messages with job token
+   - **If work remains**: Extends deadline with exponential backoff (60s, 180s, 300s)
+   - **If all complete**: Resets job to READY
+
+3. **UI Countdown**: Frontend receives `reset_deadline` via WebSocket:
+   ```json
+   {
+     "overall": "FINISHED",
+     "token": "uuid-token",
+     "reset_deadline": "2025-11-13T10:30:00",
+     "reset_attempt": 0,
+     "steps": { ... }
+   }
+   ```
+   - Calculates remaining time: `deadline - current_time`
+   - Displays "Resetting in 30s", "Resetting in 29s", etc.
+   - All users see the same countdown (system-level, not per-session)
+
+**Key Benefits:**
+- **System-level**: Countdown stored in database, not browser
+- **Multi-user sync**: All users see the same countdown
+- **Works offline**: Resets even when no users are logged in
+- **Exponential backoff**: Automatically extends if work remains
 
 ### WebSocket Status Updates
 
