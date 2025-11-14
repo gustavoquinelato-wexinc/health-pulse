@@ -21,7 +21,6 @@ Uses dependency injection to receive WorkerStatusManager for sending status upda
 
 from typing import Dict, Any, Optional, Tuple
 from sqlalchemy import text
-from datetime import datetime
 
 from app.core.logging_config import get_logger
 from app.core.database import get_database
@@ -541,40 +540,51 @@ class JiraExtractionWorker:
             if old_last_sync_date:
                 from datetime import datetime
                 try:
-                    # Parse YYYY-MM-DD format to datetime
-                    last_sync_date = datetime.strptime(old_last_sync_date, '%Y-%m-%d')
+                    # Try parsing with timestamp first (YYYY-MM-DD HH:MM:SS)
+                    try:
+                        last_sync_date = datetime.strptime(old_last_sync_date, '%Y-%m-%d %H:%M:%S')
+                    except ValueError:
+                        # Fall back to date-only format (YYYY-MM-DD)
+                        last_sync_date = datetime.strptime(old_last_sync_date, '%Y-%m-%d')
                 except Exception as e:
                     logger.warning(f"Failed to parse old_last_sync_date '{old_last_sync_date}': {e}")
                     last_sync_date = None
 
-            # Build JQL query with projects filter and date filter
+            # 🔑 Set new_last_sync_date to current time (extraction start time)
+            # This will be saved to last_sync_date when job completes successfully
+            from app.core.utils import DateTimeHelper
+            new_last_sync_date_dt = DateTimeHelper.now_default()
+            new_last_sync_date = new_last_sync_date_dt.strftime('%Y-%m-%d %H:%M:%S')
+            logger.info(f"📅 Setting new_last_sync_date for job completion: {new_last_sync_date}")
+
+            # Build JQL query with projects filter and date range filter
             jql_parts = []
 
-            # Projects filter
-            projects_filter = " OR ".join([f"project = {key}" for key in project_keys])
-            jql_parts.append(f"({projects_filter})")
+            # Projects filter using IN operator (cleaner and more efficient than multiple OR conditions)
+            projects_list = ", ".join(project_keys)
+            jql_parts.append(f"project IN ({projects_list})")
 
             # Base search filter (optional)
             if base_search:
                 jql_parts.append(f"({base_search})")
 
-            # Date filter
+            # Date range filter: updated >= old_last_sync_date AND updated < new_last_sync_date
             if last_sync_date:
-                date_str = last_sync_date.strftime('%Y-%m-%d %H:%M')
-                jql_parts.append(f"updated >= '{date_str}'")
-                logger.debug(f"📅 Incremental sync from: {last_sync_date}")
+                # Lower bound: updated >= old_last_sync_date
+                lower_bound_str = last_sync_date.strftime('%Y-%m-%d %H:%M')
+                jql_parts.append(f"updated >= '{lower_bound_str}'")
+
+                # Upper bound: updated < new_last_sync_date (to avoid re-processing same issues)
+                upper_bound_str = new_last_sync_date_dt.strftime('%Y-%m-%d %H:%M')
+                jql_parts.append(f"updated < '{upper_bound_str}'")
+
+                logger.debug(f"📅 Incremental sync window: {lower_bound_str} to {upper_bound_str}")
             else:
                 logger.debug(f"📅 Full sync (no last_sync_date)")
 
             # Combine all parts
             jql = " AND ".join(jql_parts) + " ORDER BY updated ASC"
             logger.info(f"📋 JQL Query: {jql}")
-
-            # 🔑 Set new_last_sync_date to current time (extraction start time)
-            # This will be saved to last_sync_date when job completes successfully
-            from app.core.utils import DateTimeHelper
-            new_last_sync_date = DateTimeHelper.now_default().strftime('%Y-%m-%d')
-            logger.info(f"📅 Setting new_last_sync_date for job completion: {new_last_sync_date}")
 
             # Fetch issues from Jira (using fields=['*all'] to get all fields including development)
             issues_response = jira_client.search_issues(

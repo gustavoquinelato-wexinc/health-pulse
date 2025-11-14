@@ -477,6 +477,57 @@ class DateTimeHelper:
             logger.warning(f"Failed to get time in configured timezone, falling back to UTC: {e}")
             return datetime.now(timezone.utc).replace(tzinfo=None)
 
+    @staticmethod
+    def now_default_with_tz() -> datetime:
+        """
+        Get current datetime in the configured default timezone WITH timezone info.
+
+        Uses the DEFAULT_TIMEZONE environment variable to determine the timezone.
+        Falls back to UTC if timezone configuration fails.
+
+        Returns:
+            Current datetime in configured timezone WITH timezone info
+        """
+        try:
+            import pytz
+            from app.core.config import get_settings
+            settings = get_settings()
+            tz = pytz.timezone(settings.DEFAULT_TIMEZONE)
+            utc_now = datetime.now(timezone.utc)
+            local_now = utc_now.astimezone(tz)
+            return local_now  # Keep timezone info
+        except Exception as e:
+            logger.warning(f"Failed to get time in configured timezone, falling back to UTC: {e}")
+            return datetime.now(timezone.utc)
+
+    @staticmethod
+    def to_iso_with_tz(dt: datetime) -> str:
+        """
+        Convert datetime to ISO format string WITH timezone info.
+
+        If datetime is naive, assumes it's in the configured default timezone.
+
+        Args:
+            dt: Datetime to convert
+
+        Returns:
+            ISO format string with timezone offset (e.g., "2025-11-13T10:30:00-05:00")
+        """
+        try:
+            import pytz
+            from app.core.config import get_settings
+
+            if dt.tzinfo is None:
+                # Naive datetime - assume it's in default timezone
+                settings = get_settings()
+                tz = pytz.timezone(settings.DEFAULT_TIMEZONE)
+                dt = tz.localize(dt)
+
+            return dt.isoformat()
+        except Exception as e:
+            logger.warning(f"Failed to convert to ISO with timezone, using naive: {e}")
+            return dt.isoformat()
+
 
 class DataValidator:
     """Utilities for data validation."""

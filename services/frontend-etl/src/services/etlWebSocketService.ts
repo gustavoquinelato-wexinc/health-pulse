@@ -25,6 +25,8 @@ export interface JobProgress {
   isActive: boolean
   overall?: 'READY' | 'RUNNING' | 'FINISHED' | 'FAILED'  // 🔑 Add overall status from database
   token?: string | null  // 🔑 Job execution token for tracking completion
+  reset_deadline?: string | null  // 🔑 System-level reset countdown deadline (ISO timestamp)
+  reset_attempt?: number  // 🔑 Reset attempt counter for exponential backoff
   steps?: {
     [stepName: string]: StepStatus
   }
@@ -358,6 +360,9 @@ class ETLWebSocketService {
         embedding: this.getWorkerStatusFromSteps(dbStatus.steps, 'embedding'),
         isActive: dbStatus.overall === 'RUNNING',
         overall: dbStatus.overall,  // 🔑 Pass the overall status directly from database
+        token: dbStatus.token || null,  // 🔑 Pass execution token
+        reset_deadline: dbStatus.reset_deadline || null,  // 🔑 Pass reset deadline for countdown
+        reset_attempt: dbStatus.reset_attempt || 0,  // 🔑 Pass reset attempt counter
         steps: stepsData  // Include the steps data for UI step indicators
       }
 

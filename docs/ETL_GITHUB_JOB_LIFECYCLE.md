@@ -318,8 +318,11 @@ Used when data was extracted and items may be queued to transform/embedding work
 
 3. **Embedding Worker** receives message with last_job_item=true:
    - Sends "finished" status for embedding step (because `last_item=True`)
-   - Calls `_complete_etl_job()` (because `last_job_item=True`)
+   - Calls `complete_etl_job()` (because `last_job_item=True`)
    - Sets overall status to FINISHED
+   - Sets `reset_deadline` = current time + 30 seconds
+   - Sets `reset_attempt` = 0
+   - Schedules delayed task to check and reset job
 
 ### Direct Status Update Completion (No Data Cases)
 
@@ -329,19 +332,29 @@ Used when no data was extracted, so no items are queued to workers.
    - **No repositories found**: Marks both Step 1 and Step 2 as finished (6 statuses total)
    - **No PRs on last repository**: Marks only Step 2 as finished (3 statuses)
    - Calls `status_manager.complete_etl_job()` to set overall status to FINISHED
+   - Sets `reset_deadline` = current time + 30 seconds
+   - Sets `reset_attempt` = 0
+   - Schedules delayed task to check and reset job
    - Updates `last_sync_date` in database
 
 2. **No queue messages sent** - instant completion without worker involvement
 
-### UI Reset Flow (Both Patterns)
+### System-Level Reset Flow (Both Patterns)
 
 After job completion (overall status = FINISHED):
 
-1. **UI Timer** detects FINISHED:
-   - Calls `checkJobCompletion` endpoint
-   - Checks if all steps are finished
-   - Waits 30 seconds, then calls `resetJobStatus`
-   - Resets all steps to "idle" and overall to "READY"
+1. **Backend Scheduler** (`job_reset_scheduler.py`):
+   - After 30 seconds, runs `check_and_reset_job()` task
+   - Verifies all steps are finished
+   - Checks embedding queue for remaining messages with job token
+   - **If work remains**: Extends deadline (60s, 180s, 300s) and reschedules
+   - **If all complete**: Resets job to READY
+
+2. **UI Countdown** (system-level, not per-session):
+   - Receives `reset_deadline` via WebSocket
+   - Calculates remaining time: `deadline - current_time`
+   - Displays "Resetting in 30s", "Resetting in 29s", etc.
+   - All users see the same countdown
 
 ---
 
@@ -483,4 +496,131 @@ To verify dates are properly forwarded:
 3. Verify both dates appear in embedding queue messages
 4. Confirm `last_sync_date` is updated in database after job completion
 5. Verify next run uses previous `new_last_sync_date` as `old_last_sync_date`
+
+---
+
+## Known Issues and Limitations
+
+### Rate Limit Handling - Critical Issues
+
+**Problem 1: Checkpoint Overwriting Race Condition**
+
+When multiple workers process repositories in parallel and hit rate limits simultaneously:
+
+```
+Timeline:
+T=0: Worker 1 processes Repo 456, hits rate limit
+     └─ Saves checkpoint: { "last_pr_cursor": "abc123" }
+
+T=1: Worker 2 processes Repo 457, hits rate limit
+     └─ Saves checkpoint: { "last_pr_cursor": "def456" } ← OVERWRITES Worker 1's checkpoint!
+
+T=2: Worker 3 processes Repo 458, hits rate limit
+     └─ Saves checkpoint: { "last_pr_cursor": "ghi789" } ← OVERWRITES again!
+
+Result: Only the LAST worker's checkpoint is saved, all others are LOST
+```
+
+**Impact:**
+- ❌ Only one repository's checkpoint is preserved (the last one to hit rate limit)
+- ❌ All other repositories' progress is lost
+- ❌ Cannot resume properly - missing cursor information for most repos
+- ❌ Checkpoint data in `etl_jobs.checkpoint_data` is overwritten by concurrent workers
+
+**Problem 2: Multiple Completion Messages**
+
+Each worker that hits a rate limit sends a completion message:
+
+```
+T=0: Worker 1 hits rate limit → sends completion message (last_job_item=True)
+T=1: Worker 2 hits rate limit → sends completion message (last_job_item=True)
+T=2: Worker 3 hits rate limit → sends completion message (last_job_item=True)
+...
+Result: Job marked FINISHED multiple times, WebSocket sends "finished" status repeatedly
+```
+
+**Impact:**
+- ⚠️ Job status updated to FINISHED multiple times (redundant database writes)
+- ⚠️ WebSocket sends "finished" status multiple times
+- ⚠️ UI countdown timer may reset multiple times
+- ⚠️ Database performance degradation from redundant UPDATEs
+
+**Problem 3: Workers Continue Processing After Rate Limit**
+
+Workers don't stop when rate limit is hit - they continue consuming from the queue:
+
+```
+Scenario: 912 repositories queued, rate limit hit at repo 456
+
+What happens:
+- Worker 1 processes repo 456 → rate limit → saves checkpoint → continues to repo 461
+- Worker 2 processes repo 457 → rate limit → overwrites checkpoint → continues to repo 462
+- Worker 3 processes repo 458 → rate limit → overwrites checkpoint → continues to repo 463
+- ... this continues for ALL remaining 456 repos
+- All 456 repos hit rate limit immediately
+- Each one overwrites the checkpoint
+- Massive waste of API quota (all requests fail)
+```
+
+**Impact:**
+- ❌ All remaining repositories in queue are attempted (and fail)
+- ❌ Wastes GitHub API quota (456+ failed requests)
+- ❌ Checkpoint overwritten 456+ times
+- ❌ No way to track which repositories were attempted vs not attempted
+
+**Problem 4: Missing Repository Context in Checkpoint**
+
+Current checkpoint structure doesn't identify which repository it belongs to:
+
+```json
+// Current checkpoint (INCOMPLETE):
+{
+  "rate_limit_hit": true,
+  "rate_limit_node_type": "prs",
+  "last_pr_cursor": "abc123",  // ← Which repo does this cursor belong to?
+  "rate_limit_reset_at": "2025-11-14T18:00:00Z"
+}
+
+// Missing information:
+// - Which repository was being processed?
+// - Which repositories are still pending?
+// - Which repositories were already completed?
+```
+
+**Impact:**
+- ❌ Cannot identify which repository the cursor belongs to
+- ❌ Cannot resume specific repository on recovery
+- ❌ No visibility into which repositories are pending vs completed
+- ❌ Recovery logic cannot determine where to restart
+
+### Proposed Solutions (Not Yet Implemented)
+
+**Solution 1: Add Redis Flag to Stop Workers**
+- First worker to hit rate limit sets Redis flag: `rate_limit_hit:{job_id}`
+- Other workers check flag before processing and skip if set
+- Prevents multiple workers from hitting rate limit simultaneously
+
+**Solution 2: Per-Repository Checkpoint Table**
+- Create `etl_pr_extraction_checkpoints` table
+- Each worker saves checkpoint for its specific repository (atomic UPSERT)
+- No race conditions - each repo has its own row
+- On recovery, query all repos that hit rate limit and resume each one
+
+**Solution 3: Don't Send Completion Message on Rate Limit**
+- NACK the message (put it back in queue) instead of sending completion
+- Mark job as RATE_LIMITED instead of FINISHED
+- Recovery scheduler waits for rate limit reset, then clears flag and resumes
+
+**Solution 4: Checkpoint Array Structure**
+- Store array of failed repositories in checkpoint_data
+- Use atomic array append operations (PostgreSQL JSONB functions)
+- Preserves all repositories' checkpoint information
+
+### Current Workaround
+
+Until these issues are fixed:
+- Monitor jobs closely when processing large repository sets (100+ repos)
+- If rate limit hit, manually check which repositories were processed
+- May need to manually re-run job or purge queue and restart
+- Consider reducing worker count to minimize parallel rate limit hits
 

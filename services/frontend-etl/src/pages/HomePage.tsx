@@ -122,11 +122,14 @@ export default function HomePage() {
       const job = jobs.find(j => j.id === jobId)
       if (!job) return
 
+      // Extract overall status from status JSON
+      const currentStatus = job.status?.overall || 'READY'
+
       // Only allow running if status is READY or FAILED
-      if (job.status !== 'READY' && job.status !== 'FAILED') {
+      if (currentStatus !== 'READY' && currentStatus !== 'FAILED') {
         showError(
           'Cannot Run Job',
-          `Job status is ${job.status}. Only jobs with status READY or FAILED can be run.`
+          `Job status is ${currentStatus}. Only jobs with status READY or FAILED can be run.`
         )
         return
       }
@@ -136,7 +139,7 @@ export default function HomePage() {
       setJobs(prevJobs =>
         prevJobs.map(j =>
           j.id === jobId
-            ? { ...j, status: 'RUNNING', next_run: undefined, current_step: 'Starting...' }
+            ? { ...j, status: { ...j.status, overall: 'RUNNING' }, next_run: undefined, current_step: 'Starting...' }
             : j
         )
       )
@@ -154,7 +157,7 @@ export default function HomePage() {
       setJobs(prevJobs =>
         prevJobs.map(job =>
           job.id === jobId
-            ? { ...job, status: 'READY' }
+            ? { ...job, status: { ...job.status, overall: 'READY' } }
             : job
         )
       )
