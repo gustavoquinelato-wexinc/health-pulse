@@ -217,17 +217,12 @@ class GitHubRestClient:
         """
         # Handle both old string format and new array format for backward compatibility
         filters_to_use = name_filters if name_filters else (
-            [name_filter] if name_filter else []
+            [name_filter] if name_filter else None
         )
 
         logger.info(f"🔍 [GITHUB SEARCH] Starting repository search with org={org}, filters={filters_to_use}")
 
         try:
-            # Base query parts that are always included
-            base_query_parts = [f"org:{org}", f"pushed:{start_date}..{end_date}"]
-            base_query = " ".join(base_query_parts)
-            logger.info(f"🔍 [GITHUB SEARCH] Base query: {base_query}")
-
             # Build search patterns
             search_patterns = []
 
@@ -248,16 +243,18 @@ class GitHubRestClient:
                         repo_name = full_name
                     search_patterns.append(f"{repo_name} in:name")
 
+            # If no search patterns, search for ALL repositories in the org (no name filtering)
             if not search_patterns:
-                logger.warning("🔍 [GITHUB SEARCH] No search patterns provided for GitHub repository search")
-                return []
+                logger.info("🔍 [GITHUB SEARCH] No name filters provided - searching ALL repositories in org")
+                # Use base query only (org + date range) without name filtering
+                pattern_batches = [[]]  # Single empty batch to execute base query once
+            else:
+                logger.info(f"🔍 [GITHUB SEARCH] Total search patterns: {len(search_patterns)}")
+                # Batch patterns to stay within 256 character limit
+                # Note: We don't pass base_query here since we'll construct the full query differently
+                pattern_batches = self._batch_search_patterns("", search_patterns, max_length=200)
 
-            logger.info(f"🔍 [GITHUB SEARCH] Total search patterns: {len(search_patterns)}")
-
-            # Batch patterns to stay within 256 character limit
-            pattern_batches = self._batch_search_patterns(base_query, search_patterns, max_length=256)
-
-            logger.info(f"🔍 [GITHUB SEARCH] Executing {len(pattern_batches)} search requests to stay within character limit")
+            logger.info(f"🔍 [GITHUB SEARCH] Executing {len(pattern_batches)} search requests")
 
             # Accumulate ALL repositories from all pages and patterns
             all_repositories = []
@@ -267,15 +264,21 @@ class GitHubRestClient:
             with httpx.Client() as client:
                 logger.info(f"🔍 [GITHUB SEARCH] HTTP client created successfully")
                 for i, batch_patterns in enumerate(pattern_batches, 1):
-                    # Combine patterns with OR and wrap in parentheses for proper GitHub search syntax
-                    combined_patterns = " OR ".join(batch_patterns)
-                    full_query = f"{base_query} ({combined_patterns})"
+                    # Build query: org:{org} {patterns}
+                    # pushed date is a separate URL parameter
+                    # Example: q=org:wexinc health- in:name OR bp- in:name&pushed=2023-11-15..2025-11-14
+                    if batch_patterns:  # If there are patterns, combine them
+                        combined_patterns = " OR ".join(batch_patterns)
+                        query = f"org:{org} {combined_patterns}"
+                    else:  # No patterns - use base query only (all repos in org)
+                        query = f"org:{org}"
 
-                    logger.info(f"🔍 [GITHUB SEARCH] Batch {i}/{len(pattern_batches)}: Query length = {len(full_query)}, Query = {full_query[:100]}...")
+                    logger.info(f"🔍 [GITHUB SEARCH] Batch {i}/{len(pattern_batches)}: Query = {query}, Pushed = {start_date}..{end_date}")
 
                     endpoint = "https://api.github.com/search/repositories"
                     params = {
-                        "q": full_query,
+                        "q": query,
+                        "pushed": f"{start_date}..{end_date}",
                         "sort": "updated",
                         "order": "asc",
                         "per_page": 100
@@ -287,7 +290,7 @@ class GitHubRestClient:
                         "User-Agent": "ETL-Service/1.0"
                     }
 
-                    logger.info(f"🔍 [GITHUB SEARCH] Making HTTP request to {endpoint}?q={urllib.parse.quote(full_query)}")
+                    logger.info(f"🔍 [GITHUB SEARCH] Making HTTP request to {endpoint}?q={urllib.parse.quote(query)}&pushed={params['pushed']}")
                     try:
                         # Paginate through search results using Link header
                         # Accumulate all repos from all pages
@@ -403,10 +406,13 @@ class GitHubRestClient:
         GitHub Search API has a 256 character limit for the query string.
         This method batches patterns so each batch stays under the limit.
 
+        Note: This method only batches the patterns. The caller is responsible for
+        constructing the full query with org and pushed date.
+
         Args:
-            base_query: Base query string (e.g., "org:wexinc pushed:2024-01-01..2024-12-31")
+            base_query: Not used anymore (kept for backward compatibility)
             patterns: List of search patterns (e.g., ["health- in:name", "bp- in:name"])
-            max_length: Maximum query length (default: 256)
+            max_length: Maximum length for patterns portion (default: 256)
 
         Returns:
             List of pattern batches, where each batch is a list of patterns
@@ -414,18 +420,14 @@ class GitHubRestClient:
         batches = []
         current_batch = []
 
-        # Calculate base length including parentheses and OR operators
-        # Format: "base_query (pattern1 OR pattern2 OR pattern3)"
-        base_length = len(base_query) + 3  # +3 for " ()"
-
         for pattern in patterns:
             # Calculate length if we add this pattern
             if current_batch:
                 # Need to add " OR " before this pattern
-                test_length = base_length + len(" OR ".join(current_batch + [pattern]))
+                test_length = len(" OR ".join(current_batch + [pattern]))
             else:
                 # First pattern in batch
-                test_length = base_length + len(pattern)
+                test_length = len(pattern)
 
             if test_length > max_length and current_batch:
                 # Adding this pattern would exceed limit, start new batch
