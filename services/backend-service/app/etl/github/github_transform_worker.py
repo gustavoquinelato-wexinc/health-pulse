@@ -417,21 +417,22 @@ class GitHubTransformHandler:
 
             # 🔑 CRITICAL: Queue for embedding AFTER database transaction commits
             # This prevents race condition where embedding worker tries to read data before it's committed
-            # 🔑 Flag logic for looping through repositories:
-            # - first_item=True only on FIRST repo in the loop
-            # - last_item=True only on LAST repo in the loop
-            # - last_job_item=True only on LAST repo in the loop (when incoming last_job_item=True)
+            # 🔑 Flag logic: Forward flags from incoming message (extraction worker already set them correctly)
+            # - Extraction worker sends first_item=True ONLY on first repo across ALL repos
+            # - Extraction worker sends last_item=True ONLY on last repo across ALL repos
+            # - Each transform message processes 1 repo, so we forward the flags as-is
+
+            # 🔑 Extract flags and token from incoming message
+            incoming_first_item = message.get('first_item', False) if message else False
+            incoming_last_item = message.get('last_item', False) if message else False
+            token = message.get('token') if message else None
+
             for i, repo_info in enumerate(repos_to_queue):
-                is_first_repo_in_loop = (i == 0)
-                is_last_repo_in_loop = (i == len(repos_to_queue) - 1)
-
-                # 🔑 Set flags based on position in the loop
-                repo_first_item = is_first_repo_in_loop
-                repo_last_item = is_last_repo_in_loop
-                repo_last_job_item = is_last_repo_in_loop and last_job_item
-
-                # 🔑 Extract token from message
-                token = message.get('token') if message else None
+                # 🔑 Forward flags from message (don't recalculate based on loop position)
+                # Since each message contains only 1 repo, we use the incoming flags directly
+                repo_first_item = incoming_first_item
+                repo_last_item = incoming_last_item
+                repo_last_job_item = incoming_last_item and last_job_item
 
                 self.queue_manager.publish_embedding_job(
                     tenant_id=tenant_id,

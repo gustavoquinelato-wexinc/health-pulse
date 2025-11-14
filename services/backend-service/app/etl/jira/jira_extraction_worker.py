@@ -19,6 +19,8 @@ Architecture:
 Uses dependency injection to receive WorkerStatusManager for sending status updates.
 """
 
+import json
+import pika
 from typing import Dict, Any, Optional, Tuple
 from sqlalchemy import text
 
@@ -406,16 +408,16 @@ class JiraExtractionWorker:
                 self._queue_next_step(tenant_id, integration_id, job_id, 'jira_issues_with_changelogs', token, old_last_sync_date, True, False, False)
                 return True
 
-            logger.debug(f"📊 Fetching statuses for {len(project_keys)} projects: {project_keys}")
+            logger.info(f"📊 Fetching and queuing statuses for {len(project_keys)} projects")
 
             queue_manager = QueueManager()
             total_projects = len(project_keys)
 
-            # Fetch statuses for each project
-            for i, project_key in enumerate(project_keys):
-                is_first = (i == 0)
-                is_last = (i == total_projects - 1)
+            # Step 1: Fetch and store all project statuses
+            raw_data_ids = []
+            project_keys_processed = []
 
+            for i, project_key in enumerate(project_keys):
                 logger.debug(f"📋 Fetching statuses for project {project_key} ({i+1}/{total_projects})")
 
                 # Fetch project-specific statuses
@@ -427,14 +429,14 @@ class JiraExtractionWorker:
 
                 logger.debug(f"📊 Found {len(project_statuses)} issue types with statuses for project {project_key}")
 
-                # Store raw data (one per project) - wrap in dict with project_key
+                # Store raw data (one per project)
                 raw_data_id = self._store_raw_data(
                     tenant_id,
                     integration_id,
-                    'jira_project_statuses',  # Type per documentation
+                    'jira_project_statuses',
                     {
                         'project_key': project_key,
-                        'statuses': project_statuses  # Array of issue types with statuses
+                        'statuses': project_statuses
                     }
                 )
 
@@ -442,27 +444,59 @@ class JiraExtractionWorker:
                     logger.error(f"Failed to store raw data for project {project_key}")
                     continue
 
-                # Queue to transform (one message per project)
-                success = queue_manager.publish_transform_job(
-                    tenant_id=tenant_id,
-                    integration_id=integration_id,
-                    raw_data_id=raw_data_id,
-                    data_type='jira_statuses_and_relationships',
-                    job_id=job_id,
-                    provider='jira',
-                    old_last_sync_date=old_last_sync_date,  # 🔑 Forward to transform
-                    new_last_sync_date=new_last_sync_date,  # 🔑 Forward to transform for comparison
-                    first_item=is_first,  # True only for first project
-                    last_item=is_last,    # True only for last project
-                    last_job_item=False,  # Not the final step
-                    token=token
-                )
+                raw_data_ids.append(raw_data_id)
+                project_keys_processed.append(project_key)
 
-                if not success:
-                    logger.error(f"Failed to queue project {project_key} for transformation")
-                    continue
+                # Log progress every 10 projects
+                if (i + 1) % 10 == 0 or (i + 1) == total_projects:
+                    logger.info(f"Stored {i+1}/{total_projects} project statuses in raw_extraction_data")
 
-                logger.debug(f"✅ Queued project {project_key} to transform (first_item={is_first}, last_item={is_last})")
+            logger.info(f"✅ All {len(raw_data_ids)} project statuses stored in raw_extraction_data")
+
+            # Step 2: Queue all projects to transform using shared channel
+            logger.debug(f"Publishing {len(raw_data_ids)} messages to transform queue")
+            with queue_manager.get_channel() as channel:
+                for i, (project_key, raw_data_id) in enumerate(zip(project_keys_processed, raw_data_ids)):
+                    is_first = (i == 0)
+                    is_last = (i == len(raw_data_ids) - 1)
+
+                    # Build message
+                    message = {
+                        'tenant_id': tenant_id,
+                        'integration_id': integration_id,
+                        'job_id': job_id,
+                        'type': 'jira_statuses_and_relationships',
+                        'provider': 'jira',
+                        'first_item': is_first,
+                        'last_item': is_last,
+                        'old_last_sync_date': old_last_sync_date,
+                        'new_last_sync_date': new_last_sync_date,
+                        'last_job_item': False,
+                        'token': token,
+                        'raw_data_id': raw_data_id,
+                        'last_repo': False,
+                        'last_pr_last_nested': False
+                    }
+
+                    # Publish using shared channel
+                    tier = queue_manager._get_tenant_tier(tenant_id)
+                    tier_queue = queue_manager.get_tier_queue_name(tier, 'transform')
+
+                    channel.basic_publish(
+                        exchange='',
+                        routing_key=tier_queue,
+                        body=json.dumps(message),
+                        properties=pika.BasicProperties(
+                            delivery_mode=2,
+                            content_type='application/json'
+                        )
+                    )
+
+                    # Log progress every 10 projects
+                    if (i + 1) % 10 == 0 or (i + 1) == len(raw_data_ids):
+                        logger.info(f"Queued {i+1}/{len(raw_data_ids)} project statuses to transform")
+
+            logger.info(f"✅ All {len(raw_data_ids)} project statuses queued to transform")
 
             # Send finished status for this step
             await self._send_worker_status("extraction", tenant_id, job_id, "finished", "jira_statuses_and_relationships")
@@ -671,105 +705,149 @@ class JiraExtractionWorker:
 
             queue_manager = QueueManager()
 
-            # Loop through issues and queue individual messages to transform
+            logger.info(f"📤 Storing and queuing {total_issues} issues to transform")
+
+            # Step 1: Store all issues and track which have dev field
+            raw_data_ids = []
+            issue_keys_processed = []
+
             for i, issue in enumerate(issues_list):
-                is_first = (i == 0)
-                is_last = (i == total_issues - 1)
-
                 issue_key = issue.get('key', 'unknown')
-                logger.debug(f"📋 Processing issue {issue_key} ({i+1}/{total_issues})")
 
-                # 🔑 Check if issue has development field using mapped field from database
+                # 🔑 Check if issue has development field
                 has_development = False
                 if development_field_external_id:
                     fields = issue.get('fields', {})
                     field_value = fields.get(development_field_external_id)
-
-                    # Check if field exists and has value
                     if field_value:
                         has_development = True
-                        logger.debug(f"✅ Issue {issue_key} has development field {development_field_external_id}")
+                        issues_with_dev.append(issue)
 
-                if has_development:
-                    issues_with_dev.append(issue)
-
-                # Store raw data (one per issue) - wrap in 'issue' key for transform worker
+                # Store raw data (one per issue)
                 raw_data_id = self._store_raw_data(
                     tenant_id,
                     integration_id,
                     'jira_issues_with_changelogs',
-                    {'issue': issue}  # Wrap in dict with 'issue' key
+                    {'issue': issue}
                 )
 
                 if not raw_data_id:
                     logger.error(f"Failed to store raw data for issue {issue_key}")
                     continue
 
-                # Determine last_job_item flag
-                # If this is the last issue AND no issues have development field, set last_job_item=True
-                last_job_item = False
-                if is_last and len(issues_with_dev) == 0:
-                    last_job_item = True  # No Step 4 needed
-                    logger.info(f"🎯 Last issue with NO dev status - setting last_job_item=True")
+                raw_data_ids.append(raw_data_id)
+                issue_keys_processed.append(issue_key)
 
-                # Queue to transform (one message per issue)
-                success = queue_manager.publish_transform_job(
-                    tenant_id=tenant_id,
-                    integration_id=integration_id,
-                    raw_data_id=raw_data_id,
-                    data_type='jira_issues_with_changelogs',
-                    job_id=job_id,
-                    provider='jira',
-                    old_last_sync_date=old_last_sync_date,  # 🔑 Forward to transform
-                    new_last_sync_date=new_last_sync_date,  # 🔑 Forward to transform
-                    first_item=is_first,      # True only for first issue
-                    last_item=is_last,        # True only for last issue
-                    last_job_item=last_job_item,  # True only if last issue AND no dev status
-                    token=token
-                )
+                # Log progress every 100 issues
+                if (i + 1) % 100 == 0 or (i + 1) == total_issues:
+                    logger.info(f"Stored {i+1}/{total_issues} issues in raw_extraction_data")
 
-                if not success:
-                    logger.error(f"Failed to queue issue {issue_key} for transformation")
-                    continue
+            logger.info(f"✅ All {len(raw_data_ids)} issues stored in raw_extraction_data ({len(issues_with_dev)} with dev field)")
 
-                logger.debug(f"✅ Queued issue {issue_key} to transform (first_item={is_first}, last_item={is_last}, last_job_item={last_job_item})")
+            # Step 2: Queue all issues to transform using shared channel
+            logger.debug(f"Publishing {len(raw_data_ids)} messages to transform queue")
+            with queue_manager.get_channel() as channel:
+                for i, (issue_key, raw_data_id) in enumerate(zip(issue_keys_processed, raw_data_ids)):
+                    is_first = (i == 0)
+                    is_last = (i == len(raw_data_ids) - 1)
+
+                    # Determine last_job_item flag
+                    last_job_item = False
+                    if is_last and len(issues_with_dev) == 0:
+                        last_job_item = True  # No Step 4 needed
+                        logger.info(f"🎯 Last issue with NO dev status - setting last_job_item=True")
+
+                    # Build message
+                    message = {
+                        'tenant_id': tenant_id,
+                        'integration_id': integration_id,
+                        'job_id': job_id,
+                        'type': 'jira_issues_with_changelogs',
+                        'provider': 'jira',
+                        'first_item': is_first,
+                        'last_item': is_last,
+                        'old_last_sync_date': old_last_sync_date,
+                        'new_last_sync_date': new_last_sync_date,
+                        'last_job_item': last_job_item,
+                        'token': token,
+                        'raw_data_id': raw_data_id,
+                        'last_repo': False,
+                        'last_pr_last_nested': False
+                    }
+
+                    # Publish using shared channel
+                    tier = queue_manager._get_tenant_tier(tenant_id)
+                    tier_queue = queue_manager.get_tier_queue_name(tier, 'transform')
+
+                    channel.basic_publish(
+                        exchange='',
+                        routing_key=tier_queue,
+                        body=json.dumps(message),
+                        properties=pika.BasicProperties(
+                            delivery_mode=2,
+                            content_type='application/json'
+                        )
+                    )
+
+                    # Log progress every 100 issues
+                    if (i + 1) % 100 == 0 or (i + 1) == len(raw_data_ids):
+                        logger.info(f"Queued {i+1}/{len(raw_data_ids)} issues to transform")
+
+            logger.info(f"✅ All {len(raw_data_ids)} issues queued to transform")
 
             # Send finished status for this step
             await self._send_worker_status("extraction", tenant_id, job_id, "finished", "jira_issues_with_changelogs")
 
             # If any issues have development field, queue Step 4 extraction jobs
             if issues_with_dev:
-                logger.debug(f"📋 Queuing Step 4 (dev_status) for {len(issues_with_dev)} issues with development field")
+                logger.info(f"📋 Queuing Step 4 (dev_status) for {len(issues_with_dev)} issues with development field")
 
                 total_dev_issues = len(issues_with_dev)
-                for i, issue in enumerate(issues_with_dev):
-                    is_first_dev = (i == 0)
-                    is_last_dev = (i == total_dev_issues - 1)
 
-                    issue_key = issue.get('key')
-                    issue_id = issue.get('id')
+                # 🚀 OPTIMIZATION: Reuse RabbitMQ channel for all dev_status publishes
+                with queue_manager.get_channel() as channel:
+                    for i, issue in enumerate(issues_with_dev):
+                        is_first_dev = (i == 0)
+                        is_last_dev = (i == total_dev_issues - 1)
 
-                    # Queue extraction job for dev_status
-                    dev_message = {
-                        'tenant_id': tenant_id,
-                        'integration_id': integration_id,
-                        'job_id': job_id,
-                        'type': 'jira_dev_status',
-                        'provider': 'jira',
-                        'issue_id': issue_id,
-                        'issue_key': issue_key,
-                        'first_item': is_first_dev,
-                        'last_item': is_last_dev,
-                        'token': token,
-                        'old_last_sync_date': old_last_sync_date,  # 🔑 Forward to Step 4
-                        'new_last_sync_date': new_last_sync_date   # 🔑 Forward to Step 4
-                    }
+                        issue_key = issue.get('key')
+                        issue_id = issue.get('id')
 
-                    tier = queue_manager._get_tenant_tier(tenant_id)
-                    tier_queue = queue_manager.get_tier_queue_name(tier, 'extraction')
-                    queue_manager._publish_message(tier_queue, dev_message)
+                        # Build message
+                        dev_message = {
+                            'tenant_id': tenant_id,
+                            'integration_id': integration_id,
+                            'job_id': job_id,
+                            'type': 'jira_dev_status',
+                            'provider': 'jira',
+                            'issue_id': issue_id,
+                            'issue_key': issue_key,
+                            'first_item': is_first_dev,
+                            'last_item': is_last_dev,
+                            'token': token,
+                            'old_last_sync_date': old_last_sync_date,
+                            'new_last_sync_date': new_last_sync_date
+                        }
 
-                    logger.debug(f"✅ Queued dev_status extraction for issue {issue_key} (first_item={is_first_dev}, last_item={is_last_dev})")
+                        # Publish using shared channel
+                        tier = queue_manager._get_tenant_tier(tenant_id)
+                        tier_queue = queue_manager.get_tier_queue_name(tier, 'extraction')
+
+                        channel.basic_publish(
+                            exchange='',
+                            routing_key=tier_queue,
+                            body=json.dumps(dev_message),
+                            properties=pika.BasicProperties(
+                                delivery_mode=2,
+                                content_type='application/json'
+                            )
+                        )
+
+                        # Log progress every 50 issues
+                        if (i + 1) % 50 == 0 or (i + 1) == total_dev_issues:
+                            logger.info(f"Queued {i+1}/{total_dev_issues} dev_status extractions")
+
+                logger.info(f"✅ All {total_dev_issues} dev_status extractions queued")
             else:
                 logger.debug(f"⏭️ No issues with development field - Step 4 will be skipped")
 
