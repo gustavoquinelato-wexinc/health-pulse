@@ -19,7 +19,7 @@ Architecture:
 
 import asyncio
 import uuid
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, TYPE_CHECKING
 from sqlalchemy import text
 
 from app.core.utils import DateTimeHelper
@@ -31,6 +31,10 @@ from app.models.unified_models import (
     WorkItemPrLink, WitHierarchy, WitMapping, StatusMapping, Workflow, QdrantVector
 )
 from app.etl.workers.embedding_worker_router import SOURCE_TYPE_MAPPING
+
+if TYPE_CHECKING:
+    from app.etl.workers.worker_status_manager import WorkerStatusManager
+    from app.etl.workers.queue_manager import QueueManager
 
 logger = get_logger(__name__)
 
@@ -46,7 +50,8 @@ class JiraEmbeddingWorker:
     - Updating qdrant_vectors bridge table
     """
 
-    def __init__(self, status_manager=None, queue_manager=None):
+    def __init__(self, status_manager: Optional['WorkerStatusManager'] = None,
+                 queue_manager: Optional['QueueManager'] = None):
         """
         Initialize Jira embedding worker.
 

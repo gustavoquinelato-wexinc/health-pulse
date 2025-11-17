@@ -18,7 +18,7 @@ Architecture:
 import asyncio
 import time
 import uuid
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, TYPE_CHECKING
 from sqlalchemy import text
 
 from app.core.logging_config import get_logger
@@ -26,6 +26,10 @@ from app.core.database import get_database
 from app.core.utils import DateTimeHelper
 from app.models.unified_models import Pr, PrCommit, PrReview, PrComment, Repository, QdrantVector
 from app.etl.workers.embedding_worker_router import SOURCE_TYPE_MAPPING
+
+if TYPE_CHECKING:
+    from app.etl.workers.worker_status_manager import WorkerStatusManager
+    from app.etl.workers.queue_manager import QueueManager
 
 logger = get_logger(__name__)
 
@@ -41,7 +45,8 @@ class GitHubEmbeddingWorker:
     - Updating qdrant_vectors bridge table
     """
 
-    def __init__(self, status_manager=None, queue_manager=None):
+    def __init__(self, status_manager: Optional['WorkerStatusManager'] = None,
+                 queue_manager: Optional['QueueManager'] = None):
         """
         Initialize GitHub embedding worker.
 
