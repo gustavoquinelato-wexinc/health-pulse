@@ -89,6 +89,29 @@ class GitHubEmbeddingWorker:
         except Exception as e:
             logger.debug(f"Error during GitHub embedding worker cleanup (suppressed): {e}")
 
+    async def _send_worker_status(self, step: str, tenant_id: int, job_id: int,
+                                   status: str, step_type: str = None):
+        """
+        Send worker status update using injected status manager.
+
+        Args:
+            step: ETL step name (e.g., 'extraction', 'transform', 'embedding')
+            tenant_id: Tenant ID
+            job_id: Job ID
+            status: Status to send (e.g., 'running', 'finished', 'failed')
+            step_type: Optional step type for logging (e.g., 'github_repositories')
+        """
+        if self.status_manager:
+            await self.status_manager.send_worker_status(
+                step=step,
+                tenant_id=tenant_id,
+                job_id=job_id,
+                status=status,
+                step_type=step_type
+            )
+        else:
+            logger.warning(f"Status manager not available - cannot send {status} status for {step_type}")
+
     async def process_github_embedding(self, message: Dict[str, Any]) -> bool:
         """
         Process GitHub embedding message.
@@ -101,15 +124,45 @@ class GitHubEmbeddingWorker:
         """
         try:
             tenant_id = message.get('tenant_id')
+            job_id = message.get('job_id')
             step_type = message.get('type')
             table_name = message.get('table_name')
             external_id = message.get('external_id')
+            last_item = message.get('last_item', False)
+            last_job_item = message.get('last_job_item', False)
+            new_last_sync_date = message.get('new_last_sync_date')
+            rate_limited = message.get('rate_limited', False)  # 🔑 Rate limit flag from transform
 
-            logger.debug(f"🔍 [GITHUB EMBEDDING] Processing: table={table_name}, external_id={external_id}, step={step_type}")
+            logger.debug(f"🔍 [GITHUB EMBEDDING] Processing: table={table_name}, external_id={external_id}, step={step_type}, rate_limited={rate_limited}")
 
             # Handle completion messages - external_id=None signals completion
             if table_name and external_id is None:
-                logger.info(f"🎯 [GITHUB EMBEDDING] Received completion message for {table_name}")
+                logger.info(f"🎯 [GITHUB EMBEDDING] Received completion message for {table_name} (rate_limited={rate_limited})")
+
+                # 🔑 Send embedding worker "finished" status when last_item=True
+                if last_item and job_id:
+                    await self._send_worker_status("embedding", tenant_id, job_id, "finished", step_type)
+                    logger.debug(f"✅ [GITHUB EMBEDDING] Embedding step marked as finished for {table_name} (completion message)")
+
+                # 🔑 Complete ETL job when last_job_item=True
+                if last_job_item and job_id:
+                    if rate_limited:
+                        logger.info(f"🏁 [GITHUB EMBEDDING] Completing ETL job {job_id} with RATE_LIMITED status")
+                    else:
+                        logger.info(f"🏁 [GITHUB EMBEDDING] Completing ETL job {job_id} with FINISHED status")
+
+                    await self.status_manager.complete_etl_job(
+                        job_id=job_id,
+                        tenant_id=tenant_id,
+                        last_sync_date=new_last_sync_date,
+                        rate_limited=rate_limited  # 🔑 Forward rate_limited flag
+                    )
+
+                    if rate_limited:
+                        logger.info(f"✅ [GITHUB EMBEDDING] ETL job {job_id} marked as RATE_LIMITED")
+                    else:
+                        logger.info(f"✅ [GITHUB EMBEDDING] ETL job {job_id} marked as FINISHED")
+
                 return True
 
             # Handle individual entity messages
@@ -119,7 +172,20 @@ class GitHubEmbeddingWorker:
                     return False
 
                 logger.info(f"🔍 [GITHUB EMBEDDING] Fetching entity data for {table_name} ID {external_id}")
-                return await self._process_entity(tenant_id, table_name, external_id, message)
+                result = await self._process_entity(tenant_id, table_name, external_id, message)
+
+                # 🔑 Send embedding worker "finished" status when last_item=True
+                if last_item and job_id:
+                    await self._send_worker_status("embedding", tenant_id, job_id, "finished", step_type)
+                    logger.debug(f"✅ [GITHUB EMBEDDING] Embedding step marked as finished for {table_name}")
+
+                # 🔑 Complete ETL job when last_job_item=True (only for successful processing)
+                if last_job_item and job_id and result:
+                    logger.info(f"🏁 [GITHUB EMBEDDING] Processing last job item - completing ETL job {job_id}")
+                    await self.status_manager.complete_etl_job(job_id, tenant_id, new_last_sync_date)
+                    logger.info(f"✅ [GITHUB EMBEDDING] ETL job {job_id} marked as FINISHED")
+
+                return result
 
             logger.warning(f"⚠️ [GITHUB EMBEDDING] Unknown message format")
             return False

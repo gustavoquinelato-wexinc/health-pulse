@@ -477,21 +477,23 @@ class GitHubExtractionWorker:
                     rate_limit_reset_at=rest_client.rate_limit_reset
                 )
 
-                # 🔑 Send completion message with rate_limited=True
-                # This sets all worker statuses to idle and marks job as RATE_LIMITED
-                logger.info(f"⚠️ Completing job {job_id} with RATE_LIMITED status (repository search)")
+                # 🔑 Send completion message to transform with rate_limited=True
+                # Transform will forward to embedding, which will complete the job with RATE_LIMITED status
+                logger.info(f"⚠️ Sending rate limit completion message for job {job_id} (repository search)")
 
-                # Set all worker statuses to idle
-                await self._send_worker_status("extraction", tenant_id, job_id, "idle", "github_repositories")
-                await self._send_worker_status("transform", tenant_id, job_id, "idle", "github_repositories")
-                await self._send_worker_status("embedding", tenant_id, job_id, "idle", "github_repositories")
-
-                # Mark overall job as RATE_LIMITED and DON'T update last_sync_date
-                await self.status_manager.complete_etl_job(
-                    job_id=job_id,
+                # Send completion message to transform queue
+                self.queue_manager.publish_transform_job(
                     tenant_id=tenant_id,
-                    last_sync_date=extraction_end_date,
-                    rate_limited=True
+                    job_id=job_id,
+                    message_type='github_repositories',
+                    raw_data_id=None,  # Completion message marker
+                    first_item=False,
+                    last_item=True,
+                    last_job_item=True,
+                    old_last_sync_date=last_sync_date,
+                    new_last_sync_date=extraction_end_date,
+                    token=token,
+                    rate_limited=True  # 🔑 Signal rate limit to downstream workers
                 )
 
                 return {
@@ -975,21 +977,23 @@ class GitHubExtractionWorker:
                     rate_limit_reset_at=github_client.rate_limit_reset
                 )
 
-                # 🔑 Send completion message with rate_limited=True
-                # This sets all worker statuses to idle and marks job as RATE_LIMITED
-                logger.info(f"⚠️ Completing job {job_id} with RATE_LIMITED status (PR extraction)")
+                # 🔑 Send completion message to transform with rate_limited=True
+                # Transform will forward to embedding, which will complete the job with RATE_LIMITED status
+                logger.info(f"⚠️ Sending rate limit completion message for job {job_id} (PR extraction)")
 
-                # Set all worker statuses to idle
-                await self._send_worker_status("extraction", tenant_id, job_id, "idle", "github_prs_commits_reviews_comments")
-                await self._send_worker_status("transform", tenant_id, job_id, "idle", "github_prs_commits_reviews_comments")
-                await self._send_worker_status("embedding", tenant_id, job_id, "idle", "github_prs_commits_reviews_comments")
-
-                # Mark overall job as RATE_LIMITED and DON'T update last_sync_date
-                await self.status_manager.complete_etl_job(
-                    job_id=job_id,
+                # Send completion message to transform queue
+                self.queue_manager.publish_transform_job(
                     tenant_id=tenant_id,
-                    last_sync_date=extraction_end_date,
-                    rate_limited=True
+                    job_id=job_id,
+                    message_type='github_prs_commits_reviews_comments',
+                    raw_data_id=None,  # Completion message marker
+                    first_item=False,
+                    last_item=True,
+                    last_job_item=True,
+                    old_last_sync_date=old_last_sync_date,
+                    new_last_sync_date=extraction_end_date,
+                    token=token,
+                    rate_limited=True  # 🔑 Signal rate limit to downstream workers
                 )
 
                 return {
@@ -1475,21 +1479,23 @@ class GitHubExtractionWorker:
                     rate_limit_reset_at=github_client.rate_limit_reset
                 )
 
-                # 🔑 Send completion message with rate_limited=True
-                # This sets all worker statuses to idle and marks job as RATE_LIMITED
-                logger.info(f"⚠️ Completing job {job_id} with RATE_LIMITED status (nested type: {nested_type})")
+                # 🔑 Send completion message to transform with rate_limited=True
+                # Transform will forward to embedding, which will complete the job with RATE_LIMITED status
+                logger.info(f"⚠️ Sending rate limit completion message for job {job_id} (nested type: {nested_type})")
 
-                # Set all worker statuses to idle
-                await self._send_worker_status("extraction", tenant_id, job_id, "idle", "github_prs_commits_reviews_comments")
-                await self._send_worker_status("transform", tenant_id, job_id, "idle", "github_prs_commits_reviews_comments")
-                await self._send_worker_status("embedding", tenant_id, job_id, "idle", "github_prs_commits_reviews_comments")
-
-                # Mark overall job as RATE_LIMITED and DON'T update last_sync_date
-                await self.status_manager.complete_etl_job(
-                    job_id=job_id,
+                # Send completion message to transform queue
+                self.queue_manager.publish_transform_job(
                     tenant_id=tenant_id,
-                    last_sync_date=extraction_end_date,
-                    rate_limited=True
+                    job_id=job_id,
+                    message_type='github_prs_commits_reviews_comments',
+                    raw_data_id=None,  # Completion message marker
+                    first_item=False,
+                    last_item=True,
+                    last_job_item=True,
+                    old_last_sync_date=old_last_sync_date,
+                    new_last_sync_date=extraction_end_date,
+                    token=token,
+                    rate_limited=True  # 🔑 Signal rate limit to downstream workers
                 )
 
                 return {
