@@ -157,7 +157,12 @@ class JiraEmbeddingWorker:
                 # 🔑 Complete ETL job when last_job_item=True (only for successful processing)
                 if last_job_item and job_id and result:
                     logger.info(f"🏁 [JIRA EMBEDDING] Processing last job item - completing ETL job {job_id}")
-                    await self.status_manager.complete_etl_job(job_id, tenant_id, new_last_sync_date)
+                    await self.status_manager.complete_etl_job(
+                        job_id=job_id,
+                        tenant_id=tenant_id,
+                        last_sync_date=new_last_sync_date,
+                        rate_limited=rate_limited  # 🔑 Forward rate_limited flag
+                    )
                     logger.info(f"✅ [JIRA EMBEDDING] ETL job {job_id} marked as FINISHED")
 
                 return result
@@ -209,7 +214,12 @@ class JiraEmbeddingWorker:
                 # 🔑 Complete ETL job when last_job_item=True (only for successful processing)
                 if last_job_item and job_id and result:
                     logger.info(f"🏁 [JIRA EMBEDDING] Processing last job item - completing ETL job {job_id}")
-                    await self.status_manager.complete_etl_job(job_id, tenant_id, new_last_sync_date)
+                    await self.status_manager.complete_etl_job(
+                        job_id=job_id,
+                        tenant_id=tenant_id,
+                        last_sync_date=new_last_sync_date,
+                        rate_limited=rate_limited  # 🔑 Forward rate_limited flag
+                    )
                     logger.info(f"✅ [JIRA EMBEDDING] ETL job {job_id} marked as FINISHED")
 
                 return result
