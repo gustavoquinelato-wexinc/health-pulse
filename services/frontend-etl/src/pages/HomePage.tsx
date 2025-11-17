@@ -125,11 +125,11 @@ export default function HomePage() {
       // Extract overall status from status JSON
       const currentStatus = job.status?.overall || 'READY'
 
-      // Only allow running if status is READY or FAILED
-      if (currentStatus !== 'READY' && currentStatus !== 'FAILED') {
+      // Only allow running if status is READY, FAILED, or RATE_LIMITED
+      if (currentStatus !== 'READY' && currentStatus !== 'FAILED' && currentStatus !== 'RATE_LIMITED') {
         showError(
           'Cannot Run Job',
-          `Job status is ${currentStatus}. Only jobs with status READY or FAILED can be run.`
+          `Job status is ${currentStatus}. Only jobs with status READY, FAILED, or RATE_LIMITED can be run.`
         )
         return
       }

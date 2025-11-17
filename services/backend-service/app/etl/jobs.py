@@ -581,6 +581,10 @@ async def run_job_now(
             logger.warning(f"⚠️ ALREADY RUNNING: Job '{job_name}' is already RUNNING - rejecting request")
             raise HTTPException(status_code=400, detail=f"Job {job_name} is already running")
 
+        # 🔑 Allow running jobs with RATE_LIMITED status (manual override)
+        if current_status == 'RATE_LIMITED':
+            logger.info(f"✅ RATE_LIMITED OVERRIDE: Allowing manual run of job '{job_name}' (status: RATE_LIMITED)")
+
         if current_status == 'FINISHED':
             logger.warning(f"⚠️ JOB FINISHING: Job '{job_name}' is FINISHED and resetting - rejecting request")
             raise HTTPException(status_code=400, detail=f"Job {job_name} is resetting. Please wait a moment and try again.")

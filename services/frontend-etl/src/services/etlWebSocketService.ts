@@ -23,7 +23,7 @@ export interface JobProgress {
   transform: WorkerStatus
   embedding: WorkerStatus
   isActive: boolean
-  overall?: 'READY' | 'RUNNING' | 'FINISHED' | 'FAILED'  // 🔑 Add overall status from database
+  overall?: 'READY' | 'RUNNING' | 'FINISHED' | 'FAILED' | 'RATE_LIMITED'  // 🔑 Add overall status from database
   token?: string | null  // 🔑 Job execution token for tracking completion
   reset_deadline?: string | null  // 🔑 System-level reset countdown deadline (ISO timestamp)
   reset_attempt?: number  // 🔑 Reset attempt counter for exponential backoff

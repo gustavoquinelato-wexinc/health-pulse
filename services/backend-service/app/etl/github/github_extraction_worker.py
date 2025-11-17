@@ -27,8 +27,8 @@ from app.core.logging_config import get_logger
 from app.core.utils import DateTimeHelper
 from app.models.unified_models import Integration
 from app.core.config import AppConfig
-from app.etl.github.github_graphql_client import GitHubGraphQLClient, GitHubRateLimitException
-from app.etl.github.github_rest_client import GitHubRestClient
+from app.etl.github.github_graphql_client import GitHubGraphQLClient, GitHubRateLimitException as GraphQLRateLimitException
+from app.etl.github.github_rest_client import GitHubRestClient, GitHubRateLimitException
 
 logger = get_logger(__name__)
 
@@ -457,13 +457,46 @@ class GitHubExtractionWorker:
 
             # Get all repositories as a complete list using REST client
             rest_client = GitHubRestClient(integration_data['github_token'])
-            all_repositories = rest_client.search_repositories(
-                org=integration_data['org'],
-                start_date=integration_data['start_date'],
-                end_date=integration_data['end_date'],
-                name_filters=integration_data['name_filters'],
-                additional_repo_names=list(integration_data['non_health_repo_names']) if integration_data['non_health_repo_names'] else None
-            )
+
+            try:
+                all_repositories = rest_client.search_repositories(
+                    org=integration_data['org'],
+                    start_date=integration_data['start_date'],
+                    end_date=integration_data['end_date'],
+                    name_filters=integration_data['name_filters'],
+                    additional_repo_names=list(integration_data['non_health_repo_names']) if integration_data['non_health_repo_names'] else None
+                )
+            except GitHubRateLimitException as e:
+                logger.warning(f"⚠️ Rate limit hit during repository search: {e}")
+
+                # Save checkpoint for recovery (no specific repo cursor needed for search)
+                self._save_rate_limit_checkpoint(
+                    job_id=job_id,
+                    tenant_id=tenant_id,
+                    rate_limit_node_type='repositories',
+                    rate_limit_reset_at=rest_client.rate_limit_reset
+                )
+
+                # Set job status to RATE_LIMITED
+                logger.info(f"⚠️ Setting job {job_id} to RATE_LIMITED status (repository search)")
+
+                from app.etl.workers.worker_status_manager import WorkerStatusManager
+                status_manager = WorkerStatusManager()
+
+                await status_manager.set_rate_limited_status(
+                    job_id=job_id,
+                    tenant_id=tenant_id,
+                    rate_limit_reset_at=rest_client.rate_limit_reset,
+                    retry_interval_minutes=15
+                )
+
+                return {
+                    'success': False,
+                    'error': 'Rate limit exceeded',
+                    'is_rate_limit': True,
+                    'rate_limit_reset_at': rest_client.rate_limit_reset,
+                    'status': 'RATE_LIMITED'
+                }
 
             logger.info(f"📦 Retrieved {len(all_repositories)} total repositories from GitHub API")
 
@@ -926,8 +959,10 @@ class GitHubExtractionWorker:
                     owner, repo_name, pr_cursor
                 )
 
-            except GitHubRateLimitException as e:
+            except GraphQLRateLimitException as e:
                 logger.warning(f"⚠️ Rate limit hit during PR extraction: {e}")
+
+                # Save checkpoint for recovery
                 self._save_rate_limit_checkpoint(
                     job_id=job_id,
                     tenant_id=tenant_id,
@@ -936,31 +971,28 @@ class GitHubExtractionWorker:
                     rate_limit_reset_at=github_client.rate_limit_reset
                 )
 
-                # 🔑 Send completion message to transform queue to signal job completion
-                # This allows the job to finish gracefully even though we hit rate limit
-                # NOTE: There may already be items queued to transform/embedding, so we need
-                # to let them process and use the completion message to close the job
-                logger.debug(f"📤 Sending completion message to transform queue due to rate limit")
-                queue_manager.publish_transform_job(
-                    tenant_id=tenant_id,
-                    integration_id=integration.id,
-                    raw_data_id=None,  # 🔑 Completion message marker
-                    data_type='github_prs_commits_reviews_comments',
+                # 🔑 Set job status to RATE_LIMITED instead of sending completion message
+                # This prevents the job from being marked as FINISHED
+                # Job will auto-resume when next_run time is reached, or can be manually run
+                logger.info(f"⚠️ Setting job {job_id} to RATE_LIMITED status")
+
+                from app.etl.workers.worker_status_manager import WorkerStatusManager
+                status_manager = WorkerStatusManager()
+
+                # Use fast_retry_interval_minutes from job settings (default 15 minutes)
+                await status_manager.set_rate_limited_status(
                     job_id=job_id,
-                    provider='github',
-                    old_last_sync_date=old_last_sync_date,  # 🔑 Forward old_last_sync_date
-                    new_last_sync_date=new_last_sync_date,  # 🔑 Forward new_last_sync_date for job completion
-                    first_item=False,
-                    last_item=True,
-                    last_job_item=True,  # 🔑 Signal job completion
-                    token=token  # 🔑 Include token in message
+                    tenant_id=tenant_id,
+                    rate_limit_reset_at=github_client.rate_limit_reset,
+                    retry_interval_minutes=15  # Fast retry for rate limit recovery
                 )
 
                 return {
                     'success': False,
                     'error': 'Rate limit exceeded',
                     'is_rate_limit': True,
-                    'rate_limit_reset_at': github_client.rate_limit_reset
+                    'rate_limit_reset_at': github_client.rate_limit_reset,
+                    'status': 'RATE_LIMITED'
                 }
 
             if not pr_page or 'data' not in pr_page:
@@ -1425,8 +1457,10 @@ class GitHubExtractionWorker:
                 else:
                     logger.error(f"Unknown nested_type: {nested_type}")
                     return {'success': False, 'error': f'Unknown nested_type: {nested_type}'}
-            except GitHubRateLimitException as e:
+            except GraphQLRateLimitException as e:
                 logger.warning(f"⚠️ Rate limit hit during {nested_type} extraction: {e}")
+
+                # Save checkpoint for recovery
                 self._save_rate_limit_checkpoint(
                     job_id=job_id,
                     tenant_id=tenant_id,
@@ -1436,31 +1470,25 @@ class GitHubExtractionWorker:
                     rate_limit_reset_at=github_client.rate_limit_reset
                 )
 
-                # 🔑 Send completion message to transform queue to signal job completion
-                # This allows the job to finish gracefully even though we hit rate limit
-                # NOTE: There may already be items queued to transform/embedding, so we need
-                # to let them process and use the completion message to close the job
-                logger.debug(f"📤 Sending completion message to transform queue due to rate limit in {nested_type}")
-                queue_manager.publish_transform_job(
-                    tenant_id=tenant_id,
-                    integration_id=integration.id,
-                    raw_data_id=None,  # 🔑 Completion message marker
-                    data_type='github_prs_commits_reviews_comments',
+                # 🔑 Set job status to RATE_LIMITED instead of sending completion message
+                logger.info(f"⚠️ Setting job {job_id} to RATE_LIMITED status (nested type: {nested_type})")
+
+                from app.etl.workers.worker_status_manager import WorkerStatusManager
+                status_manager = WorkerStatusManager()
+
+                await status_manager.set_rate_limited_status(
                     job_id=job_id,
-                    provider='github',
-                    old_last_sync_date=old_last_sync_date,  # 🔑 Forward old_last_sync_date
-                    new_last_sync_date=new_last_sync_date,  # 🔑 Forward new_last_sync_date for job completion
-                    first_item=False,
-                    last_item=True,
-                    last_job_item=True,  # 🔑 Signal job completion
-                    token=token  # 🔑 Include token in message
+                    tenant_id=tenant_id,
+                    rate_limit_reset_at=github_client.rate_limit_reset,
+                    retry_interval_minutes=15
                 )
 
                 return {
                     'success': False,
                     'error': 'Rate limit exceeded',
                     'is_rate_limit': True,
-                    'rate_limit_reset_at': github_client.rate_limit_reset
+                    'rate_limit_reset_at': github_client.rate_limit_reset,
+                    'status': 'RATE_LIMITED'
                 }
 
             if not nested_data:

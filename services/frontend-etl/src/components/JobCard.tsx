@@ -144,7 +144,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
           bgColor: 'bg-red-100',
           label: 'Failed'
         }
-      case 'RATE_LIMIT_REACHED':
+      case 'RATE_LIMITED':
         return {
           icon: <AlertCircle className="w-5 h-5" />,
           color: 'text-yellow-600',
@@ -225,6 +225,12 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
       return
     }
 
+    // 🔑 Don't show countdown for RATE_LIMITED jobs - they show next_run time instead
+    if (realTimeStatus === 'RATE_LIMITED') {
+      setCountdown('—')
+      return
+    }
+
     if (!job.next_run || job.next_run === null || job.next_run === undefined) {
       setCountdown('—')
       return
@@ -274,7 +280,9 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
 
   // 🔑 System-level reset countdown - reads reset_deadline from WebSocket updates
   // This countdown is managed by the backend scheduler and is the same for all users
+  // 🔑 SKIP countdown for RATE_LIMITED jobs - they don't have reset_deadline
   useEffect(() => {
+    // Only show countdown for FINISHED status with a valid reset_deadline
     if (realTimeStatus !== 'FINISHED' || !resetDeadline) {
       setResetCountdown(null)
       return
@@ -427,6 +435,11 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
               transform: { status: 'idle' },
               embedding: { status: 'idle' }
             })
+          } else if (data.overall === 'RATE_LIMITED') {
+            // 🔑 Job hit rate limit - no countdown timer, just show next_run time
+            setRealTimeStatus('RATE_LIMITED')
+            setResetCountdown(null)
+            setResetDeadline(null)
           }
         }
       })
@@ -535,16 +548,16 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
                   <span className="text-sm font-medium">{statusInfo.label}</span>
                 </div>
 
-                {/* Rate Limit Countdown - Show when rate limited */}
-                {realTimeStatus === 'RATE_LIMIT_REACHED' && (
+                {/* Rate Limit Display - Show when rate limited */}
+                {realTimeStatus === 'RATE_LIMITED' && job.next_run && (
                   <div className="flex items-center space-x-1 text-yellow-600">
                     <Clock className="w-4 h-4" />
-                    <span className="text-sm font-medium">Resumes in {countdown}</span>
+                    <span className="text-sm font-medium">Auto-resumes at {formatDateTimeWithTZ(job.next_run)}</span>
                   </div>
                 )}
 
-                {/* Reset Countdown Timer - Show when resetting */}
-                {resetCountdown !== null && realTimeStatus !== 'RATE_LIMIT_REACHED' && (
+                {/* Reset Countdown Timer - Show when resetting (not for rate limited) */}
+                {resetCountdown !== null && realTimeStatus !== 'RATE_LIMITED' && (
                   <div className="flex items-center space-x-1 text-blue-500">
                     <Clock className="w-4 h-4" />
                     <span className="text-sm font-medium">Resetting in {resetCountdown}s</span>
@@ -582,24 +595,24 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
 
         {/* Right: Action Buttons */}
         <div className="flex items-center space-x-2">
-          {/* Run Now Button - Only show when active and status is READY or FAILED */}
+          {/* Run Now Button - Only show when active and status is READY, FAILED, or RATE_LIMITED */}
           {job.active && (
             <button
               onClick={() => onRunNow(job.id)}
               className={`px-4 py-2 rounded-lg flex items-center space-x-2 transition-all ${
-                realTimeStatus !== 'READY' && realTimeStatus !== 'FAILED'
+                realTimeStatus !== 'READY' && realTimeStatus !== 'FAILED' && realTimeStatus !== 'RATE_LIMITED'
                   ? 'btn-crud-create opacity-50 cursor-not-allowed'
                   : 'btn-crud-create hover:opacity-90'
               }`}
               title={
                 realTimeStatus === 'RUNNING' ? 'Job is currently running' :
                 realTimeStatus === 'FINISHED' ? 'Job is resetting, please wait...' :
-                realTimeStatus === 'RATE_LIMIT_REACHED' ? 'Job will resume automatically when rate limit resets' :
+                realTimeStatus === 'RATE_LIMITED' ? 'Manually resume job (rate limit hit)' :
                 realTimeStatus === 'FAILED' ? 'Manually trigger job' :
                 realTimeStatus === 'READY' ? 'Manually trigger job' :
                 'Job status is not ready'
               }
-              disabled={realTimeStatus !== 'READY' && realTimeStatus !== 'FAILED'}
+              disabled={realTimeStatus !== 'READY' && realTimeStatus !== 'FAILED' && realTimeStatus !== 'RATE_LIMITED'}
             >
               <Play className="w-4 h-4" />
               <span>Run Now</span>

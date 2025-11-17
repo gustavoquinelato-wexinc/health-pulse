@@ -227,3 +227,107 @@ class WorkerStatusManager:
             import traceback
             logger.error(f"Full traceback: {traceback.format_exc()}")
 
+    async def set_rate_limited_status(self, job_id: int, tenant_id: int, rate_limit_reset_at: str = None, retry_interval_minutes: int = 15):
+        """
+        Set job status to RATE_LIMITED when API rate limit is hit.
+
+        This method:
+        1. Sets overall status to RATE_LIMITED
+        2. Sets next_run based on rate_limit_reset_at or retry_interval_minutes
+        3. Does NOT set reset_deadline (no countdown timer for rate limited jobs)
+        4. Sends WebSocket notification
+        5. Job can be manually run via "Run Now" button
+        6. Job will auto-resume when next_run time is reached
+
+        Args:
+            job_id: ETL job ID
+            tenant_id: Tenant ID
+            rate_limit_reset_at: ISO timestamp when rate limit resets (optional)
+            retry_interval_minutes: Fallback retry interval if rate_limit_reset_at not provided
+        """
+        try:
+            from datetime import datetime, timedelta
+            from app.core.utils import DateTimeHelper
+
+            with self.database.get_write_session_context() as session:
+                now = DateTimeHelper.now_default()
+
+                # Calculate next_run based on rate limit reset time
+                if rate_limit_reset_at:
+                    try:
+                        # Parse the rate limit reset time
+                        from dateutil import parser
+                        reset_time = parser.parse(rate_limit_reset_at)
+
+                        # Convert to default timezone if needed
+                        if reset_time.tzinfo is None:
+                            # Assume UTC if no timezone
+                            from datetime import timezone
+                            reset_time = reset_time.replace(tzinfo=timezone.utc)
+
+                        # Convert to default timezone
+                        import pytz
+                        from app.core.config import get_settings
+                        settings = get_settings()
+                        default_tz = pytz.timezone(settings.DEFAULT_TIMEZONE)
+                        next_run = reset_time.astimezone(default_tz).replace(tzinfo=None)
+
+                        logger.info(f"⏰ Rate limit resets at: {rate_limit_reset_at}")
+                        logger.info(f"⏰ Setting next_run to: {next_run}")
+                    except Exception as e:
+                        logger.warning(f"Failed to parse rate_limit_reset_at '{rate_limit_reset_at}': {e}")
+                        # Fallback to retry_interval_minutes
+                        next_run = now + timedelta(minutes=retry_interval_minutes)
+                else:
+                    # Use retry_interval_minutes as fallback
+                    next_run = now + timedelta(minutes=retry_interval_minutes)
+                    logger.info(f"⏰ No rate_limit_reset_at provided, using retry_interval: {retry_interval_minutes} minutes")
+
+                # 🔑 Set status to RATE_LIMITED (NO reset_deadline - no countdown timer)
+                sql = f"""
+                    UPDATE etl_jobs
+                    SET status = jsonb_set(
+                          jsonb_set(
+                            jsonb_set(status, ARRAY['overall'], '"RATE_LIMITED"'::jsonb),
+                            ARRAY['reset_deadline'], 'null'::jsonb
+                          ),
+                          ARRAY['reset_attempt'], to_jsonb(0)
+                        ),
+                        last_updated_at = '{now.isoformat()}'::timestamp,
+                        next_run = '{next_run.isoformat()}'::timestamp
+                    WHERE id = {job_id} AND tenant_id = {tenant_id}
+                """
+
+                session.execute(text(sql))
+                session.commit()
+
+                logger.info(f"⚠️ [RATE LIMITED] ETL job {job_id} marked as RATE_LIMITED")
+                logger.info(f"   next_run: {next_run}")
+                logger.info(f"   No reset_deadline set (no countdown timer)")
+                logger.info(f"   Job can be manually run via 'Run Now' button")
+
+            # Send WebSocket notification with updated job status
+            with self.database.get_read_session_context() as read_session:
+                result = read_session.execute(
+                    text('SELECT status FROM etl_jobs WHERE id = :job_id'),
+                    {'job_id': job_id}
+                ).fetchone()
+
+                if result:
+                    job_status = result[0]  # This is the JSON status structure
+
+                    # Send WebSocket notification
+                    from app.api.websocket_routes import get_job_websocket_manager
+                    job_websocket_manager = get_job_websocket_manager()
+                    await job_websocket_manager.send_job_status_update(
+                        tenant_id=tenant_id,
+                        job_id=job_id,
+                        status_json=job_status
+                    )
+                    logger.info(f"✅ WebSocket notification sent with overall status RATE_LIMITED")
+
+        except Exception as e:
+            logger.error(f"❌ Error setting RATE_LIMITED status for job {job_id}: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+
