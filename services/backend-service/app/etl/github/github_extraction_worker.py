@@ -477,17 +477,21 @@ class GitHubExtractionWorker:
                     rate_limit_reset_at=rest_client.rate_limit_reset
                 )
 
-                # Set job status to RATE_LIMITED
-                logger.info(f"⚠️ Setting job {job_id} to RATE_LIMITED status (repository search)")
+                # 🔑 Send completion message with rate_limited=True
+                # This sets all worker statuses to idle and marks job as RATE_LIMITED
+                logger.info(f"⚠️ Completing job {job_id} with RATE_LIMITED status (repository search)")
 
-                from app.etl.workers.worker_status_manager import WorkerStatusManager
-                status_manager = WorkerStatusManager()
+                # Set all worker statuses to idle
+                await self._send_worker_status("extraction", tenant_id, job_id, "idle", "github_repositories")
+                await self._send_worker_status("transform", tenant_id, job_id, "idle", "github_repositories")
+                await self._send_worker_status("embedding", tenant_id, job_id, "idle", "github_repositories")
 
-                await status_manager.set_rate_limited_status(
+                # Mark overall job as RATE_LIMITED and DON'T update last_sync_date
+                await self.status_manager.complete_etl_job(
                     job_id=job_id,
                     tenant_id=tenant_id,
-                    rate_limit_reset_at=rest_client.rate_limit_reset,
-                    retry_interval_minutes=15
+                    last_sync_date=extraction_end_date,
+                    rate_limited=True
                 )
 
                 return {
@@ -971,20 +975,21 @@ class GitHubExtractionWorker:
                     rate_limit_reset_at=github_client.rate_limit_reset
                 )
 
-                # 🔑 Set job status to RATE_LIMITED instead of sending completion message
-                # This prevents the job from being marked as FINISHED
-                # Job will auto-resume when next_run time is reached, or can be manually run
-                logger.info(f"⚠️ Setting job {job_id} to RATE_LIMITED status")
+                # 🔑 Send completion message with rate_limited=True
+                # This sets all worker statuses to idle and marks job as RATE_LIMITED
+                logger.info(f"⚠️ Completing job {job_id} with RATE_LIMITED status (PR extraction)")
 
-                from app.etl.workers.worker_status_manager import WorkerStatusManager
-                status_manager = WorkerStatusManager()
+                # Set all worker statuses to idle
+                await self._send_worker_status("extraction", tenant_id, job_id, "idle", "github_prs_commits_reviews_comments")
+                await self._send_worker_status("transform", tenant_id, job_id, "idle", "github_prs_commits_reviews_comments")
+                await self._send_worker_status("embedding", tenant_id, job_id, "idle", "github_prs_commits_reviews_comments")
 
-                # Use fast_retry_interval_minutes from job settings (default 15 minutes)
-                await status_manager.set_rate_limited_status(
+                # Mark overall job as RATE_LIMITED and DON'T update last_sync_date
+                await self.status_manager.complete_etl_job(
                     job_id=job_id,
                     tenant_id=tenant_id,
-                    rate_limit_reset_at=github_client.rate_limit_reset,
-                    retry_interval_minutes=15  # Fast retry for rate limit recovery
+                    last_sync_date=extraction_end_date,
+                    rate_limited=True
                 )
 
                 return {
@@ -1470,17 +1475,21 @@ class GitHubExtractionWorker:
                     rate_limit_reset_at=github_client.rate_limit_reset
                 )
 
-                # 🔑 Set job status to RATE_LIMITED instead of sending completion message
-                logger.info(f"⚠️ Setting job {job_id} to RATE_LIMITED status (nested type: {nested_type})")
+                # 🔑 Send completion message with rate_limited=True
+                # This sets all worker statuses to idle and marks job as RATE_LIMITED
+                logger.info(f"⚠️ Completing job {job_id} with RATE_LIMITED status (nested type: {nested_type})")
 
-                from app.etl.workers.worker_status_manager import WorkerStatusManager
-                status_manager = WorkerStatusManager()
+                # Set all worker statuses to idle
+                await self._send_worker_status("extraction", tenant_id, job_id, "idle", "github_prs_commits_reviews_comments")
+                await self._send_worker_status("transform", tenant_id, job_id, "idle", "github_prs_commits_reviews_comments")
+                await self._send_worker_status("embedding", tenant_id, job_id, "idle", "github_prs_commits_reviews_comments")
 
-                await status_manager.set_rate_limited_status(
+                # Mark overall job as RATE_LIMITED and DON'T update last_sync_date
+                await self.status_manager.complete_etl_job(
                     job_id=job_id,
                     tenant_id=tenant_id,
-                    rate_limit_reset_at=github_client.rate_limit_reset,
-                    retry_interval_minutes=15
+                    last_sync_date=extraction_end_date,
+                    rate_limited=True
                 )
 
                 return {
