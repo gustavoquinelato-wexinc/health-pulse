@@ -44,10 +44,12 @@ def get_database_connection():
         print(f"❌ Error connecting to database: {e}")
         raise
 
-def apply_migration(cursor):
+def apply(connection):
     """Apply the portfolio management schema migration."""
     print("📋 Starting Migration 0005: Portfolio Management Schema")
     print("=" * 80)
+
+    cursor = connection.cursor()
 
     # ============================================================================
     # PORTFOLIOS TABLE (Strategic Level - Annual Planning)
@@ -532,10 +534,12 @@ def apply_migration(cursor):
     print("✅ Migration 0005 completed successfully!")
     print("=" * 80)
 
-def rollback_migration(cursor):
+def rollback(connection):
     """Rollback the portfolio management schema migration."""
     print("📋 Rolling back Migration 0005: Portfolio Management Schema")
     print("=" * 80)
+
+    cursor = connection.cursor()
 
     # Drop tables in reverse dependency order
     tables_to_drop = [
@@ -571,15 +575,13 @@ def main():
     connection = None
     try:
         connection = get_database_connection()
-        cursor = connection.cursor()
 
         if args.rollback:
-            rollback_migration(cursor)
+            rollback(connection)
         else:
-            apply_migration(cursor)
+            apply(connection)
 
         connection.commit()
-        cursor.close()
 
     except Exception as e:
         if connection:
