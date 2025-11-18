@@ -84,7 +84,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
     }
 
     // Fallback to default Jira steps if no step data available
-    return ['jira_projects_and_issue_types', 'jira_statuses_and_relationships', 'jira_issues_with_changelogs', 'jira_dev_status']
+    return ['jira_projects_and_issue_types', 'jira_statuses_and_relationships', 'jira_issues_with_changelogs', 'jira_dev_status', 'jira_sprint_reports']
   }
 
 
@@ -683,6 +683,8 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
             <div className={`grid gap-2 text-xs ${
               getAvailableSteps().length === 2
                 ? 'grid-cols-1 md:grid-cols-2'  // 2 steps: full width on desktop
+                : getAvailableSteps().length === 5
+                ? 'grid-cols-2 md:grid-cols-5'  // 5 steps: 5 columns on desktop
                 : 'grid-cols-2 md:grid-cols-4'  // 4 steps: 4 columns on desktop
             }`}>
               {getAvailableSteps().map((stepName) => {

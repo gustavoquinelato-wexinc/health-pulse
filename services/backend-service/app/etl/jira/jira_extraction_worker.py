@@ -94,6 +94,8 @@ class JiraExtractionWorker:
                 return await self._extract_issues_with_changelogs(message)
             elif extraction_type == 'jira_dev_status':
                 return await self._fetch_jira_dev_status(message)
+            elif extraction_type == 'jira_sprint_reports':
+                return await self._extract_sprint_reports(message)
             else:
                 logger.error(f"❌ [JIRA] Unknown extraction type: {extraction_type}")
                 return False
@@ -851,7 +853,70 @@ class JiraExtractionWorker:
             else:
                 logger.debug(f"⏭️ No issues with development field - Step 4 will be skipped")
 
-            logger.info(f"✅ Issues with changelogs extraction completed ({total_issues} issues, {len(issues_with_dev)} with dev status)")
+            # 📊 Step 5: Queue sprint reports extraction for unique board_id/sprint_id combinations
+            # Collect distinct sprint combinations from all issues
+            sprint_combinations = set()
+            for issue in all_issues:
+                sprints_field = issue.get('fields', {}).get('customfield_10020')  # Sprint field
+                if sprints_field and isinstance(sprints_field, list):
+                    for sprint in sprints_field:
+                        if isinstance(sprint, dict):
+                            board_id = sprint.get('boardId')
+                            sprint_id = sprint.get('id')
+                            if board_id and sprint_id:
+                                sprint_combinations.add((board_id, sprint_id))
+
+            if sprint_combinations:
+                logger.info(f"📋 Queuing Step 5 (sprint_reports) for {len(sprint_combinations)} unique sprint combinations")
+
+                sprint_list = list(sprint_combinations)
+                total_sprints = len(sprint_list)
+
+                # 🚀 OPTIMIZATION: Reuse RabbitMQ channel for all sprint_reports publishes
+                with queue_manager.get_channel() as channel:
+                    for i, (board_id, sprint_id) in enumerate(sprint_list):
+                        is_first_sprint = (i == 0)
+                        is_last_sprint = (i == total_sprints - 1)
+
+                        # Build message
+                        sprint_message = {
+                            'tenant_id': tenant_id,
+                            'integration_id': integration_id,
+                            'job_id': job_id,
+                            'type': 'jira_sprint_reports',
+                            'provider': 'jira',
+                            'board_id': board_id,
+                            'sprint_id': sprint_id,
+                            'first_item': is_first_sprint,
+                            'last_item': is_last_sprint,
+                            'token': token,
+                            'old_last_sync_date': old_last_sync_date,
+                            'new_last_sync_date': new_last_sync_date
+                        }
+
+                        # Publish using shared channel
+                        tier = queue_manager._get_tenant_tier(tenant_id)
+                        tier_queue = queue_manager.get_tier_queue_name(tier, 'extraction')
+
+                        channel.basic_publish(
+                            exchange='',
+                            routing_key=tier_queue,
+                            body=json.dumps(sprint_message),
+                            properties=pika.BasicProperties(
+                                delivery_mode=2,
+                                content_type='application/json'
+                            )
+                        )
+
+                        # Log progress every 20 sprints
+                        if (i + 1) % 20 == 0 or (i + 1) == total_sprints:
+                            logger.info(f"Queued {i+1}/{total_sprints} sprint_reports extractions")
+
+                logger.info(f"✅ All {total_sprints} sprint_reports extractions queued")
+            else:
+                logger.debug(f"⏭️ No sprint data found - Step 5 will be skipped")
+
+            logger.info(f"✅ Issues with changelogs extraction completed ({total_issues} issues, {len(issues_with_dev)} with dev status, {len(sprint_combinations)} unique sprints)")
             return True
 
         except Exception as e:
@@ -961,4 +1026,51 @@ class JiraExtractionWorker:
             logger.error(f"Full traceback: {traceback.format_exc()}")
             if 'job_id' in locals():
                 self._update_job_status(job_id, "FAILED", str(e))
+            return False
+
+    async def _extract_sprint_reports(self, message: Dict[str, Any]) -> bool:
+        """
+        Extract sprint report data from Jira's sprint report API.
+
+        TODO: Implementation in next story (BEN-XXXXX)
+
+        This method will fetch sprint report data from Jira API:
+        - Endpoint: /rest/greenhopper/1.0/rapid/charts/sprintreport
+        - Parameters: rapidViewId (board_id), sprintId (sprint_id)
+        - Data: completed issues, not completed issues, punted issues, velocity, completion %
+
+        Args:
+            message: Message containing:
+                - board_id: Jira board ID (rapidViewId)
+                - sprint_id: Jira sprint ID
+                - tenant_id, integration_id, job_id, token
+                - first_item, last_item flags
+
+        Returns:
+            bool: True if extraction succeeded (placeholder always returns True)
+        """
+        try:
+            board_id = message.get('board_id')
+            sprint_id = message.get('sprint_id')
+            tenant_id = message.get('tenant_id')
+            job_id = message.get('job_id')
+            first_item = message.get('first_item', False)
+            last_item = message.get('last_item', False)
+
+            logger.info(f"📊 [JIRA] Sprint reports extraction - implementation pending (board_id={board_id}, sprint_id={sprint_id}, first_item={first_item}, last_item={last_item})")
+
+            # Send running status on first item
+            if first_item:
+                await self._send_worker_status("extraction", tenant_id, job_id, "running", "jira_sprint_reports")
+
+            # Send finished status on last item
+            if last_item:
+                await self._send_worker_status("extraction", tenant_id, job_id, "finished", "jira_sprint_reports")
+
+            return True
+
+        except Exception as e:
+            logger.error(f"❌ Error in sprint reports extraction placeholder: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             return False
