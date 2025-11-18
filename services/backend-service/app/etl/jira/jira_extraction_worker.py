@@ -856,7 +856,7 @@ class JiraExtractionWorker:
             # 📊 Step 5: Queue sprint reports extraction for unique board_id/sprint_id combinations
             # Collect distinct sprint combinations from all issues
             sprint_combinations = set()
-            for issue in all_issues:
+            for issue in issues_list:
                 sprints_field = issue.get('fields', {}).get('customfield_10020')  # Sprint field
                 if sprints_field and isinstance(sprints_field, list):
                     for sprint in sprints_field:
