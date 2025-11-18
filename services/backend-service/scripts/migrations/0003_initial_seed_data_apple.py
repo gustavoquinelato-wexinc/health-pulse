@@ -556,6 +556,13 @@ def apply(connection):
                             "extraction": "idle",
                             "transform": "idle",
                             "embedding": "idle"
+                        },
+                        "jira_sprint_reports": {
+                            "order": 5,
+                            "display_name": "Sprint Reports",
+                            "extraction": "idle",
+                            "transform": "idle",
+                            "embedding": "idle"
                         }
                     }
                 },
