@@ -195,11 +195,11 @@ def apply(connection):
     print("✅ Sprints table created")
 
     # ============================================================================
-    # WORK_ITEM_SPRINTS TABLE (Junction - Sprint Assignments)
+    # WORK_ITEMS_SPRINTS TABLE (Junction - Sprint Assignments)
     # ============================================================================
-    print("\n📊 Creating work_item_sprints junction table...")
+    print("\n📊 Creating work_items_sprints junction table...")
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS work_item_sprints (
+        CREATE TABLE IF NOT EXISTS work_items_sprints (
             id SERIAL PRIMARY KEY,
 
             -- Relationships
@@ -234,7 +234,7 @@ def apply(connection):
             CONSTRAINT uk_work_item_sprint UNIQUE(work_item_id, sprint_id, added_date)
         );
     """)
-    print("✅ Work item sprints junction table created")
+    print("✅ Work items sprints junction table created")
 
     # ============================================================================
     # RISKS TABLE (Risk Management)
@@ -419,7 +419,7 @@ def apply(connection):
 
     # Risk-Program junction
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS risk_programs (
+        CREATE TABLE IF NOT EXISTS risks_programs (
             risk_id INTEGER REFERENCES risks(id),
             program_id INTEGER REFERENCES programs(id),
             PRIMARY KEY (risk_id, program_id)
@@ -428,7 +428,7 @@ def apply(connection):
 
     # Risk-Portfolio junction
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS risk_portfolios (
+        CREATE TABLE IF NOT EXISTS risks_portfolios (
             risk_id INTEGER REFERENCES risks(id),
             portfolio_id INTEGER REFERENCES portfolios(id),
             PRIMARY KEY (risk_id, portfolio_id)
@@ -437,7 +437,7 @@ def apply(connection):
 
     # Risk-Sprint junction
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS risk_sprints (
+        CREATE TABLE IF NOT EXISTS risks_sprints (
             risk_id INTEGER REFERENCES risks(id),
             sprint_id INTEGER REFERENCES sprints(id),
             PRIMARY KEY (risk_id, sprint_id)
@@ -446,7 +446,7 @@ def apply(connection):
 
     # Risk-WorkItem junction
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS risk_work_items (
+        CREATE TABLE IF NOT EXISTS risks_work_items (
             risk_id INTEGER REFERENCES risks(id),
             work_item_id INTEGER REFERENCES work_items(id),
             PRIMARY KEY (risk_id, work_item_id)
@@ -457,7 +457,7 @@ def apply(connection):
     # Dependency-WorkItem junction
     print("\n📊 Creating dependency junction table...")
     cursor.execute("""
-        CREATE TABLE IF NOT EXISTS dependency_work_items (
+        CREATE TABLE IF NOT EXISTS dependencies_work_items (
             id SERIAL PRIMARY KEY,
             dependency_id INTEGER NOT NULL REFERENCES dependencies(id),
             work_item_id INTEGER NOT NULL REFERENCES work_items(id),
@@ -495,11 +495,11 @@ def apply(connection):
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_sprints_state ON sprints(state);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_sprints_board_id ON sprints(board_id);")
 
-    # Work item sprints indexes
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_work_item_sprints_work_item ON work_item_sprints(work_item_id);")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_work_item_sprints_sprint ON work_item_sprints(sprint_id);")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_work_item_sprints_outcome ON work_item_sprints(sprint_outcome);")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_work_item_sprints_tenant ON work_item_sprints(tenant_id);")
+    # Work items sprints indexes
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_work_items_sprints_work_item ON work_items_sprints(work_item_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_work_items_sprints_sprint ON work_items_sprints(sprint_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_work_items_sprints_outcome ON work_items_sprints(sprint_outcome);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_work_items_sprints_tenant ON work_items_sprints(tenant_id);")
 
     # Risk indexes
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_risks_tenant_id ON risks(tenant_id);")
@@ -523,10 +523,10 @@ def apply(connection):
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_key_results_tenant ON key_results(tenant_id);")
     cursor.execute("CREATE INDEX IF NOT EXISTS idx_key_results_state ON key_results(state);")
 
-    # Dependency work items indexes
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_dependency_work_items_dependency ON dependency_work_items(dependency_id);")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_dependency_work_items_work_item ON dependency_work_items(work_item_id);")
-    cursor.execute("CREATE INDEX IF NOT EXISTS idx_dependency_work_items_role ON dependency_work_items(role);")
+    # Dependencies work items indexes
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_dependencies_work_items_dependency ON dependencies_work_items(dependency_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_dependencies_work_items_work_item ON dependencies_work_items(work_item_id);")
+    cursor.execute("CREATE INDEX IF NOT EXISTS idx_dependencies_work_items_role ON dependencies_work_items(role);")
 
     print("✅ All indexes created")
 
@@ -543,16 +543,16 @@ def rollback(connection):
 
     # Drop tables in reverse dependency order
     tables_to_drop = [
-        'dependency_work_items',
-        'risk_work_items',
-        'risk_sprints',
-        'risk_portfolios',
-        'risk_programs',
+        'dependencies_work_items',
+        'risks_work_items',
+        'risks_sprints',
+        'risks_portfolios',
+        'risks_programs',
         'key_results',
         'objectives',
         'dependencies',
         'risks',
-        'work_item_sprints',
+        'work_items_sprints',
         'sprints',
         'programs',
         'portfolios'

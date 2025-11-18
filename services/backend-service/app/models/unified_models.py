@@ -1619,8 +1619,8 @@ class Sprint(Base, IntegrationBaseEntity):
 
 
 class WorkItemSprint(Base, BaseEntity):
-    """Work item sprints junction table - n-n relationship with sprint outcome tracking"""
-    __tablename__ = 'work_item_sprints'
+    """Work items sprints junction table - n-n relationship with sprint outcome tracking"""
+    __tablename__ = 'work_items_sprints'
     __table_args__ = (
         UniqueConstraint('work_item_id', 'sprint_id', name='uk_work_item_sprint'),
         {'quote': False}
@@ -1783,8 +1783,8 @@ class KeyResult(Base, BaseEntity):
 # ============================================================================
 
 class RiskProgram(Base):
-    """Risk-Program junction table"""
-    __tablename__ = 'risk_programs'
+    """Risks-Programs junction table"""
+    __tablename__ = 'risks_programs'
     __table_args__ = (
         PrimaryKeyConstraint('risk_id', 'program_id'),
         {'quote': False}
@@ -1799,8 +1799,8 @@ class RiskProgram(Base):
 
 
 class RiskPortfolio(Base):
-    """Risk-Portfolio junction table"""
-    __tablename__ = 'risk_portfolios'
+    """Risks-Portfolios junction table"""
+    __tablename__ = 'risks_portfolios'
     __table_args__ = (
         PrimaryKeyConstraint('risk_id', 'portfolio_id'),
         {'quote': False}
@@ -1815,8 +1815,8 @@ class RiskPortfolio(Base):
 
 
 class RiskSprint(Base):
-    """Risk-Sprint junction table"""
-    __tablename__ = 'risk_sprints'
+    """Risks-Sprints junction table"""
+    __tablename__ = 'risks_sprints'
     __table_args__ = (
         PrimaryKeyConstraint('risk_id', 'sprint_id'),
         {'quote': False}
@@ -1831,8 +1831,8 @@ class RiskSprint(Base):
 
 
 class RiskWorkItem(Base):
-    """Risk-WorkItem junction table"""
-    __tablename__ = 'risk_work_items'
+    """Risks-WorkItems junction table"""
+    __tablename__ = 'risks_work_items'
     __table_args__ = (
         PrimaryKeyConstraint('risk_id', 'work_item_id'),
         {'quote': False}
@@ -1847,8 +1847,8 @@ class RiskWorkItem(Base):
 
 
 class DependencyWorkItem(Base, BaseEntity):
-    """Dependency-WorkItem junction table with role tracking"""
-    __tablename__ = 'dependency_work_items'
+    """Dependencies-WorkItems junction table with role tracking"""
+    __tablename__ = 'dependencies_work_items'
     __table_args__ = (
         UniqueConstraint('dependency_id', 'work_item_id', 'role', name='uk_dependency_work_item'),
         {'quote': False}
