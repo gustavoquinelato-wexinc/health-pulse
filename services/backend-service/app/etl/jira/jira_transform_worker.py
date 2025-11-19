@@ -2888,30 +2888,37 @@ class JiraTransformHandler:
         from app.core.utils import DateTimeHelper
 
         try:
-            # Get work_items map (external_id -> internal id)
+            # Collect issue external_ids from payload
+            issue_external_ids = [issue.get('id') for issue in issues_data if issue.get('id')]
+            if not issue_external_ids:
+                logger.debug("No valid issue external_ids found in payload")
+                return 0
+
+            # Query ONLY the work_items for the issues in this payload
             work_items_query = text("""
                 SELECT external_id, id
                 FROM work_items
-                WHERE integration_id = :integration_id AND tenant_id = :tenant_id
+                WHERE integration_id = :integration_id
+                AND tenant_id = :tenant_id
+                AND external_id = ANY(:external_ids)
             """)
             work_items_result = db.execute(work_items_query, {
                 'integration_id': integration_id,
-                'tenant_id': tenant_id
+                'tenant_id': tenant_id,
+                'external_ids': issue_external_ids
             }).fetchall()
             work_items_map = {row[0]: row[1] for row in work_items_result}
 
             # Collect all unique sprints and their associations
             sprints_to_create = {}  # {external_id: sprint_data}
-            sprint_associations = []  # [{work_item_id, sprint_external_id, ...}]
+            sprint_associations = []  # [{work_item_external_id, sprint_external_id, ...}]
             current_time = DateTimeHelper.now_default()
 
             for issue in issues_data:
                 try:
                     issue_external_id = issue.get('id')
-                    if not issue_external_id or issue_external_id not in work_items_map:
+                    if not issue_external_id:
                         continue
-
-                    work_item_id = work_items_map[issue_external_id]
 
                     # Get sprints field from issue
                     fields = issue.get('fields', {})
@@ -2938,9 +2945,9 @@ class JiraTransformHandler:
                                         'state': sprint_state
                                     }
 
-                                # Collect association
+                                # Collect association (using external_id, will map to internal later)
                                 sprint_associations.append({
-                                    'work_item_id': work_item_id,
+                                    'work_item_external_id': issue_external_id,
                                     'sprint_external_id': sprint_external_id,
                                     'tenant_id': tenant_id
                                 })
@@ -3017,14 +3024,18 @@ class JiraTransformHandler:
                 existing_sprints_map = {row[0]: row[1] for row in existing_sprints_result}
 
             # Step 3: Create work_items_sprints associations
+            # Map work_item external_ids to internal_ids
             associations_to_insert = []
             for assoc in sprint_associations:
+                work_item_external_id = assoc['work_item_external_id']
                 sprint_external_id = assoc['sprint_external_id']
+
+                work_item_id = work_items_map.get(work_item_external_id)
                 sprint_id = existing_sprints_map.get(sprint_external_id)
 
-                if sprint_id:
+                if work_item_id and sprint_id:
                     associations_to_insert.append({
-                        'work_item_id': assoc['work_item_id'],
+                        'work_item_id': work_item_id,
                         'sprint_id': sprint_id,
                         'added_date': current_time,
                         'tenant_id': assoc['tenant_id'],
@@ -3037,14 +3048,21 @@ class JiraTransformHandler:
                 # Use upsert to avoid duplicates
                 from app.etl.utils.bulk_operations import BulkOperations
 
-                # First, get existing associations to avoid duplicates
+                # Get existing associations for these specific work_items and sprints to avoid duplicates
+                work_item_ids = list(set([a['work_item_id'] for a in associations_to_insert]))
+                sprint_ids = list(set([a['sprint_id'] for a in associations_to_insert]))
+
                 existing_assoc_query = text("""
                     SELECT work_item_id, sprint_id
                     FROM work_items_sprints
                     WHERE tenant_id = :tenant_id
+                    AND work_item_id = ANY(:work_item_ids)
+                    AND sprint_id = ANY(:sprint_ids)
                 """)
                 existing_assoc_result = db.execute(existing_assoc_query, {
-                    'tenant_id': tenant_id
+                    'tenant_id': tenant_id,
+                    'work_item_ids': work_item_ids,
+                    'sprint_ids': sprint_ids
                 }).fetchall()
                 existing_assoc_set = {(row[0], row[1]) for row in existing_assoc_result}
 
