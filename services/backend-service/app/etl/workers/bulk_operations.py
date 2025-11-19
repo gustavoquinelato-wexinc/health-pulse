@@ -40,7 +40,7 @@ class BulkOperations:
         columns_str = ', '.join(columns)
 
         # JSONB columns that need JSON serialization
-        jsonb_columns = {'custom_fields_overflow', 'settings', 'metadata', 'raw_data'}
+        jsonb_columns = {'custom_fields_overflow', 'settings', 'metadata', 'raw_data', 'sprints'}
 
         logger.info(f"Starting bulk insert for {len(data_list)} {table_name} records...")
 
@@ -81,9 +81,16 @@ class BulkOperations:
             insert_columns = [col for col in columns if col != 'id']
             columns_str = ', '.join(insert_columns)
 
+            # Add ON CONFLICT clause for tables with unique constraints
+            on_conflict_clause = ""
+            if table_name == 'custom_fields':
+                # custom_fields has unique constraint on (tenant_id, integration_id, external_id)
+                on_conflict_clause = "ON CONFLICT (tenant_id, integration_id, external_id) DO NOTHING"
+
             bulk_sql = f"""
                 INSERT INTO {table_name} ({columns_str})
                 VALUES {', '.join(values_list)}
+                {on_conflict_clause}
             """
 
             session.execute(text(bulk_sql), params)
@@ -111,7 +118,7 @@ class BulkOperations:
             return
 
         # JSONB columns that need JSON serialization
-        jsonb_columns = {'custom_fields_overflow', 'settings', 'metadata', 'raw_data'}
+        jsonb_columns = {'custom_fields_overflow', 'settings', 'metadata', 'raw_data', 'sprints'}
 
         logger.info(f"Starting bulk update for {len(data_list)} {table_name} records...")
 
