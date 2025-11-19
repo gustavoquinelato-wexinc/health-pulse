@@ -2156,7 +2156,7 @@ class JiraTransformHandler:
 
                 # Process sprint associations
                 sprint_associations_processed = self._process_sprint_associations(
-                    db, [issue], integration_id, tenant_id
+                    db, [issue], integration_id, tenant_id, custom_field_mappings
                 )
 
                 # Process changelogs for this issue
@@ -2272,6 +2272,7 @@ class JiraTransformHandler:
             {
                 'customfield_10001': 'team',  # Special field
                 'customfield_10000': 'development',  # Special field
+                'customfield_10021': 'sprints',  # Special field
                 'customfield_10024': 'story_points',  # Special field
                 'customfield_10128': 'custom_field_01',  # Regular custom field
                 'customfield_10222': 'custom_field_02',  # Regular custom field
@@ -2333,7 +2334,10 @@ class JiraTransformHandler:
                 if external_id:
                     mappings[external_id] = 'team'
 
-            # Sprints field mapping removed - now using sprints table and work_items_sprints junction table
+            if result[1]:  # sprints_field_id
+                external_id = field_id_to_external_id.get(result[1])
+                if external_id:
+                    mappings[external_id] = 'sprints'  # Used by _process_sprint_associations to find sprint data in issue JSON
 
             if result[2]:  # development_field_id
                 external_id = field_id_to_external_id.get(result[2])
@@ -2653,7 +2657,7 @@ class JiraTransformHandler:
         return len(issues_to_insert) + len(issues_to_update)
 
     def _process_sprint_associations(
-        self, db, issues_data: List[Dict], integration_id: int, tenant_id: int
+        self, db, issues_data: List[Dict], integration_id: int, tenant_id: int, custom_field_mappings: Dict[str, str]
     ) -> int:
         """
         Process sprint associations from issues and populate work_items_sprints junction table.
@@ -2666,6 +2670,7 @@ class JiraTransformHandler:
             issues_data: List of issue dictionaries from Jira API
             integration_id: Integration ID
             tenant_id: Tenant ID
+            custom_field_mappings: Dict mapping Jira field IDs to column names (includes 'sprints' mapping)
 
         Returns:
             Number of sprint associations processed
@@ -2674,6 +2679,19 @@ class JiraTransformHandler:
 
         try:
             logger.debug(f"🔍 [SPRINT-DEBUG] Starting sprint associations processing for {len(issues_data)} issues")
+
+            # Find the sprint field ID from custom_field_mappings
+            sprint_field_id = None
+            for field_id, field_name in custom_field_mappings.items():
+                if field_name == 'sprints':
+                    sprint_field_id = field_id
+                    break
+
+            if not sprint_field_id:
+                logger.warning(f"⚠️ [SPRINT-DEBUG] No sprint field mapping found in custom_field_mappings - skipping sprint associations")
+                return 0
+
+            logger.debug(f"🔍 [SPRINT-DEBUG] Using sprint field: {sprint_field_id}")
 
             # Collect issue external_ids from payload
             issue_external_ids = [issue.get('id') for issue in issues_data if issue.get('id')]
@@ -2707,9 +2725,9 @@ class JiraTransformHandler:
                     if not issue_external_id:
                         continue
 
-                    # Get sprints field from issue
+                    # Get sprints field from issue using the mapped field ID
                     fields = issue.get('fields', {})
-                    sprints_field = fields.get('customfield_10020')  # Standard Jira sprint field
+                    sprints_field = fields.get(sprint_field_id)
 
                     logger.debug(f"🔍 [SPRINT-DEBUG] Issue {issue.get('key')}: sprints_field type={type(sprints_field)}, value={sprints_field}")
 
