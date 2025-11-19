@@ -475,13 +475,13 @@ class GitHubTransformHandler:
             # 🔑 Send transform worker "finished" status when last_item=True
             if last_item and job_id:
                 await self._send_worker_status("transform", tenant_id, job_id, "finished", "github_repositories")
-                logger.debug(f"✅ [GITHUB] Transform step marked as finished for github_repositories")
+                logger.info(f"✅ [GITHUB] Transform step marked as finished for github_repositories")
 
             # 🔑 NOTE: Step 2 extraction queuing is handled by Extraction worker (Step 1)
             # Transform worker only processes and inserts data, does NOT queue next extraction steps
             # This maintains unidirectional flow: Extract → Transform → Embed
 
-            logger.debug(f"✅ [GITHUB] Processed {len(repositories)} repositories and queued for embedding")
+            logger.info(f"✅ [GITHUB] Processed {len(repositories)} repositories and queued for embedding")
             return True
 
         except Exception as e:

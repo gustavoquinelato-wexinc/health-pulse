@@ -249,6 +249,7 @@ async def get_custom_field_mappings_table(
         if mapping_record:
             # Special fields
             mappings['team_field'] = mapping_record.team_field_id
+            mappings['sprints_field'] = mapping_record.sprints_field_id
             mappings['development_field'] = mapping_record.development_field_id
             mappings['story_points_field'] = mapping_record.story_points_field_id
 
@@ -261,6 +262,7 @@ async def get_custom_field_mappings_table(
         else:
             # No mapping record exists yet, return empty mappings
             mappings['team_field'] = None
+            mappings['sprints_field'] = None
             mappings['development_field'] = None
             mappings['story_points_field'] = None
 
@@ -281,6 +283,20 @@ async def get_custom_field_mappings_table(
             if dev_field:
                 mappings['development_field'] = dev_field.id
                 logger.info(f"Auto-mapped development field {development_field_id} to ID {dev_field.id}")
+
+        # Auto-map sprints field if not already mapped and field exists
+        if not mappings.get('sprints_field'):
+            sprints_field_id = os.getenv('JIRA_SPRINTS_FIELD_ID', 'customfield_10021')
+            sprints_field = db.query(CustomField).filter(
+                CustomField.external_id == sprints_field_id,
+                CustomField.tenant_id == user.tenant_id,
+                CustomField.integration_id == integration_id,
+                CustomField.active == True
+            ).first()
+
+            if sprints_field:
+                mappings['sprints_field'] = sprints_field.id
+                logger.info(f"Auto-mapped sprints field {sprints_field_id} to ID {sprints_field.id}")
 
         return {
             "success": True,
@@ -339,6 +355,7 @@ async def update_custom_field_mappings_table(
 
         # Update special fields
         mapping_record.team_field_id = mappings.get('team_field')
+        mapping_record.sprints_field_id = mappings.get('sprints_field')
         mapping_record.development_field_id = mappings.get('development_field')
         mapping_record.story_points_field_id = mappings.get('story_points_field')
 
@@ -455,7 +472,9 @@ async def sync_custom_fields(
                 logger.info(f"Stored createmeta raw data and queued for processing: projects_count={projects_processed}, fields_count={total_custom_fields}")
 
                 # Fetch special fields separately (not available in createmeta)
-                # This creates a SECOND queue message and raw_extraction_data entry with different type
+                # This creates SEPARATE queue messages and raw_extraction_data entries with different type
+
+                # 1. Development field
                 development_field_id = os.getenv('JIRA_DEVELOPMENT_FIELD_ID', 'customfield_10000')
                 logger.info(f"Fetching special field (development): {development_field_id}")
 
@@ -471,9 +490,29 @@ async def sync_custom_fields(
                     )
 
                     total_custom_fields += 1
-                    logger.info(f"Stored special field raw data and queued for processing")
+                    logger.info(f"Stored development field raw data and queued for processing")
                 else:
                     logger.warning(f"Special field {development_field_id} not found")
+
+                # 2. Sprints field
+                sprints_field_id = os.getenv('JIRA_SPRINTS_FIELD_ID', 'customfield_10021')
+                logger.info(f"Fetching special field (sprints): {sprints_field_id}")
+
+                sprints_field_response = jira_client.get_field_by_id(sprints_field_id)
+                if sprints_field_response:
+                    logger.info(f"Successfully fetched special field: {sprints_field_response.get('id')} - {sprints_field_response.get('name')}")
+
+                    # Queue special field as THIRD message with type 'jira_special_fields'
+                    await queue_special_fields_for_processing(
+                        integration_id=integration_id,
+                        tenant_id=user.tenant_id,
+                        field_search_response=sprints_field_response  # Field search API response
+                    )
+
+                    total_custom_fields += 1
+                    logger.info(f"Stored sprints field raw data and queued for processing")
+                else:
+                    logger.warning(f"Special field {sprints_field_id} not found")
 
                 logger.info(f"Total custom fields sync completed: {total_custom_fields} fields (including development field)")
             else:

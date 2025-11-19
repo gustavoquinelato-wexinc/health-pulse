@@ -2798,51 +2798,45 @@ class JiraTransformHandler:
             existing_sprints_map = {row[0]: row[1] for row in existing_sprints_result}
 
             # Step 2: Upsert sprint records (insert new + update existing)
-            sprints_to_insert = []
-            sprints_to_update = []
-
+            # Use PostgreSQL ON CONFLICT to handle concurrent inserts gracefully
+            sprints_to_upsert = []
             for sprint_external_id, sprint_data in sprints_to_create.items():
-                if sprint_external_id not in existing_sprints_map:
-                    # New sprint - insert
-                    sprints_to_insert.append({
-                        'tenant_id': tenant_id,
-                        'integration_id': integration_id,
-                        'external_id': sprint_external_id,
-                        'board_id': sprint_data['board_id'],
-                        'name': sprint_data['name'],
-                        'state': sprint_data['state'],
-                        'active': True,
-                        'created_at': current_time,
-                        'last_updated_at': current_time
-                    })
-                else:
-                    # Existing sprint - update
-                    sprints_to_update.append({
-                        'id': existing_sprints_map[sprint_external_id],
-                        'external_id': sprint_external_id,
-                        'board_id': sprint_data['board_id'],
-                        'name': sprint_data['name'],
-                        'state': sprint_data['state'],
-                        'last_updated_at': current_time
-                    })
-
-            from app.etl.workers.bulk_operations import BulkOperations
-
-            if sprints_to_insert:
-                BulkOperations.bulk_insert(db, 'sprints', sprints_to_insert)
-                logger.info(f"✅ Created {len(sprints_to_insert)} new sprint placeholder records")
-
-            if sprints_to_update:
-                BulkOperations.bulk_update(db, 'sprints', sprints_to_update)
-                logger.info(f"✅ Updated {len(sprints_to_update)} existing sprint records")
-
-            # Refresh sprints map if we inserted new sprints
-            if sprints_to_insert:
-                existing_sprints_result = db.execute(existing_sprints_query, {
+                sprints_to_upsert.append({
                     'tenant_id': tenant_id,
-                    'external_ids': list(sprints_to_create.keys())
-                }).fetchall()
-                existing_sprints_map = {row[0]: row[1] for row in existing_sprints_result}
+                    'integration_id': integration_id,
+                    'external_id': sprint_external_id,
+                    'board_id': sprint_data['board_id'],
+                    'name': sprint_data['name'],
+                    'state': sprint_data['state'],
+                    'active': True,
+                    'created_at': current_time,
+                    'last_updated_at': current_time
+                })
+
+            if sprints_to_upsert:
+                # Use ON CONFLICT DO UPDATE to handle race conditions between concurrent workers
+                upsert_query = text("""
+                    INSERT INTO sprints (tenant_id, integration_id, external_id, board_id, name, state, active, created_at, last_updated_at)
+                    VALUES (:tenant_id, :integration_id, :external_id, :board_id, :name, :state, :active, :created_at, :last_updated_at)
+                    ON CONFLICT (tenant_id, integration_id, external_id)
+                    DO UPDATE SET
+                        board_id = EXCLUDED.board_id,
+                        name = EXCLUDED.name,
+                        state = EXCLUDED.state,
+                        last_updated_at = EXCLUDED.last_updated_at
+                """)
+
+                for sprint in sprints_to_upsert:
+                    db.execute(upsert_query, sprint)
+
+                logger.info(f"✅ Upserted {len(sprints_to_upsert)} sprint records")
+
+            # Refresh sprints map after upsert
+            existing_sprints_result = db.execute(existing_sprints_query, {
+                'tenant_id': tenant_id,
+                'external_ids': list(sprints_to_create.keys())
+            }).fetchall()
+            existing_sprints_map = {row[0]: row[1] for row in existing_sprints_result}
 
             # Step 3: Create work_items_sprints associations
             # Map work_item external_ids to internal_ids
@@ -2866,38 +2860,27 @@ class JiraTransformHandler:
                     })
 
             if associations_to_insert:
-                # Use upsert to avoid duplicates
-                from app.etl.utils.bulk_operations import BulkOperations
-
-                # Get existing associations for these specific work_items and sprints to avoid duplicates
-                work_item_ids = list(set([a['work_item_id'] for a in associations_to_insert]))
-                sprint_ids = list(set([a['sprint_id'] for a in associations_to_insert]))
-
-                existing_assoc_query = text("""
-                    SELECT work_item_id, sprint_id
-                    FROM work_items_sprints
-                    WHERE tenant_id = :tenant_id
-                    AND work_item_id = ANY(:work_item_ids)
-                    AND sprint_id = ANY(:sprint_ids)
+                # Use ON CONFLICT DO NOTHING to handle race conditions between concurrent workers
+                # The unique constraint is on (work_item_id, sprint_id, added_date)
+                upsert_assoc_query = text("""
+                    INSERT INTO work_items_sprints
+                        (work_item_id, sprint_id, added_date, tenant_id, active, created_at, last_updated_at)
+                    VALUES
+                        (:work_item_id, :sprint_id, :added_date, :tenant_id, :active, :created_at, :last_updated_at)
+                    ON CONFLICT (work_item_id, sprint_id, added_date)
+                    DO NOTHING
                 """)
-                existing_assoc_result = db.execute(existing_assoc_query, {
-                    'tenant_id': tenant_id,
-                    'work_item_ids': work_item_ids,
-                    'sprint_ids': sprint_ids
-                }).fetchall()
-                existing_assoc_set = {(row[0], row[1]) for row in existing_assoc_result}
 
-                # Filter out existing associations
-                new_associations = [
-                    assoc for assoc in associations_to_insert
-                    if (assoc['work_item_id'], assoc['sprint_id']) not in existing_assoc_set
-                ]
+                inserted_count = 0
+                for assoc in associations_to_insert:
+                    result = db.execute(upsert_assoc_query, assoc)
+                    # rowcount will be 1 if inserted, 0 if conflict (already exists)
+                    inserted_count += result.rowcount
 
-                if new_associations:
-                    BulkOperations.bulk_insert(db, 'work_items_sprints', new_associations)
-                    logger.info(f"✅ Created {len(new_associations)} new work_items_sprints associations")
+                if inserted_count > 0:
+                    logger.info(f"✅ Created {inserted_count} new work_items_sprints associations (skipped {len(associations_to_insert) - inserted_count} duplicates)")
                 else:
-                    logger.debug("All sprint associations already exist")
+                    logger.debug(f"All {len(associations_to_insert)} sprint associations already exist")
 
             return len(sprint_associations)
 

@@ -89,8 +89,9 @@ Jira has 4 sequential steps:
 - **Sprint Processing**: Transform worker processes sprint associations for each issue
   - Queries `custom_fields_mapping` table to get the configured sprints field external_id
   - Extracts sprint data from the issue's fields using the mapped field ID (e.g., `customfield_10020`)
-  - Inserts/updates sprint records in `sprints` table (using ON CONFLICT DO NOTHING for idempotency)
-  - Creates associations in `work_items_sprints` junction table linking issues to sprints
+  - Upserts sprint records in `sprints` table using `ON CONFLICT DO UPDATE` to handle concurrent workers
+  - Creates associations in `work_items_sprints` junction table using `ON CONFLICT DO NOTHING` for idempotency
+  - Both operations are race-condition safe for concurrent processing by multiple transform workers
   - **Note**: Sprints are NOT queued to embedding (will be added in future iteration)
   - **Note**: Sprint field is NOT stored in `work_items` table - uses normalized `sprints` and `work_items_sprints` tables
 - Transform processes each message and queues to embedding with same flags

@@ -156,6 +156,37 @@ class GitHubEmbeddingWorker:
                     else:
                         logger.info(f"🏁 [GITHUB EMBEDDING] Completing ETL job {job_id} with FINISHED status")
 
+                        # 🔑 CLEANUP: Delete checkpoint records and clear flag when job completes successfully
+                        token = message.get('token')
+                        if token:
+                            logger.info(f"🧹 [GITHUB EMBEDDING] Cleaning up checkpoints for job {job_id}, token {token}")
+                            try:
+                                from app.etl.github.github_extraction_worker import delete_checkpoints_by_token
+                                from app.core.database import get_database
+                                from sqlalchemy import text
+
+                                # Delete checkpoint records
+                                delete_checkpoints_by_token(
+                                    job_id=job_id,
+                                    tenant_id=tenant_id,
+                                    token=token
+                                )
+                                logger.info(f"✅ [GITHUB EMBEDDING] Deleted checkpoint records for token {token}")
+
+                                # Clear checkpoint flag in etl_jobs
+                                database = get_database()
+                                with database.get_write_session_context() as db:
+                                    update_query = text("""
+                                        UPDATE etl_jobs
+                                        SET checkpoint_data = FALSE
+                                        WHERE id = :job_id AND tenant_id = :tenant_id
+                                    """)
+                                    db.execute(update_query, {'job_id': job_id, 'tenant_id': tenant_id})
+                                logger.info(f"✅ [GITHUB EMBEDDING] Cleared checkpoint flag for job {job_id}")
+
+                            except Exception as cleanup_error:
+                                logger.error(f"❌ [GITHUB EMBEDDING] Failed to cleanup checkpoints: {cleanup_error}")
+
                     await self.status_manager.complete_etl_job(
                         job_id=job_id,
                         tenant_id=tenant_id,
@@ -187,6 +218,39 @@ class GitHubEmbeddingWorker:
                 # 🔑 Complete ETL job when last_job_item=True (only for successful processing)
                 if last_job_item and job_id and result:
                     logger.info(f"🏁 [GITHUB EMBEDDING] Processing last job item - completing ETL job {job_id}")
+
+                    # 🔑 CLEANUP: Delete checkpoint records and clear flag when job completes successfully
+                    if not rate_limited:
+                        token = message.get('token')
+                        if token:
+                            logger.info(f"🧹 [GITHUB EMBEDDING] Cleaning up checkpoints for job {job_id}, token {token}")
+                            try:
+                                from app.etl.github.github_extraction_worker import delete_checkpoints_by_token
+                                from app.core.database import get_database
+                                from sqlalchemy import text
+
+                                # Delete checkpoint records
+                                delete_checkpoints_by_token(
+                                    job_id=job_id,
+                                    tenant_id=tenant_id,
+                                    token=token
+                                )
+                                logger.info(f"✅ [GITHUB EMBEDDING] Deleted checkpoint records for token {token}")
+
+                                # Clear checkpoint flag in etl_jobs
+                                database = get_database()
+                                with database.get_write_session_context() as db:
+                                    update_query = text("""
+                                        UPDATE etl_jobs
+                                        SET checkpoint_data = FALSE
+                                        WHERE id = :job_id AND tenant_id = :tenant_id
+                                    """)
+                                    db.execute(update_query, {'job_id': job_id, 'tenant_id': tenant_id})
+                                logger.info(f"✅ [GITHUB EMBEDDING] Cleared checkpoint flag for job {job_id}")
+
+                            except Exception as cleanup_error:
+                                logger.error(f"❌ [GITHUB EMBEDDING] Failed to cleanup checkpoints: {cleanup_error}")
+
                     await self.status_manager.complete_etl_job(
                         job_id=job_id,
                         tenant_id=tenant_id,
