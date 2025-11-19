@@ -3008,30 +3008,6 @@ class JiraTransformHandler:
                 }).fetchall()
                 existing_sprints_map = {row[0]: row[1] for row in existing_sprints_result}
 
-            # Step 2.5: Queue sprints for embedding (both inserted and updated)
-            all_sprint_external_ids = list(sprints_to_create.keys())
-            if all_sprint_external_ids:
-                logger.info(f"📤 Queuing {len(all_sprint_external_ids)} sprints to embedding")
-                for sprint_external_id in all_sprint_external_ids:
-                    try:
-                        self._queue_entities_for_embedding(
-                            tenant_id=tenant_id,
-                            table_name='sprints',
-                            entities=[{'external_id': sprint_external_id}],
-                            job_id=None,  # Sprints are not part of the main job flow
-                            message_type='jira_sprint_associations',
-                            integration_id=integration_id,
-                            provider='jira',
-                            last_sync_date=None,
-                            first_item=False,
-                            last_item=False,
-                            last_job_item=False
-                        )
-                    except Exception as e:
-                        logger.error(f"Error queuing sprint {sprint_external_id} for embedding: {e}")
-                        continue
-                logger.info(f"✅ Queued {len(all_sprint_external_ids)} sprints to embedding")
-
             # Step 3: Create work_items_sprints associations
             # Map work_item external_ids to internal_ids
             associations_to_insert = []
