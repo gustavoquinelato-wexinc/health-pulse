@@ -86,6 +86,13 @@ Jira has 4 sequential steps:
 - **After queuing all issues to transform**: Queues extraction jobs for Step 4 (dev_status) for each issue in `issues_with_code_changes` list
   - Uses the development field presence as the indicator of code changes
   - Queues one extraction job per issue with code changes
+- **Sprint Processing**: Transform worker processes sprint associations for each issue
+  - Queries `custom_fields_mapping` table to get the configured sprints field external_id
+  - Extracts sprint data from the issue's fields using the mapped field ID (e.g., `customfield_10020`)
+  - Inserts/updates sprint records in `sprints` table (using ON CONFLICT DO NOTHING for idempotency)
+  - Creates associations in `work_items_sprints` junction table linking issues to sprints
+  - **Note**: Sprints are NOT queued to embedding (will be added in future iteration)
+  - **Note**: Sprint field is NOT stored in `work_items` table - uses normalized `sprints` and `work_items_sprints` tables
 - Transform processes each message and queues to embedding with same flags
 - Embedding processes each message
 - When `last_item=True`: sends "finished" status
