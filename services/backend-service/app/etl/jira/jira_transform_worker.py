@@ -2873,8 +2873,8 @@ class JiraTransformHandler:
         """
         Process sprint associations from issues and populate work_items_sprints junction table.
 
-        This extracts sprint data from the sprints field in each issue and creates
-        the many-to-many relationship between work items and sprints.
+        This extracts sprint data from the sprints field in each issue, creates placeholder
+        sprint records if needed, and creates the many-to-many relationship between work items and sprints.
 
         Args:
             db: Database session
@@ -2900,8 +2900,9 @@ class JiraTransformHandler:
             }).fetchall()
             work_items_map = {row[0]: row[1] for row in work_items_result}
 
-            # Collect all sprint associations to upsert
-            sprint_associations = []
+            # Collect all unique sprints and their associations
+            sprints_to_create = {}  # {external_id: sprint_data}
+            sprint_associations = []  # [{work_item_id, sprint_external_id, ...}]
             current_time = DateTimeHelper.now_default()
 
             for issue in issues_data:
@@ -2919,11 +2920,25 @@ class JiraTransformHandler:
                     if not sprints_field or not isinstance(sprints_field, list):
                         continue
 
-                    # Extract sprint IDs from sprints array
+                    # Extract sprint data from sprints array
                     for sprint in sprints_field:
                         if isinstance(sprint, dict):
                             sprint_external_id = str(sprint.get('id'))  # Sprint ID
+                            board_id = sprint.get('boardId')
+                            sprint_name = sprint.get('name')
+                            sprint_state = sprint.get('state')  # future, active, closed
+
                             if sprint_external_id:
+                                # Collect unique sprint data
+                                if sprint_external_id not in sprints_to_create:
+                                    sprints_to_create[sprint_external_id] = {
+                                        'external_id': sprint_external_id,
+                                        'board_id': board_id,
+                                        'name': sprint_name,
+                                        'state': sprint_state
+                                    }
+
+                                # Collect association
                                 sprint_associations.append({
                                     'work_item_id': work_item_id,
                                     'sprint_external_id': sprint_external_id,
@@ -2938,18 +2953,93 @@ class JiraTransformHandler:
                 logger.debug("No sprint associations to process")
                 return 0
 
-            # For now, we'll store the associations with sprint_external_id
-            # When sprint reports are extracted, we'll update with actual sprint_id
-            # Using a temporary approach: store in work_items.sprints JSONB field (already done)
-            # The actual work_items_sprints table will be populated when sprints are created
-
             logger.info(f"📊 Found {len(sprint_associations)} sprint associations from {len(issues_data)} issues")
-            logger.debug(f"Sprint associations will be created when sprint records are available in database")
+            logger.info(f"📊 Found {len(sprints_to_create)} unique sprints to create/update")
 
-            # TODO: When sprints table is populated (from sprint reports extraction),
-            # we'll need to create a separate process to:
-            # 1. Query sprints table to get internal sprint IDs from external IDs
-            # 2. Upsert into work_items_sprints junction table
+            # Step 1: Get existing sprints
+            existing_sprints_query = text("""
+                SELECT external_id, id
+                FROM sprints
+                WHERE tenant_id = :tenant_id
+                AND external_id = ANY(:external_ids)
+            """)
+            existing_sprints_result = db.execute(existing_sprints_query, {
+                'tenant_id': tenant_id,
+                'external_ids': list(sprints_to_create.keys())
+            }).fetchall()
+            existing_sprints_map = {row[0]: row[1] for row in existing_sprints_result}
+
+            # Step 2: Create placeholder sprint records for new sprints
+            sprints_to_insert = []
+            for sprint_external_id, sprint_data in sprints_to_create.items():
+                if sprint_external_id not in existing_sprints_map:
+                    sprints_to_insert.append({
+                        'tenant_id': tenant_id,
+                        'integration_id': integration_id,
+                        'external_id': sprint_external_id,
+                        'board_id': sprint_data['board_id'],
+                        'name': sprint_data['name'],
+                        'state': sprint_data['state'],
+                        'active': True,
+                        'created_at': current_time,
+                        'last_updated_at': current_time
+                    })
+
+            if sprints_to_insert:
+                from app.etl.utils.bulk_operations import BulkOperations
+                BulkOperations.bulk_insert(db, 'sprints', sprints_to_insert)
+                logger.info(f"✅ Created {len(sprints_to_insert)} new sprint placeholder records")
+
+                # Refresh sprints map
+                existing_sprints_result = db.execute(existing_sprints_query, {
+                    'tenant_id': tenant_id,
+                    'external_ids': list(sprints_to_create.keys())
+                }).fetchall()
+                existing_sprints_map = {row[0]: row[1] for row in existing_sprints_result}
+
+            # Step 3: Create work_items_sprints associations
+            associations_to_insert = []
+            for assoc in sprint_associations:
+                sprint_external_id = assoc['sprint_external_id']
+                sprint_id = existing_sprints_map.get(sprint_external_id)
+
+                if sprint_id:
+                    associations_to_insert.append({
+                        'work_item_id': assoc['work_item_id'],
+                        'sprint_id': sprint_id,
+                        'added_date': current_time,
+                        'tenant_id': assoc['tenant_id'],
+                        'active': True,
+                        'created_at': current_time,
+                        'last_updated_at': current_time
+                    })
+
+            if associations_to_insert:
+                # Use upsert to avoid duplicates
+                from app.etl.utils.bulk_operations import BulkOperations
+
+                # First, get existing associations to avoid duplicates
+                existing_assoc_query = text("""
+                    SELECT work_item_id, sprint_id
+                    FROM work_items_sprints
+                    WHERE tenant_id = :tenant_id
+                """)
+                existing_assoc_result = db.execute(existing_assoc_query, {
+                    'tenant_id': tenant_id
+                }).fetchall()
+                existing_assoc_set = {(row[0], row[1]) for row in existing_assoc_result}
+
+                # Filter out existing associations
+                new_associations = [
+                    assoc for assoc in associations_to_insert
+                    if (assoc['work_item_id'], assoc['sprint_id']) not in existing_assoc_set
+                ]
+
+                if new_associations:
+                    BulkOperations.bulk_insert(db, 'work_items_sprints', new_associations)
+                    logger.info(f"✅ Created {len(new_associations)} new work_items_sprints associations")
+                else:
+                    logger.debug("All sprint associations already exist")
 
             return len(sprint_associations)
 
