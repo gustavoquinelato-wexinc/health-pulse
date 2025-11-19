@@ -2969,10 +2969,13 @@ class JiraTransformHandler:
             }).fetchall()
             existing_sprints_map = {row[0]: row[1] for row in existing_sprints_result}
 
-            # Step 2: Create placeholder sprint records for new sprints
+            # Step 2: Upsert sprint records (insert new + update existing)
             sprints_to_insert = []
+            sprints_to_update = []
+
             for sprint_external_id, sprint_data in sprints_to_create.items():
                 if sprint_external_id not in existing_sprints_map:
+                    # New sprint - insert
                     sprints_to_insert.append({
                         'tenant_id': tenant_id,
                         'integration_id': integration_id,
@@ -2984,13 +2987,29 @@ class JiraTransformHandler:
                         'created_at': current_time,
                         'last_updated_at': current_time
                     })
+                else:
+                    # Existing sprint - update
+                    sprints_to_update.append({
+                        'id': existing_sprints_map[sprint_external_id],
+                        'external_id': sprint_external_id,
+                        'board_id': sprint_data['board_id'],
+                        'name': sprint_data['name'],
+                        'state': sprint_data['state'],
+                        'last_updated_at': current_time
+                    })
+
+            from app.etl.utils.bulk_operations import BulkOperations
 
             if sprints_to_insert:
-                from app.etl.utils.bulk_operations import BulkOperations
                 BulkOperations.bulk_insert(db, 'sprints', sprints_to_insert)
                 logger.info(f"✅ Created {len(sprints_to_insert)} new sprint placeholder records")
 
-                # Refresh sprints map
+            if sprints_to_update:
+                BulkOperations.bulk_update(db, 'sprints', sprints_to_update)
+                logger.info(f"✅ Updated {len(sprints_to_update)} existing sprint records")
+
+            # Refresh sprints map if we inserted new sprints
+            if sprints_to_insert:
                 existing_sprints_result = db.execute(existing_sprints_query, {
                     'tenant_id': tenant_id,
                     'external_ids': list(sprints_to_create.keys())
