@@ -526,7 +526,6 @@ class WorkItem(Base, IntegrationBaseEntity):
     wit_id = Column(Integer, ForeignKey('wits.id'), quote=False, name="wit_id")
     status_id = Column(Integer, ForeignKey('statuses.id'), quote=False, name="status_id")
     story_points = Column(Float, quote=False, name="story_points")
-    sprints = Column(JSONB, quote=False, name="sprints")
     resolution = Column(String, quote=False, name="resolution")
     assignee = Column(String, quote=False, name="assignee")
     labels = Column(String, quote=False, name="labels")

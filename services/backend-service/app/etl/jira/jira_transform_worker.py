@@ -2644,26 +2644,7 @@ class JiraTransformHandler:
                             story_points = None
                     result[column_name] = story_points
 
-                elif column_name == 'sprints':
-                    # Sprints field - store as JSON array
-                    import json
-                    sprints_json = None
-                    if value is not None:
-                        if isinstance(value, list):
-                            # Already a list, convert to JSON
-                            sprints_json = json.dumps(value)
-                        elif isinstance(value, dict):
-                            # Single sprint, wrap in array
-                            sprints_json = json.dumps([value])
-                        elif isinstance(value, str):
-                            # Already a JSON string, validate it
-                            try:
-                                json.loads(value)
-                                sprints_json = value
-                            except json.JSONDecodeError:
-                                logger.warning(f"Could not parse sprints value as JSON: {value}")
-                                sprints_json = None
-                    result[column_name] = sprints_json
+
 
                 else:
                     # Regular custom field - handle different field types
@@ -2888,6 +2869,8 @@ class JiraTransformHandler:
         from app.core.utils import DateTimeHelper
 
         try:
+            logger.debug(f"🔍 [SPRINT-DEBUG] Starting sprint associations processing for {len(issues_data)} issues")
+
             # Collect issue external_ids from payload
             issue_external_ids = [issue.get('id') for issue in issues_data if issue.get('id')]
             if not issue_external_ids:
@@ -2924,6 +2907,8 @@ class JiraTransformHandler:
                     fields = issue.get('fields', {})
                     sprints_field = fields.get('customfield_10020')  # Standard Jira sprint field
 
+                    logger.debug(f"🔍 [SPRINT-DEBUG] Issue {issue.get('key')}: sprints_field type={type(sprints_field)}, value={sprints_field}")
+
                     if not sprints_field or not isinstance(sprints_field, list):
                         continue
 
@@ -2957,7 +2942,7 @@ class JiraTransformHandler:
                     continue
 
             if not sprint_associations:
-                logger.debug("No sprint associations to process")
+                logger.info(f"📊 No sprint associations found in {len(issues_data)} issues")
                 return 0
 
             logger.info(f"📊 Found {len(sprint_associations)} sprint associations from {len(issues_data)} issues")
@@ -3022,6 +3007,30 @@ class JiraTransformHandler:
                     'external_ids': list(sprints_to_create.keys())
                 }).fetchall()
                 existing_sprints_map = {row[0]: row[1] for row in existing_sprints_result}
+
+            # Step 2.5: Queue sprints for embedding (both inserted and updated)
+            all_sprint_external_ids = list(sprints_to_create.keys())
+            if all_sprint_external_ids:
+                logger.info(f"📤 Queuing {len(all_sprint_external_ids)} sprints to embedding")
+                for sprint_external_id in all_sprint_external_ids:
+                    try:
+                        self._queue_entities_for_embedding(
+                            tenant_id=tenant_id,
+                            table_name='sprints',
+                            entities=[{'external_id': sprint_external_id}],
+                            job_id=None,  # Sprints are not part of the main job flow
+                            message_type='jira_sprint_associations',
+                            integration_id=integration_id,
+                            provider='jira',
+                            last_sync_date=None,
+                            first_item=False,
+                            last_item=False,
+                            last_job_item=False
+                        )
+                    except Exception as e:
+                        logger.error(f"Error queuing sprint {sprint_external_id} for embedding: {e}")
+                        continue
+                logger.info(f"✅ Queued {len(all_sprint_external_ids)} sprints to embedding")
 
             # Step 3: Create work_items_sprints associations
             # Map work_item external_ids to internal_ids

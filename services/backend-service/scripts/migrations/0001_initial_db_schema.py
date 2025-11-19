@@ -367,6 +367,7 @@ def apply(connection):
                 acceptance_criteria TEXT,
                 wit_id INTEGER,
                 status_id INTEGER,
+                story_points FLOAT,
                 resolution VARCHAR,
                 assignee VARCHAR,
                 labels VARCHAR,
@@ -375,7 +376,6 @@ def apply(connection):
                 created TIMESTAMP,
                 updated TIMESTAMP,
                 code_changed BOOLEAN DEFAULT FALSE,
-                story_points FLOAT,
                 work_first_committed_at TIMESTAMP,
                 work_first_started_at TIMESTAMP,
                 work_last_started_at TIMESTAMP,
@@ -634,7 +634,7 @@ def apply(connection):
                 last_run_finished_at TIMESTAMP,
                 error_message TEXT,
                 retry_count INTEGER DEFAULT 0,
-                checkpoint_data JSONB,
+                checkpoint_data BOOLEAN NOT NULL DEFAULT FALSE,
                 next_run TIMESTAMP,
                 integration_id INTEGER,
                 tenant_id INTEGER NOT NULL,
@@ -653,7 +653,51 @@ def apply(connection):
         cursor.execute("""
             COMMENT ON COLUMN etl_jobs.last_sync_date IS 'Last successful data sync timestamp - used for incremental extraction. NULL = first run (full sync)';
         """)
+        cursor.execute("""
+            COMMENT ON COLUMN etl_jobs.checkpoint_data IS 'Boolean flag indicating if job has checkpoint records in etl_jobs_github_checkpoints table for rate limit recovery';
+        """)
         print("   ✅ etl_jobs table created")
+
+        # 23a. ETL GitHub Checkpoints table - Per-repository checkpoint tracking for rate limit recovery
+        print("   🏗️ Creating etl_jobs_github_checkpoints table...")
+        cursor.execute("""
+            CREATE TABLE IF NOT EXISTS etl_jobs_github_checkpoints (
+                id SERIAL PRIMARY KEY,
+                job_id INTEGER NOT NULL,
+                token VARCHAR(255) NOT NULL,
+
+                -- Repository identification (for queuing on resume)
+                owner VARCHAR(255) NOT NULL,
+                repo_name VARCHAR(255) NOT NULL,
+                full_name VARCHAR(512) NOT NULL,
+                repository_external_id VARCHAR(255),
+
+                -- Status & Checkpoint
+                status VARCHAR(50) NOT NULL DEFAULT 'pending',
+                checkpoint_data JSONB,
+
+                -- Inherited from IntegrationEntity pattern
+                tenant_id INTEGER NOT NULL,
+                integration_id INTEGER NOT NULL,
+                active BOOLEAN NOT NULL DEFAULT TRUE,
+                created_at TIMESTAMP DEFAULT NOW(),
+                last_updated_at TIMESTAMP DEFAULT NOW(),
+
+                CONSTRAINT fk_checkpoint_job FOREIGN KEY (job_id) REFERENCES etl_jobs(id) ON DELETE CASCADE,
+                CONSTRAINT fk_checkpoint_tenant FOREIGN KEY (tenant_id) REFERENCES tenants(id),
+                CONSTRAINT fk_checkpoint_integration FOREIGN KEY (integration_id) REFERENCES integrations(id)
+            );
+        """)
+        cursor.execute("""
+            COMMENT ON TABLE etl_jobs_github_checkpoints IS 'Per-repository checkpoint tracking for GitHub extraction rate limit recovery';
+        """)
+        cursor.execute("""
+            COMMENT ON COLUMN etl_jobs_github_checkpoints.status IS 'Checkpoint status: pending (not started or rate limited), completed (fully extracted)';
+        """)
+        cursor.execute("""
+            COMMENT ON COLUMN etl_jobs_github_checkpoints.checkpoint_data IS 'NULL = no checkpoint, NOT NULL = has checkpoint data for resume (node_type, last_pr_cursor, nested_nodes_status)';
+        """)
+        print("   ✅ etl_jobs_github_checkpoints table created")
 
         # 24. Work Items PR links table (complete with all columns) - NO vector column
         cursor.execute("""
@@ -1205,6 +1249,7 @@ def apply(connection):
 
                 -- === SPECIAL FIELD MAPPINGS (Always shown first in UI) ===
                 team_field_id INTEGER REFERENCES custom_fields(id),
+                sprints_field_id INTEGER REFERENCES custom_fields(id),
                 development_field_id INTEGER REFERENCES custom_fields(id),
                 story_points_field_id INTEGER REFERENCES custom_fields(id),
 
@@ -1408,6 +1453,31 @@ def apply(connection):
         except Exception as e:
             print(f"⚠️ Skipping etl_jobs integration_id index: {e}")
 
+        # GitHub Checkpoints table indexes
+        try:
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_github_checkpoints_token ON etl_jobs_github_checkpoints(token);")
+        except Exception as e:
+            print(f"⚠️ Skipping github_checkpoints token index: {e}")
+
+        try:
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_github_checkpoints_job ON etl_jobs_github_checkpoints(job_id, tenant_id);")
+        except Exception as e:
+            print(f"⚠️ Skipping github_checkpoints job index: {e}")
+
+        try:
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_github_checkpoints_status ON etl_jobs_github_checkpoints(status);")
+        except Exception as e:
+            print(f"⚠️ Skipping github_checkpoints status index: {e}")
+
+        try:
+            cursor.execute("""
+                CREATE INDEX IF NOT EXISTS idx_github_checkpoints_checkpoint_data
+                ON etl_jobs_github_checkpoints(job_id, tenant_id)
+                WHERE checkpoint_data IS NOT NULL;
+            """)
+        except Exception as e:
+            print(f"⚠️ Skipping github_checkpoints checkpoint_data index: {e}")
+
         # Extraction failures table indexes for dead letter queue
         try:
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_extraction_failures_tenant_id ON extraction_failures(tenant_id);")
@@ -1533,6 +1603,8 @@ def rollback(connection):
             # Junction and link tables (depend on main tables)
             'work_items_prs_links',
             'raw_extraction_data',  # Phase 1: Raw data storage
+            'extraction_failures',  # Dead letter queue for failed extractions
+            'etl_jobs_github_checkpoints',  # Depends on etl_jobs
             'etl_jobs',
             'system_settings',
 
