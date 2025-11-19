@@ -2463,7 +2463,12 @@ class JiraTransformHandler:
                             story_points = None
                     result[column_name] = story_points
 
-
+                elif column_name == 'sprints':
+                    # Sprints field - DO NOT extract as column value
+                    # Sprint data is handled separately by _process_sprint_associations
+                    # which populates the sprints and work_items_sprints tables
+                    # Skip this field to avoid trying to insert into non-existent work_items.sprints column
+                    pass
 
                 else:
                     # Regular custom field - handle different field types
