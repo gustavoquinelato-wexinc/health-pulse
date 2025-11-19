@@ -1341,8 +1341,17 @@ class JiraTransformHandler:
 
             # 5. Bulk insert custom fields (global, no project relationship)
             if custom_fields_to_insert:
-                BulkOperations.bulk_insert(session, 'custom_fields', custom_fields_to_insert)
-                logger.debug(f"Inserted {len(custom_fields_to_insert)} custom fields")
+                # Deduplicate by external_id to avoid unique constraint violations
+                unique_custom_fields = {}
+                for cf in custom_fields_to_insert:
+                    external_id = cf.get('external_id')
+                    if external_id and external_id not in unique_custom_fields:
+                        unique_custom_fields[external_id] = cf
+
+                deduplicated_custom_fields = list(unique_custom_fields.values())
+                if deduplicated_custom_fields:
+                    BulkOperations.bulk_insert(session, 'custom_fields', deduplicated_custom_fields)
+                    logger.debug(f"Inserted {len(deduplicated_custom_fields)} custom fields (deduplicated from {len(custom_fields_to_insert)})")
                 # Note: Custom fields are not vectorized (they're metadata)
 
             # 6. Bulk update custom fields
