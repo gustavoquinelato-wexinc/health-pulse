@@ -2524,10 +2524,7 @@ class JiraTransformHandler:
                 if external_id:
                     mappings[external_id] = 'team'
 
-            if result[1]:  # sprints_field_id
-                external_id = field_id_to_external_id.get(result[1])
-                if external_id:
-                    mappings[external_id] = 'sprints'
+            # Sprints field mapping removed - now using sprints table and work_items_sprints junction table
 
             if result[2]:  # development_field_id
                 external_id = field_id_to_external_id.get(result[2])
@@ -2737,7 +2734,7 @@ class JiraTransformHandler:
 
                 # Extract special fields from the result
                 team = all_fields_data.pop('team', None)
-                sprints = all_fields_data.pop('sprints', None)
+                # Sprints removed - now using sprints table and work_items_sprints junction table
                 development = all_fields_data.pop('development', False)
                 story_points = all_fields_data.pop('story_points', None)
 
@@ -2757,7 +2754,6 @@ class JiraTransformHandler:
                         'wit_id': wit_id,
                         'status_id': status_id,
                         'story_points': story_points,
-                        'sprints': sprints,
                         'priority': priority,
                         'resolution': resolution,
                         'assignee': assignee,
@@ -2784,7 +2780,6 @@ class JiraTransformHandler:
                         'wit_id': wit_id,
                         'status_id': status_id,
                         'story_points': story_points,
-                        'sprints': sprints,
                         'priority': priority,
                         'resolution': resolution,
                         'assignee': assignee,
