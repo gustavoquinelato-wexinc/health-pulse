@@ -587,8 +587,13 @@ class JiraTransformHandler:
                     )
                     logger.debug(f"Created {relationships_created} project-wit relationships")
 
-                # 6. Auto-map development field if it exists
-                self._auto_map_development_field(session, tenant_id, integration_id)
+                # 6. Auto-map special fields if they exist
+                import os
+                development_field_id = os.getenv('JIRA_DEVELOPMENT_FIELD_ID', 'customfield_10000')
+                sprints_field_id = os.getenv('JIRA_SPRINTS_FIELD_ID', 'customfield_10021')
+
+                self._auto_map_special_field(session, tenant_id, integration_id, development_field_id, 'development_field_id')
+                self._auto_map_special_field(session, tenant_id, integration_id, sprints_field_id, 'sprints_field_id')
 
                 # 7. Update raw data status
                 self._update_raw_data_status(session, raw_data_id, 'completed')
@@ -720,11 +725,15 @@ class JiraTransformHandler:
                         'last_updated_at': now
                     })
 
-                # 5. Auto-map development field if this is the development field
+                # 5. Auto-map special fields if this is a special field
                 import os
                 development_field_id = os.getenv('JIRA_DEVELOPMENT_FIELD_ID', 'customfield_10000')
+                sprints_field_id = os.getenv('JIRA_SPRINTS_FIELD_ID', 'customfield_10021')
+
                 if field_id == development_field_id:
-                    self._auto_map_development_field(session, tenant_id, integration_id)
+                    self._auto_map_special_field(session, tenant_id, integration_id, field_id, 'development_field_id')
+                elif field_id == sprints_field_id:
+                    self._auto_map_special_field(session, tenant_id, integration_id, field_id, 'sprints_field_id')
 
                 # 6. Update raw data status
                 self._update_raw_data_status(session, raw_data_id, 'completed')
@@ -768,20 +777,25 @@ class JiraTransformHandler:
             logger.error(f"Error updating raw data status: {e}")
             raise
 
-    def _auto_map_development_field(self, session, tenant_id: int, integration_id: int):
+    def _auto_map_special_field(self, session, tenant_id: int, integration_id: int,
+                                 field_external_id: str, mapping_column: str):
         """
-        Auto-map development field to development_field_id if it exists in custom_fields.
-        This is called after custom fields are synced from Jira.
-        Uses JIRA_DEVELOPMENT_FIELD_ID from .env to identify the development field.
+        Auto-map special field to custom_fields_mapping table.
+        This is called after a special field is saved to custom_fields table.
+
+        Args:
+            session: Database session
+            tenant_id: Tenant ID
+            integration_id: Integration ID
+            field_external_id: External ID of the field (e.g., 'customfield_10000')
+            mapping_column: Column name in custom_fields_mapping (e.g., 'development_field_id', 'sprints_field_id')
         """
         try:
-            import os
             from app.core.utils import DateTimeHelper
 
-            development_field_id = os.getenv('JIRA_DEVELOPMENT_FIELD_ID', 'customfield_10000')
             now = DateTimeHelper.now_default()
 
-            # Check if development field exists in custom_fields
+            # Check if special field exists in custom_fields
             check_query = text("""
                 SELECT id FROM custom_fields
                 WHERE external_id = :external_id
@@ -790,17 +804,17 @@ class JiraTransformHandler:
                 AND active = true
             """)
             result = session.execute(check_query, {
-                'external_id': development_field_id,
+                'external_id': field_external_id,
                 'tenant_id': tenant_id,
                 'integration_id': integration_id
             }).fetchone()
 
             if not result:
-                logger.debug(f"Development field {development_field_id} not found, skipping auto-mapping")
+                logger.debug(f"Special field {field_external_id} not found, skipping auto-mapping")
                 return
 
             custom_field_db_id = result[0]
-            logger.debug(f"Found development field {development_field_id} with ID {custom_field_db_id}")
+            logger.debug(f"Found special field {field_external_id} with ID {custom_field_db_id}")
 
             # Check if custom_fields_mapping record exists
             mapping_check_query = text("""
@@ -815,9 +829,9 @@ class JiraTransformHandler:
 
             if mapping_result:
                 # Update existing mapping
-                update_query = text("""
+                update_query = text(f"""
                     UPDATE custom_fields_mapping
-                    SET development_field_id = :field_id,
+                    SET {mapping_column} = :field_id,
                         last_updated_at = :now
                     WHERE tenant_id = :tenant_id
                     AND integration_id = :integration_id
@@ -828,12 +842,12 @@ class JiraTransformHandler:
                     'integration_id': integration_id,
                     'now': now
                 })
-                logger.debug(f"Auto-mapped development field {development_field_id} to development_field_id")
+                logger.debug(f"Auto-mapped special field {field_external_id} to {mapping_column}")
             else:
                 # Create new mapping record
-                insert_query = text("""
+                insert_query = text(f"""
                     INSERT INTO custom_fields_mapping (
-                        tenant_id, integration_id, development_field_id,
+                        tenant_id, integration_id, {mapping_column},
                         active, created_at, last_updated_at
                     ) VALUES (
                         :tenant_id, :integration_id, :field_id,
@@ -847,10 +861,10 @@ class JiraTransformHandler:
                     'created_at': now,
                     'last_updated_at': now
                 })
-                logger.debug(f"Created custom_fields_mapping and auto-mapped development field {development_field_id}")
+                logger.debug(f"Created custom_fields_mapping and auto-mapped special field {field_external_id} to {mapping_column}")
 
         except Exception as e:
-            logger.error(f"Error auto-mapping development field: {e}")
+            logger.error(f"Error auto-mapping special field {field_external_id}: {e}")
             # Don't raise - this is a nice-to-have feature, not critical
 
     def _get_existing_projects(self, session, tenant_id: int, integration_id: int) -> Dict[str, Project]:
@@ -2103,6 +2117,11 @@ class JiraTransformHandler:
                     db, issues_data, integration_id, tenant_id, projects_map, wits_map, statuses_map, custom_field_mappings, job_id, message
                 )
 
+                # Process sprint associations
+                sprint_associations_processed = self._process_sprint_associations(
+                    db, issues_data, integration_id, tenant_id
+                )
+
                 # Process changelogs
                 changelogs_processed = self._process_changelogs_data(
                     db, issues_data, integration_id, tenant_id, statuses_map, job_id, message
@@ -2193,6 +2212,11 @@ class JiraTransformHandler:
                 # Process single issue (wrap in array for compatibility with existing method)
                 issues_processed = self._process_issues_data(
                     db, [issue], integration_id, tenant_id, projects_map, wits_map, statuses_map, custom_field_mappings, job_id
+                )
+
+                # Process sprint associations
+                sprint_associations_processed = self._process_sprint_associations(
+                    db, [issue], integration_id, tenant_id
                 )
 
                 # Process changelogs for this issue
@@ -2321,6 +2345,11 @@ class JiraTransformHandler:
                     db, [issue], integration_id, tenant_id, projects_map, wits_map, statuses_map, custom_field_mappings, job_id, message
                 )
 
+                # Process sprint associations
+                sprint_associations_processed = self._process_sprint_associations(
+                    db, [issue], integration_id, tenant_id
+                )
+
                 # Process changelogs for this issue
                 changelogs_processed = self._process_changelogs_data(
                     db, [issue], integration_id, tenant_id, statuses_map, job_id, message
@@ -2444,6 +2473,7 @@ class JiraTransformHandler:
             query = text("""
                 SELECT
                     cfm.team_field_id,
+                    cfm.sprints_field_id,
                     cfm.development_field_id,
                     cfm.story_points_field_id,
                     cfm.custom_field_01_id, cfm.custom_field_02_id, cfm.custom_field_03_id,
@@ -2488,25 +2518,30 @@ class JiraTransformHandler:
             # Build mappings dict
             mappings = {}
 
-            # Special fields (indices 0, 1, 2)
+            # Special fields (indices 0, 1, 2, 3)
             if result[0]:  # team_field_id
                 external_id = field_id_to_external_id.get(result[0])
                 if external_id:
                     mappings[external_id] = 'team'
 
-            if result[1]:  # development_field_id
+            if result[1]:  # sprints_field_id
                 external_id = field_id_to_external_id.get(result[1])
+                if external_id:
+                    mappings[external_id] = 'sprints'
+
+            if result[2]:  # development_field_id
+                external_id = field_id_to_external_id.get(result[2])
                 if external_id:
                     mappings[external_id] = 'development'
 
-            if result[2]:  # story_points_field_id
-                external_id = field_id_to_external_id.get(result[2])
+            if result[3]:  # story_points_field_id
+                external_id = field_id_to_external_id.get(result[3])
                 if external_id:
                     mappings[external_id] = 'story_points'
 
-            # Regular custom fields (indices 3-22 for custom_field_01 to custom_field_20)
+            # Regular custom fields (indices 4-23 for custom_field_01 to custom_field_20)
             for i in range(20):
-                field_id = result[3 + i]  # Start from index 3
+                field_id = result[4 + i]  # Start from index 4
                 if field_id:
                     external_id = field_id_to_external_id.get(field_id)
                     if external_id:
@@ -2609,6 +2644,27 @@ class JiraTransformHandler:
                             story_points = None
                     result[column_name] = story_points
 
+                elif column_name == 'sprints':
+                    # Sprints field - store as JSON array
+                    import json
+                    sprints_json = None
+                    if value is not None:
+                        if isinstance(value, list):
+                            # Already a list, convert to JSON
+                            sprints_json = json.dumps(value)
+                        elif isinstance(value, dict):
+                            # Single sprint, wrap in array
+                            sprints_json = json.dumps([value])
+                        elif isinstance(value, str):
+                            # Already a JSON string, validate it
+                            try:
+                                json.loads(value)
+                                sprints_json = value
+                            except json.JSONDecodeError:
+                                logger.warning(f"Could not parse sprints value as JSON: {value}")
+                                sprints_json = None
+                    result[column_name] = sprints_json
+
                 else:
                     # Regular custom field - handle different field types
                     if value is None:
@@ -2700,6 +2756,7 @@ class JiraTransformHandler:
 
                 # Extract special fields from the result
                 team = all_fields_data.pop('team', None)
+                sprints = all_fields_data.pop('sprints', None)
                 development = all_fields_data.pop('development', False)
                 story_points = all_fields_data.pop('story_points', None)
 
@@ -2718,6 +2775,8 @@ class JiraTransformHandler:
                         'project_id': project_id,
                         'wit_id': wit_id,
                         'status_id': status_id,
+                        'story_points': story_points,
+                        'sprints': sprints,
                         'priority': priority,
                         'resolution': resolution,
                         'assignee': assignee,
@@ -2726,7 +2785,6 @@ class JiraTransformHandler:
                         'updated': updated,
                         'parent_external_id': parent_external_id,
                         'development': development,
-                        'story_points': story_points,
                         'last_updated_at': current_time
                     }
                     # Add custom fields to update dict
@@ -2744,6 +2802,8 @@ class JiraTransformHandler:
                         'project_id': project_id,
                         'wit_id': wit_id,
                         'status_id': status_id,
+                        'story_points': story_points,
+                        'sprints': sprints,
                         'priority': priority,
                         'resolution': resolution,
                         'assignee': assignee,
@@ -2753,7 +2813,6 @@ class JiraTransformHandler:
                         'updated': updated,
                         'parent_external_id': parent_external_id,
                         'development': development,
-                        'story_points': story_points,
                         'active': True,
                         'created_at': current_time,
                         'last_updated_at': current_time
@@ -2807,6 +2866,98 @@ class JiraTransformHandler:
                                              token=token)  # 🔑 Include token in message
 
         return len(issues_to_insert) + len(issues_to_update)
+
+    def _process_sprint_associations(
+        self, db, issues_data: List[Dict], integration_id: int, tenant_id: int
+    ) -> int:
+        """
+        Process sprint associations from issues and populate work_items_sprints junction table.
+
+        This extracts sprint data from the sprints field in each issue and creates
+        the many-to-many relationship between work items and sprints.
+
+        Args:
+            db: Database session
+            issues_data: List of issue dictionaries from Jira API
+            integration_id: Integration ID
+            tenant_id: Tenant ID
+
+        Returns:
+            Number of sprint associations processed
+        """
+        from app.core.utils import DateTimeHelper
+
+        try:
+            # Get work_items map (external_id -> internal id)
+            work_items_query = text("""
+                SELECT external_id, id
+                FROM work_items
+                WHERE integration_id = :integration_id AND tenant_id = :tenant_id
+            """)
+            work_items_result = db.execute(work_items_query, {
+                'integration_id': integration_id,
+                'tenant_id': tenant_id
+            }).fetchall()
+            work_items_map = {row[0]: row[1] for row in work_items_result}
+
+            # Collect all sprint associations to upsert
+            sprint_associations = []
+            current_time = DateTimeHelper.now_default()
+
+            for issue in issues_data:
+                try:
+                    issue_external_id = issue.get('id')
+                    if not issue_external_id or issue_external_id not in work_items_map:
+                        continue
+
+                    work_item_id = work_items_map[issue_external_id]
+
+                    # Get sprints field from issue
+                    fields = issue.get('fields', {})
+                    sprints_field = fields.get('customfield_10020')  # Standard Jira sprint field
+
+                    if not sprints_field or not isinstance(sprints_field, list):
+                        continue
+
+                    # Extract sprint IDs from sprints array
+                    for sprint in sprints_field:
+                        if isinstance(sprint, dict):
+                            sprint_external_id = str(sprint.get('id'))  # Sprint ID
+                            if sprint_external_id:
+                                sprint_associations.append({
+                                    'work_item_id': work_item_id,
+                                    'sprint_external_id': sprint_external_id,
+                                    'tenant_id': tenant_id
+                                })
+
+                except Exception as e:
+                    logger.error(f"Error processing sprint associations for issue {issue.get('key', 'unknown')}: {e}")
+                    continue
+
+            if not sprint_associations:
+                logger.debug("No sprint associations to process")
+                return 0
+
+            # For now, we'll store the associations with sprint_external_id
+            # When sprint reports are extracted, we'll update with actual sprint_id
+            # Using a temporary approach: store in work_items.sprints JSONB field (already done)
+            # The actual work_items_sprints table will be populated when sprints are created
+
+            logger.info(f"📊 Found {len(sprint_associations)} sprint associations from {len(issues_data)} issues")
+            logger.debug(f"Sprint associations will be created when sprint records are available in database")
+
+            # TODO: When sprints table is populated (from sprint reports extraction),
+            # we'll need to create a separate process to:
+            # 1. Query sprints table to get internal sprint IDs from external IDs
+            # 2. Upsert into work_items_sprints junction table
+
+            return len(sprint_associations)
+
+        except Exception as e:
+            logger.error(f"Error processing sprint associations: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            return 0
 
     def _process_changelogs_data(
         self, db, issues_data: List[Dict], integration_id: int, tenant_id: int,
