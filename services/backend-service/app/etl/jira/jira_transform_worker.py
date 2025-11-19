@@ -2826,7 +2826,7 @@ class JiraTransformHandler:
                         'last_updated_at': current_time
                     })
 
-            from app.etl.utils.bulk_operations import BulkOperations
+            from app.etl.workers.bulk_operations import BulkOperations
 
             if sprints_to_insert:
                 BulkOperations.bulk_insert(db, 'sprints', sprints_to_insert)
