@@ -86,6 +86,9 @@ class BulkOperations:
             if table_name == 'custom_fields':
                 # custom_fields has unique constraint on (tenant_id, integration_id, external_id)
                 on_conflict_clause = "ON CONFLICT (tenant_id, integration_id, external_id) DO NOTHING"
+            elif table_name == 'sprints':
+                # sprints has unique constraint on (tenant_id, integration_id, external_id)
+                on_conflict_clause = "ON CONFLICT (tenant_id, integration_id, external_id) DO NOTHING"
 
             bulk_sql = f"""
                 INSERT INTO {table_name} ({columns_str})
