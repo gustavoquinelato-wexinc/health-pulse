@@ -412,6 +412,35 @@ class JiraEmbeddingWorker:
                             'tenant_id': tenant_id
                         }
 
+                elif entity_type == 'sprints':
+                    from app.models.sprint import Sprint
+                    entity = session.query(Sprint).filter(
+                        Sprint.external_id == str(entity_id),
+                        Sprint.tenant_id == tenant_id
+                    ).first()
+
+                    if entity:
+                        return {
+                            'id': entity.id,
+                            'external_id': entity.external_id,
+                            'name': entity.name,
+                            'state': entity.state,
+                            'goal': entity.goal,
+                            'start_date': entity.start_date,
+                            'end_date': entity.end_date,
+                            'complete_date': entity.complete_date,
+                            'completed_estimate': entity.completed_estimate,
+                            'not_completed_estimate': entity.not_completed_estimate,
+                            'punted_estimate': entity.punted_estimate,
+                            'total_estimate': entity.total_estimate,
+                            'completion_percentage': entity.completion_percentage,
+                            'velocity': entity.velocity,
+                            'scope_change_count': entity.scope_change_count,
+                            'carry_over_count': entity.carry_over_count,
+                            'entity_type': entity_type,
+                            'tenant_id': tenant_id
+                        }
+
                 else:
                     logger.warning(f"⚠️ [JIRA EMBEDDING] Unknown entity type: {entity_type}")
                     return None
@@ -480,6 +509,23 @@ class JiraEmbeddingWorker:
                 text_parts.append(f"Branch: {entity_data['branch_name']}")
             if entity_data.get('pr_status'):
                 text_parts.append(f"PR Status: {entity_data['pr_status']}")
+
+        elif entity_type == 'sprints':
+            # Sprint information with metrics
+            if entity_data.get('name'):
+                text_parts.append(f"Sprint: {entity_data['name']}")
+            if entity_data.get('state'):
+                text_parts.append(f"State: {entity_data['state']}")
+            if entity_data.get('goal'):
+                text_parts.append(f"Goal: {entity_data['goal']}")
+            if entity_data.get('velocity'):
+                text_parts.append(f"Velocity: {entity_data['velocity']}")
+            if entity_data.get('completion_percentage'):
+                text_parts.append(f"Completion: {entity_data['completion_percentage']}%")
+            if entity_data.get('scope_change_count'):
+                text_parts.append(f"Scope Changes: {entity_data['scope_change_count']}")
+            if entity_data.get('carry_over_count'):
+                text_parts.append(f"Carry Over Items: {entity_data['carry_over_count']}")
 
         # Mapping tables
         elif entity_type == 'wits_hierarchies':

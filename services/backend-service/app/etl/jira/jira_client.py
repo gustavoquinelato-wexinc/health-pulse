@@ -415,6 +415,60 @@ class JiraAPIClient:
         """
         return self.get_issue_dev_details(issue_id, application_type="GitHub", data_type="pullrequest")
 
+    def get_sprint_report(self, board_id: int, sprint_id: int) -> Dict[str, Any]:
+        """
+        Fetch sprint report data from Jira's Greenhopper API.
+
+        This endpoint provides detailed sprint metrics including:
+        - Completed issues and estimates
+        - Not completed issues and estimates
+        - Punted issues and estimates
+        - Issues added during sprint
+        - Sprint velocity and completion percentage
+
+        Args:
+            board_id: Jira board ID (rapidViewId)
+            sprint_id: Jira sprint ID
+
+        Returns:
+            Sprint report data as dictionary containing:
+            - contents: Issue lists and estimate sums
+            - sprint: Sprint metadata
+            - lastUserToClose: User who closed the sprint
+        """
+        try:
+            url = f"{self.base_url}/rest/greenhopper/1.0/rapid/charts/sprintreport"
+            params = {
+                "rapidViewId": board_id,
+                "sprintId": sprint_id
+            }
+
+            logger.debug(f"Fetching sprint report for board_id={board_id}, sprint_id={sprint_id}")
+
+            response = requests.get(
+                url,
+                auth=(self.username, self.token),
+                params=params,
+                headers={
+                    'Accept': 'application/json',
+                    'User-Agent': 'Health-Pulse-ETL-Backend/1.0'
+                },
+                timeout=30
+            )
+
+            if response.status_code == 200:
+                return response.json()
+            else:
+                logger.warning(f"Failed to get sprint report for board_id={board_id}, sprint_id={sprint_id}: {response.status_code}")
+                return {}
+
+        except requests.exceptions.RequestException as e:
+            logger.error(f"Failed to get sprint report for board_id={board_id}, sprint_id={sprint_id}: {e}")
+            return {}
+        except Exception as e:
+            logger.error(f"Unexpected error getting sprint report: {e}")
+            return {}
+
 
 def extract_custom_fields_from_createmeta(createmeta_response: Dict[str, Any]) -> List[Dict[str, Any]]:
     """

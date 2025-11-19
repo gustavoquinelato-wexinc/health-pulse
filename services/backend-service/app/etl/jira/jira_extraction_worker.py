@@ -1032,9 +1032,7 @@ class JiraExtractionWorker:
         """
         Extract sprint report data from Jira's sprint report API.
 
-        TODO: Implementation in next story (BEN-XXXXX)
-
-        This method will fetch sprint report data from Jira API:
+        This method fetches sprint report data from Jira API:
         - Endpoint: /rest/greenhopper/1.0/rapid/charts/sprintreport
         - Parameters: rapidViewId (board_id), sprintId (sprint_id)
         - Data: completed issues, not completed issues, punted issues, velocity, completion %
@@ -1044,24 +1042,100 @@ class JiraExtractionWorker:
                 - board_id: Jira board ID (rapidViewId)
                 - sprint_id: Jira sprint ID
                 - tenant_id, integration_id, job_id, token
-                - first_item, last_item flags
+                - first_item, last_item, last_job_item flags
+                - old_last_sync_date, new_last_sync_date
 
         Returns:
-            bool: True if extraction succeeded (placeholder always returns True)
+            bool: True if extraction succeeded, False otherwise
         """
         try:
             board_id = message.get('board_id')
             sprint_id = message.get('sprint_id')
             tenant_id = message.get('tenant_id')
+            integration_id = message.get('integration_id')
             job_id = message.get('job_id')
+            token = message.get('token')
             first_item = message.get('first_item', False)
             last_item = message.get('last_item', False)
+            last_job_item = message.get('last_job_item', False)
+            old_last_sync_date = message.get('old_last_sync_date')
+            new_last_sync_date = message.get('new_last_sync_date')
 
-            logger.info(f"📊 [JIRA] Sprint reports extraction - implementation pending (board_id={board_id}, sprint_id={sprint_id}, first_item={first_item}, last_item={last_item})")
+            logger.info(f"📊 [JIRA] Extracting sprint report for board_id={board_id}, sprint_id={sprint_id} (first_item={first_item}, last_item={last_item})")
 
             # Send running status on first item
             if first_item:
                 await self._send_worker_status("extraction", tenant_id, job_id, "running", "jira_sprint_reports")
+
+            # Get Jira client
+            integration, jira_client = self._get_jira_client(tenant_id, integration_id)
+            if not integration or not jira_client:
+                logger.error(f"Failed to initialize Jira client for sprint report extraction")
+                return False
+
+            # Fetch sprint report data from Jira API
+            sprint_report_data = jira_client.get_sprint_report(board_id, sprint_id)
+
+            if not sprint_report_data:
+                logger.warning(f"No sprint report data returned for board_id={board_id}, sprint_id={sprint_id}")
+                # Still queue to transform with empty data to maintain flow
+                queue_manager = QueueManager()
+                queue_manager.publish_transform_job(
+                    tenant_id=tenant_id,
+                    integration_id=integration_id,
+                    raw_data_id=None,  # No data to process
+                    data_type='jira_sprint_reports',
+                    job_id=job_id,
+                    provider='jira',
+                    old_last_sync_date=old_last_sync_date,
+                    new_last_sync_date=new_last_sync_date,
+                    first_item=first_item,
+                    last_item=last_item,
+                    last_job_item=last_job_item,
+                    token=token
+                )
+                return True
+
+            # Store raw data in raw_extraction_data table
+            raw_data_id = self._store_raw_data(
+                tenant_id,
+                integration_id,
+                'jira_sprint_reports',
+                {
+                    'board_id': board_id,
+                    'sprint_id': sprint_id,
+                    'sprint_report': sprint_report_data
+                }
+            )
+
+            if not raw_data_id:
+                logger.error(f"Failed to store raw data for sprint report (board_id={board_id}, sprint_id={sprint_id})")
+                return False
+
+            logger.debug(f"Stored sprint report raw data with raw_data_id={raw_data_id}")
+
+            # Queue to transform worker
+            queue_manager = QueueManager()
+            success = queue_manager.publish_transform_job(
+                tenant_id=tenant_id,
+                integration_id=integration_id,
+                raw_data_id=raw_data_id,
+                data_type='jira_sprint_reports',
+                job_id=job_id,
+                provider='jira',
+                old_last_sync_date=old_last_sync_date,
+                new_last_sync_date=new_last_sync_date,
+                first_item=first_item,
+                last_item=last_item,
+                last_job_item=last_job_item,
+                token=token
+            )
+
+            if not success:
+                logger.error(f"Failed to queue sprint report to transform (board_id={board_id}, sprint_id={sprint_id})")
+                return False
+
+            logger.info(f"✅ Sprint report queued to transform (board_id={board_id}, sprint_id={sprint_id}, raw_data_id={raw_data_id})")
 
             # Send finished status on last item
             if last_item:
@@ -1070,7 +1144,9 @@ class JiraExtractionWorker:
             return True
 
         except Exception as e:
-            logger.error(f"❌ Error in sprint reports extraction placeholder: {e}")
+            logger.error(f"❌ Error in sprint reports extraction: {e}")
             import traceback
             logger.error(f"Full traceback: {traceback.format_exc()}")
+            if 'job_id' in locals():
+                self._update_job_status(job_id, "FAILED", str(e))
             return False

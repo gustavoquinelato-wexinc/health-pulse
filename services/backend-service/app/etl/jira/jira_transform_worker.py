@@ -153,6 +153,8 @@ class JiraTransformHandler:
                 return await self._process_jira_single_issue_changelog(raw_data_id, tenant_id, integration_id, job_id, message)
             elif message_type == 'jira_dev_status':
                 return await self._process_jira_dev_status(raw_data_id, tenant_id, integration_id, job_id, message)
+            elif message_type == 'jira_sprint_reports':
+                return await self._process_jira_sprint_reports(raw_data_id, tenant_id, integration_id, job_id, message)
             else:
                 logger.warning(f"Unknown Jira message type: {message_type}")
                 return False
@@ -218,6 +220,25 @@ class JiraTransformHandler:
                 entities=[],  # Empty list - signals completion
                 job_id=job_id,
                 message_type='jira_issues_with_changelogs',
+                integration_id=integration_id,
+                provider=message.get('provider', 'jira'),
+                last_sync_date=message.get('last_sync_date'),
+                first_item=message.get('first_item', False),
+                last_item=message.get('last_item', False),
+                last_job_item=message.get('last_job_item', False),
+                token=token
+            )
+            logger.debug(f"🎯 [COMPLETION] jira_issues_with_changelogs completion message forwarded to embedding")
+            return True
+
+        elif message_type == 'jira_sprint_reports':
+            logger.debug(f"🎯 [COMPLETION] Processing jira_sprint_reports completion message")
+            self._queue_entities_for_embedding(
+                tenant_id=tenant_id,
+                table_name='sprints',
+                entities=[],  # Empty list - signals completion
+                job_id=job_id,
+                message_type='jira_sprint_reports',
                 integration_id=integration_id,
                 provider=message.get('provider', 'jira'),
                 last_sync_date=message.get('last_sync_date'),
@@ -3379,6 +3400,228 @@ class JiraTransformHandler:
             # NOTE: "failed" status would be sent by TransformWorker router if needed
             # For now, just return False to indicate failure
 
+            return False
+
+    async def _process_jira_sprint_reports(
+        self, raw_data_id: Optional[int], tenant_id: int, integration_id: int, job_id: int, message: Dict[str, Any]
+    ) -> bool:
+        """
+        Process sprint report data from raw_extraction_data and update sprints and work_items_sprints tables.
+
+        Flow:
+        1. Load sprint report raw data from raw_extraction_data table
+        2. Extract sprint metrics from API response
+        3. Update sprints table with sprint report metrics (completed_estimate, not_completed_estimate, etc.)
+        4. Update work_items_sprints table with sprint outcome classification
+        5. Queue sprint entity for vectorization using external_id
+
+        Args:
+            raw_data_id: ID of raw data in raw_extraction_data table (None for completion message)
+            tenant_id: Tenant ID
+            integration_id: Integration ID
+            job_id: Job ID
+            message: Full message dict with flags
+
+        Returns:
+            bool: True if processing succeeded, False otherwise
+        """
+        try:
+            # 🎯 HANDLE COMPLETION MESSAGE: raw_data_id=None signals job completion
+            if raw_data_id is None and message and message.get('last_job_item'):
+                logger.debug(f"[COMPLETION] Received completion message for jira_sprint_reports (no data to process)")
+                return await self._handle_completion_message('jira_sprint_reports', message)
+
+            logger.debug(f"Processing sprint report from raw_data_id={raw_data_id}")
+
+            # Get database session
+            db = self.database.get_write_session()
+            try:
+                # Load raw data
+                raw_data_query = text("""
+                    SELECT payload
+                    FROM raw_extraction_data
+                    WHERE id = :raw_data_id
+                """)
+                result = db.execute(raw_data_query, {'raw_data_id': raw_data_id})
+                row = result.fetchone()
+
+                if not row:
+                    logger.error(f"No raw data found for raw_data_id={raw_data_id}")
+                    return False
+
+                payload = row[0]
+                board_id = payload.get('board_id')
+                sprint_id = payload.get('sprint_id')
+                sprint_report = payload.get('sprint_report', {})
+
+                logger.debug(f"Processing sprint report for board_id={board_id}, sprint_id={sprint_id}")
+
+                # Extract sprint metrics from API response
+                contents = sprint_report.get('contents', {})
+
+                # Extract estimate sums
+                completed_estimate = contents.get('completedIssuesEstimateSum', {}).get('value')
+                not_completed_estimate = contents.get('issuesNotCompletedEstimateSum', {}).get('value')
+                punted_estimate = contents.get('puntedIssuesEstimateSum', {}).get('value')
+                total_estimate = contents.get('allIssuesEstimateSum', {}).get('value')
+
+                # Calculate completion percentage
+                completion_percentage = None
+                if total_estimate and total_estimate > 0:
+                    completion_percentage = (completed_estimate / total_estimate) * 100 if completed_estimate else 0
+
+                # Extract scope change metrics
+                completed_issues = contents.get('completedIssues', [])
+                not_completed_issues = contents.get('issuesNotCompletedInCurrentSprint', [])
+                punted_issues = contents.get('puntedIssues', [])
+                issues_added_during_sprint = contents.get('issueKeysAddedDuringSprint', {})
+
+                scope_change_count = len(issues_added_during_sprint)
+                carry_over_count = len(not_completed_issues)
+
+                # Update sprints table with sprint report metrics
+                from app.core.utils import DateTimeHelper
+                now = DateTimeHelper.now_default()
+
+                update_sprint_query = text("""
+                    UPDATE sprints
+                    SET completed_estimate = :completed_estimate,
+                        not_completed_estimate = :not_completed_estimate,
+                        punted_estimate = :punted_estimate,
+                        total_estimate = :total_estimate,
+                        completion_percentage = :completion_percentage,
+                        velocity = :velocity,
+                        scope_change_count = :scope_change_count,
+                        carry_over_count = :carry_over_count,
+                        last_updated_at = :now
+                    WHERE tenant_id = :tenant_id
+                      AND integration_id = :integration_id
+                      AND external_id = :sprint_id
+                      AND board_id = :board_id
+                    RETURNING id, external_id
+                """)
+
+                sprint_result = db.execute(update_sprint_query, {
+                    'completed_estimate': completed_estimate,
+                    'not_completed_estimate': not_completed_estimate,
+                    'punted_estimate': punted_estimate,
+                    'total_estimate': total_estimate,
+                    'completion_percentage': completion_percentage,
+                    'velocity': completed_estimate,  # Velocity = completed estimate
+                    'scope_change_count': scope_change_count,
+                    'carry_over_count': carry_over_count,
+                    'now': now,
+                    'tenant_id': tenant_id,
+                    'integration_id': integration_id,
+                    'sprint_id': str(sprint_id),
+                    'board_id': board_id
+                })
+
+                sprint_row = sprint_result.fetchone()
+                if not sprint_row:
+                    logger.warning(f"Sprint not found for board_id={board_id}, sprint_id={sprint_id} - skipping work_items_sprints update")
+                    db.commit()
+                    return True
+
+                sprint_db_id = sprint_row[0]
+                sprint_external_id = sprint_row[1]
+
+                logger.debug(f"Updated sprint {sprint_external_id} (id={sprint_db_id}) with report metrics")
+
+                # Update work_items_sprints table with sprint outcome classification
+                # Map issue keys to outcomes
+                issue_outcomes = {}
+
+                for issue in completed_issues:
+                    issue_key = issue.get('key')
+                    if issue_key:
+                        issue_outcomes[issue_key] = 'completed'
+
+                for issue in not_completed_issues:
+                    issue_key = issue.get('key')
+                    if issue_key:
+                        issue_outcomes[issue_key] = 'not_completed'
+
+                for issue in punted_issues:
+                    issue_key = issue.get('key')
+                    if issue_key:
+                        issue_outcomes[issue_key] = 'punted'
+
+                # Update work_items_sprints records
+                if issue_outcomes:
+                    for issue_key, outcome in issue_outcomes.items():
+                        # Check if issue was added during sprint
+                        added_during_sprint = issue_key in issues_added_during_sprint
+
+                        update_work_items_sprints_query = text("""
+                            UPDATE work_items_sprints wis
+                            SET sprint_outcome = :outcome,
+                                added_during_sprint = :added_during_sprint,
+                                last_updated_at = :now
+                            FROM work_items wi
+                            WHERE wis.work_item_id = wi.id
+                              AND wis.sprint_id = :sprint_id
+                              AND wi.key = :issue_key
+                              AND wis.tenant_id = :tenant_id
+                        """)
+
+                        db.execute(update_work_items_sprints_query, {
+                            'outcome': outcome,
+                            'added_during_sprint': added_during_sprint,
+                            'now': now,
+                            'sprint_id': sprint_db_id,
+                            'issue_key': issue_key,
+                            'tenant_id': tenant_id
+                        })
+
+                    logger.debug(f"Updated {len(issue_outcomes)} work_items_sprints records with sprint outcomes")
+
+                # Update raw data status to completed
+                update_query = text("""
+                    UPDATE raw_extraction_data
+                    SET status = 'completed',
+                        last_updated_at = :now,
+                        error_details = NULL
+                    WHERE id = :raw_data_id
+                """)
+                db.execute(update_query, {'raw_data_id': raw_data_id, 'now': now})
+                db.commit()
+
+                logger.debug(f"Processed sprint report for sprint {sprint_external_id} - marked raw_data_id={raw_data_id} as completed")
+
+                # Queue sprint entity for embedding
+                sprint_entity = {'external_id': sprint_external_id}
+
+                self._queue_entities_for_embedding(
+                    tenant_id=tenant_id,
+                    table_name='sprints',
+                    entities=[sprint_entity],
+                    job_id=job_id,
+                    message_type='jira_sprint_reports',
+                    integration_id=integration_id,
+                    provider=message.get('provider', 'jira'),
+                    last_sync_date=message.get('new_last_sync_date'),
+                    first_item=message.get('first_item', False),
+                    last_item=message.get('last_item', False),
+                    last_job_item=message.get('last_job_item', False),
+                    token=message.get('token')
+                )
+
+                logger.info(f"✅ Sprint report processed and queued for embedding: {sprint_external_id}")
+
+                # Send finished status on last item
+                if message.get('last_item'):
+                    await self._send_worker_status("transform", tenant_id, job_id, "finished", "jira_sprint_reports")
+
+                return True
+
+            finally:
+                db.close()
+
+        except Exception as e:
+            logger.error(f"Error processing sprint report: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             return False
 
     async def _process_dev_status_data(

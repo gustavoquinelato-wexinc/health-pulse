@@ -42,6 +42,7 @@ SOURCE_TYPE_MAPPING = {
     'wits_hierarchies': 'JIRA',
     'wits_mappings': 'JIRA',
     'work_items_prs_links': 'JIRA',  # Jira agent owns the links
+    'sprints': 'JIRA',  # Sprint data from Jira
 
     # GitHub Agent's scope (all GitHub-related data + DORA metrics)
     'prs': 'GITHUB',
