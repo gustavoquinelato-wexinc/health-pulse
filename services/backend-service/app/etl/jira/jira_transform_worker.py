@@ -2776,6 +2776,10 @@ class JiraTransformHandler:
                             board_id = sprint.get('boardId')
                             sprint_name = sprint.get('name')
                             sprint_state = sprint.get('state')  # future, active, closed
+                            sprint_goal = sprint.get('goal')
+                            start_date = sprint.get('startDate')
+                            end_date = sprint.get('endDate')
+                            complete_date = sprint.get('completeDate')
 
                             if sprint_external_id:
                                 # Collect unique sprint data
@@ -2784,7 +2788,11 @@ class JiraTransformHandler:
                                         'external_id': sprint_external_id,
                                         'board_id': board_id,
                                         'name': sprint_name,
-                                        'state': sprint_state
+                                        'state': sprint_state,
+                                        'goal': sprint_goal,
+                                        'start_date': start_date,
+                                        'end_date': end_date,
+                                        'complete_date': complete_date
                                     }
 
                                 # Collect association (using external_id, will map to internal later)
@@ -2829,6 +2837,10 @@ class JiraTransformHandler:
                     'board_id': sprint_data['board_id'],
                     'name': sprint_data['name'],
                     'state': sprint_data['state'],
+                    'goal': sprint_data.get('goal'),
+                    'start_date': sprint_data.get('start_date'),
+                    'end_date': sprint_data.get('end_date'),
+                    'complete_date': sprint_data.get('complete_date'),
                     'active': True,
                     'created_at': current_time,
                     'last_updated_at': current_time
@@ -2837,13 +2849,17 @@ class JiraTransformHandler:
             if sprints_to_upsert:
                 # Use ON CONFLICT DO UPDATE to handle race conditions between concurrent workers
                 upsert_query = text("""
-                    INSERT INTO sprints (tenant_id, integration_id, external_id, board_id, name, state, active, created_at, last_updated_at)
-                    VALUES (:tenant_id, :integration_id, :external_id, :board_id, :name, :state, :active, :created_at, :last_updated_at)
+                    INSERT INTO sprints (tenant_id, integration_id, external_id, board_id, name, state, goal, start_date, end_date, complete_date, active, created_at, last_updated_at)
+                    VALUES (:tenant_id, :integration_id, :external_id, :board_id, :name, :state, :goal, :start_date, :end_date, :complete_date, :active, :created_at, :last_updated_at)
                     ON CONFLICT (tenant_id, integration_id, external_id)
                     DO UPDATE SET
                         board_id = EXCLUDED.board_id,
                         name = EXCLUDED.name,
                         state = EXCLUDED.state,
+                        goal = EXCLUDED.goal,
+                        start_date = EXCLUDED.start_date,
+                        end_date = EXCLUDED.end_date,
+                        complete_date = EXCLUDED.complete_date,
                         last_updated_at = EXCLUDED.last_updated_at
                 """)
 
@@ -2902,6 +2918,10 @@ class JiraTransformHandler:
                     logger.info(f"✅ Created {inserted_count} new work_items_sprints associations (skipped {len(associations_to_insert) - inserted_count} duplicates)")
                 else:
                     logger.debug(f"All {len(associations_to_insert)} sprint associations already exist")
+
+            # NOTE: We do NOT queue sprints for embedding here in Step 3
+            # Sprints will be queued for embedding in Step 5 (sprint_reports) after metrics are added
+            # This avoids embedding incomplete sprint data and prevents duplicate embeddings
 
             return len(sprint_associations)
 
@@ -3438,7 +3458,7 @@ class JiraTransformHandler:
             try:
                 # Load raw data
                 raw_data_query = text("""
-                    SELECT payload
+                    SELECT raw_data
                     FROM raw_extraction_data
                     WHERE id = :raw_data_id
                 """)
@@ -3600,7 +3620,8 @@ class JiraTransformHandler:
                     message_type='jira_sprint_reports',
                     integration_id=integration_id,
                     provider=message.get('provider', 'jira'),
-                    last_sync_date=message.get('new_last_sync_date'),
+                    old_last_sync_date=message.get('old_last_sync_date'),
+                    new_last_sync_date=message.get('new_last_sync_date'),
                     first_item=message.get('first_item', False),
                     last_item=message.get('last_item', False),
                     last_job_item=message.get('last_job_item', False),

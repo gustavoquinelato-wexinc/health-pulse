@@ -587,7 +587,7 @@ class IndividualJobTimer:
 
                 update_query = text("""
                     UPDATE etl_jobs
-                    SET status = 'FAILED',
+                    SET status = jsonb_set(status, ARRAY['overall'], to_jsonb('FAILED'::text)),
                         last_updated_at = :now,
                         error_message = :error_message
                     WHERE id = :job_id AND tenant_id = :tenant_id
@@ -616,7 +616,7 @@ class IndividualJobTimer:
             bool: True if queued successfully
         """
         try:
-            from app.etl.queue.queue_manager import QueueManager
+            from app.etl.workers.queue_manager import QueueManager
 
             # Update job status to QUEUED
             database = get_database()

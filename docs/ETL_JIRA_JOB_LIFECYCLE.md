@@ -1,6 +1,6 @@
 # ETL Jira Job Lifecycle
 
-This document explains how Jira ETL jobs work, including the 4-step extraction process, status management, flag handling, and completion patterns.
+This document explains how Jira ETL jobs work, including the 5-step extraction process, status management, flag handling, and completion patterns.
 
 ## Job Status Structure
 
@@ -23,11 +23,12 @@ This document explains how Jira ETL jobs work, including the 4-step extraction p
 
 ## Step Structure
 
-Jira has 4 sequential steps:
+Jira has 5 sequential steps:
 1. `jira_projects_and_issue_types` - Discover projects and issue types
 2. `jira_statuses_and_relationships` - Extract statuses and relationships
 3. `jira_issues_with_changelogs` - Extract issues and their change history
 4. `jira_dev_status` - Extract development status field
+5. `jira_sprint_reports` - Extract sprint metrics and queue sprints for embedding
 
 ---
 
@@ -92,8 +93,9 @@ Jira has 4 sequential steps:
   - Upserts sprint records in `sprints` table using `ON CONFLICT DO UPDATE` to handle concurrent workers
   - Creates associations in `work_items_sprints` junction table using `ON CONFLICT DO NOTHING` for idempotency
   - Both operations are race-condition safe for concurrent processing by multiple transform workers
-  - **Note**: Sprints are NOT queued to embedding (will be added in future iteration)
+  - **Note**: Sprints are NOT queued to embedding at this step - only metadata is stored
   - **Note**: Sprint field is NOT stored in `work_items` table - uses normalized `sprints` and `work_items_sprints` tables
+  - **Note**: Sprint metrics and embedding happen in Step 5 (sprint_reports)
 - Transform processes each message and queues to embedding with same flags
 - Embedding processes each message
 - When `last_item=True`: sends "finished" status
@@ -107,23 +109,57 @@ Jira has 4 sequential steps:
   - Embedding receives `last_job_item=True` and calls `_complete_etl_job()`
   - Sets overall status to FINISHED (skips Step 4 since no issues to process)
 
-**Step 4: Dev Status (Final Step)**
+**Step 4: Dev Status**
 - Extraction fetches development status field for issues with code changes
 - Stores each issue's dev_status in raw_extraction_data with type: `jira_dev_status`
 - Queues MULTIPLE messages to transform queue (one per issue) with:
   - `type: 'jira_dev_status'`
-  - First issue: `first_item=True, last_item=False, last_job_item=False`
-  - Middle issues: `first_item=False, last_item=False, last_job_item=False`
-  - Last issue: `first_item=False, last_item=True, last_job_item=True`
-- **After queuing all issues to transform**: No next extraction step (this is the final step)
+  - First issue: `first_item=True, last_item=False`
+  - Middle issues: `first_item=False, last_item=False`
+  - Last issue: `first_item=False, last_item=True`
+- **After queuing all issues to transform**: Queues extraction job for Step 5 (sprint_reports)
 - Transform processes each message and queues to embedding with same flags
 - Embedding processes each message
-- When `last_job_item=True`: calls `_complete_etl_job()` and sets overall status to FINISHED
+- When `last_item=True`: sends "finished" status
 
 **Step 4 Completion (No Dev Status Case)**
 - If NO dev status data is extracted:
   - Extraction sends completion message to transform queue with:
     - `type: 'jira_dev_status'`
+    - `raw_data_id=None, first_item=True, last_item=True`
+  - Transform recognizes completion and forwards to embedding
+  - Embedding sends "finished" status
+  - Extraction worker then queues Step 5 (sprint_reports)
+
+**Step 5: Sprint Reports (Final Step)**
+- **Sprint Discovery**: Extraction queries database for unique sprint combinations
+  - Queries `work_items_sprints` table joined with `sprints` table
+  - Gets distinct `(board_id, sprint_id)` combinations for sprints created/updated since `last_sync_date`
+  - Uses `custom_fields_mapping.sprints_field_id` to get the correct sprint field external_id
+- **Sprint Metrics Extraction**: For each sprint combination:
+  - Calls Jira API: `/rest/greenhopper/1.0/rapid/charts/sprintreport?rapidViewId={board_id}&sprintId={sprint_id}`
+  - Extracts sprint metrics: completed_estimate, not_completed_estimate, punted_estimate, velocity, completion_percentage
+  - Stores in raw_extraction_data with type: `jira_sprint_reports`
+- Queues MULTIPLE messages to transform queue (one per sprint) with:
+  - `type: 'jira_sprint_reports'`
+  - First sprint: `first_item=True, last_item=False, last_job_item=False`
+  - Middle sprints: `first_item=False, last_item=False, last_job_item=False`
+  - Last sprint: `first_item=False, last_item=True, last_job_item=True`
+- **Transform Processing**:
+  - Queries raw_extraction_data using raw_data_id
+  - Updates sprint record in `sprints` table with metrics
+  - Queues sprint to embedding with `table_name='sprints'` and sprint's `external_id`
+- **Embedding Processing**:
+  - Fetches sprint entity from database using external_id
+  - Generates embedding from sprint metadata and metrics
+  - Stores vector in Qdrant collection `tenant_{id}_sprints`
+  - Creates record in `qdrant_vectors` table
+- When `last_job_item=True`: calls `_complete_etl_job()` and sets overall status to FINISHED
+
+**Step 5 Completion (No Sprints Case)**
+- If NO sprints are found:
+  - Extraction sends completion message to transform queue with:
+    - `type: 'jira_sprint_reports'`
     - `raw_data_id=None, first_item=True, last_item=True, last_job_item=True`
   - Transform recognizes completion and forwards to embedding
   - Embedding receives `last_job_item=True` and calls `_complete_etl_job()`

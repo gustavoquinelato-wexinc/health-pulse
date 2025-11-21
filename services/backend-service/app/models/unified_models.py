@@ -1605,15 +1605,15 @@ class Sprint(Base, IntegrationBaseEntity):
     completion_percentage = Column(Float, quote=False, name="completion_percentage")  # % completed
     velocity = Column(Float, quote=False, name="velocity")  # Actual velocity (completed points)
 
-    # Scope change tracking
-    scope_added_estimate = Column(Float, quote=False, name="scope_added_estimate")  # Points added mid-sprint
-    scope_removed_estimate = Column(Float, quote=False, name="scope_removed_estimate")  # Points removed mid-sprint
+    # Sprint health indicators
+    scope_change_count = Column(Integer, quote=False, name="scope_change_count")  # Number of scope changes
+    carry_over_count = Column(Integer, quote=False, name="carry_over_count")  # Number of items carried over
 
     # Relationships
     tenant = relationship("Tenant", back_populates="sprints")
     integration = relationship("Integration")
     program = relationship("Program", back_populates="sprints")
-    work_item_sprints = relationship("WorkItemSprint", back_populates="sprint")
+    work_item_sprints = relationship("WorkItemSprint", back_populates="sprint", foreign_keys="[WorkItemSprint.sprint_id]")
     risk_sprints = relationship("RiskSprint", back_populates="sprint")
 
 
@@ -1631,21 +1631,31 @@ class WorkItemSprint(Base, BaseEntity):
     work_item_id = Column(Integer, ForeignKey('work_items.id'), nullable=False, quote=False, name="work_item_id")
     sprint_id = Column(Integer, ForeignKey('sprints.id'), nullable=False, quote=False, name="sprint_id")
 
-    # Sprint outcome tracking
-    sprint_outcome = Column(String(50), quote=False, name="sprint_outcome")  # COMPLETED, NOT_COMPLETED, PUNTED
+    # Sprint assignment history
+    added_date = Column(DateTime, nullable=False, quote=False, name="added_date")
+    removed_date = Column(DateTime, quote=False, name="removed_date")
+
+    # Sprint report classification
+    sprint_outcome = Column(String(50), quote=False, name="sprint_outcome")  # completed, not_completed, punted, completed_another_sprint
+    added_during_sprint = Column(Boolean, default=False, quote=False, name="added_during_sprint")
 
     # Commitment tracking
-    committed_at_start = Column(Boolean, default=False, quote=False, name="committed_at_start")  # Was it in original commitment?
-    added_mid_sprint = Column(Boolean, default=False, quote=False, name="added_mid_sprint")  # Added during sprint?
+    committed = Column(Boolean, default=False, quote=False, name="committed")
 
     # Estimate snapshots
-    estimate_at_start = Column(Float, quote=False, name="estimate_at_start")  # Story points at sprint start
-    estimate_at_end = Column(Float, quote=False, name="estimate_at_end")  # Story points at sprint end
+    estimate_at_start = Column(Float, quote=False, name="estimate_at_start")
+    estimate_at_end = Column(Float, quote=False, name="estimate_at_end")
+
+    # Carry-over tracking
+    carried_over_from_sprint_id = Column(Integer, ForeignKey('sprints.id'), quote=False, name="carried_over_from_sprint_id")
+    carried_over_to_sprint_id = Column(Integer, ForeignKey('sprints.id'), quote=False, name="carried_over_to_sprint_id")
 
     # Relationships
     tenant = relationship("Tenant", back_populates="work_item_sprints")
     work_item = relationship("WorkItem")
-    sprint = relationship("Sprint", back_populates="work_item_sprints")
+    sprint = relationship("Sprint", back_populates="work_item_sprints", foreign_keys=[sprint_id])
+    carried_over_from_sprint = relationship("Sprint", foreign_keys=[carried_over_from_sprint_id])
+    carried_over_to_sprint = relationship("Sprint", foreign_keys=[carried_over_to_sprint_id])
 
 
 class Risk(Base, BaseEntity):

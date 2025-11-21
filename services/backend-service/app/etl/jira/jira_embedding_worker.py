@@ -28,7 +28,8 @@ from app.core.logging_config import get_logger
 from app.core.database import get_database
 from app.models.unified_models import (
     WorkItem, Changelog, Project, Status, Wit,
-    WorkItemPrLink, WitHierarchy, WitMapping, StatusMapping, Workflow, QdrantVector
+    WorkItemPrLink, WitHierarchy, WitMapping, StatusMapping, Workflow, QdrantVector,
+    Sprint
 )
 from app.etl.workers.embedding_worker_router import SOURCE_TYPE_MAPPING
 
@@ -413,7 +414,6 @@ class JiraEmbeddingWorker:
                         }
 
                 elif entity_type == 'sprints':
-                    from app.models.sprint import Sprint
                     entity = session.query(Sprint).filter(
                         Sprint.external_id == str(entity_id),
                         Sprint.tenant_id == tenant_id

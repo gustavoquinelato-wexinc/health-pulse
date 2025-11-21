@@ -678,18 +678,19 @@ class JiraExtractionWorker:
             total_issues = len(issues_list)
             logger.debug(f"📊 Found {total_issues} issues")
 
-            # 🔑 Get development field external_id from custom_fields_mapping table
+            # 🔑 Get development field and sprints field external_ids from custom_fields_mapping table
             development_field_external_id = None
+            sprints_field_external_id = None
             database = get_database()
             with database.get_read_session_context() as db:
                 query = text("""
-                    SELECT cf.external_id
+                    SELECT cf_dev.external_id, cf_sprint.external_id
                     FROM custom_fields_mapping cfm
-                    JOIN custom_fields cf ON cf.id = cfm.development_field_id
+                    LEFT JOIN custom_fields cf_dev ON cf_dev.id = cfm.development_field_id AND cf_dev.active = true
+                    LEFT JOIN custom_fields cf_sprint ON cf_sprint.id = cfm.sprints_field_id AND cf_sprint.active = true
                     WHERE cfm.tenant_id = :tenant_id
                     AND cfm.integration_id = :integration_id
                     AND cfm.active = true
-                    AND cf.active = true
                 """)
                 result = db.execute(query, {
                     'tenant_id': tenant_id,
@@ -698,9 +699,11 @@ class JiraExtractionWorker:
 
                 if result:
                     development_field_external_id = result[0]
+                    sprints_field_external_id = result[1]
                     logger.debug(f"📋 Development field from mapping: {development_field_external_id}")
+                    logger.debug(f"📋 Sprints field from mapping: {sprints_field_external_id}")
                 else:
-                    logger.debug(f"⚠️ No development field mapped in custom_fields_mapping table")
+                    logger.debug(f"⚠️ No custom field mappings found in custom_fields_mapping table")
 
             # Track issues with development field (for Step 4)
             issues_with_dev = []
@@ -800,123 +803,167 @@ class JiraExtractionWorker:
             # Send finished status for this step
             await self._send_worker_status("extraction", tenant_id, job_id, "finished", "jira_issues_with_changelogs")
 
-            # If any issues have development field, queue Step 4 extraction jobs
-            if issues_with_dev:
-                logger.info(f"📋 Queuing Step 4 (dev_status) for {len(issues_with_dev)} issues with development field")
-
-                total_dev_issues = len(issues_with_dev)
-
-                # 🚀 OPTIMIZATION: Reuse RabbitMQ channel for all dev_status publishes
-                with queue_manager.get_channel() as channel:
-                    for i, issue in enumerate(issues_with_dev):
-                        is_first_dev = (i == 0)
-                        is_last_dev = (i == total_dev_issues - 1)
-
-                        issue_key = issue.get('key')
-                        issue_id = issue.get('id')
-
-                        # Build message
-                        dev_message = {
-                            'tenant_id': tenant_id,
-                            'integration_id': integration_id,
-                            'job_id': job_id,
-                            'type': 'jira_dev_status',
-                            'provider': 'jira',
-                            'issue_id': issue_id,
-                            'issue_key': issue_key,
-                            'first_item': is_first_dev,
-                            'last_item': is_last_dev,
-                            'token': token,
-                            'old_last_sync_date': old_last_sync_date,
-                            'new_last_sync_date': new_last_sync_date
-                        }
-
-                        # Publish using shared channel
-                        tier = queue_manager._get_tenant_tier(tenant_id)
-                        tier_queue = queue_manager.get_tier_queue_name(tier, 'extraction')
-
-                        channel.basic_publish(
-                            exchange='',
-                            routing_key=tier_queue,
-                            body=json.dumps(dev_message),
-                            properties=pika.BasicProperties(
-                                delivery_mode=2,
-                                content_type='application/json'
-                            )
-                        )
-
-                        # Log progress every 50 issues
-                        if (i + 1) % 50 == 0 or (i + 1) == total_dev_issues:
-                            logger.info(f"Queued {i+1}/{total_dev_issues} dev_status extractions")
-
-                logger.info(f"✅ All {total_dev_issues} dev_status extractions queued")
-            else:
-                logger.debug(f"⏭️ No issues with development field - Step 4 will be skipped")
-
-            # 📊 Step 5: Queue sprint reports extraction for unique board_id/sprint_id combinations
-            # Collect distinct sprint combinations from all issues
+            # 📊 Step 5: Collect sprint combinations from all issues
             sprint_combinations = set()
-            for issue in issues_list:
-                sprints_field = issue.get('fields', {}).get('customfield_10020')  # Sprint field
-                if sprints_field and isinstance(sprints_field, list):
-                    for sprint in sprints_field:
-                        if isinstance(sprint, dict):
-                            board_id = sprint.get('boardId')
-                            sprint_id = sprint.get('id')
-                            if board_id and sprint_id:
-                                sprint_combinations.add((board_id, sprint_id))
+            sprint_field_found_count = 0
 
-            if sprint_combinations:
-                logger.info(f"📋 Queuing Step 5 (sprint_reports) for {len(sprint_combinations)} unique sprint combinations")
-
-                sprint_list = list(sprint_combinations)
-                total_sprints = len(sprint_list)
-
-                # 🚀 OPTIMIZATION: Reuse RabbitMQ channel for all sprint_reports publishes
-                with queue_manager.get_channel() as channel:
-                    for i, (board_id, sprint_id) in enumerate(sprint_list):
-                        is_first_sprint = (i == 0)
-                        is_last_sprint = (i == total_sprints - 1)
-
-                        # Build message
-                        sprint_message = {
-                            'tenant_id': tenant_id,
-                            'integration_id': integration_id,
-                            'job_id': job_id,
-                            'type': 'jira_sprint_reports',
-                            'provider': 'jira',
-                            'board_id': board_id,
-                            'sprint_id': sprint_id,
-                            'first_item': is_first_sprint,
-                            'last_item': is_last_sprint,
-                            'token': token,
-                            'old_last_sync_date': old_last_sync_date,
-                            'new_last_sync_date': new_last_sync_date
-                        }
-
-                        # Publish using shared channel
-                        tier = queue_manager._get_tenant_tier(tenant_id)
-                        tier_queue = queue_manager.get_tier_queue_name(tier, 'extraction')
-
-                        channel.basic_publish(
-                            exchange='',
-                            routing_key=tier_queue,
-                            body=json.dumps(sprint_message),
-                            properties=pika.BasicProperties(
-                                delivery_mode=2,
-                                content_type='application/json'
-                            )
-                        )
-
-                        # Log progress every 20 sprints
-                        if (i + 1) % 20 == 0 or (i + 1) == total_sprints:
-                            logger.info(f"Queued {i+1}/{total_sprints} sprint_reports extractions")
-
-                logger.info(f"✅ All {total_sprints} sprint_reports extractions queued")
+            if sprints_field_external_id:
+                logger.info(f"🔍 Collecting sprint combinations using field: {sprints_field_external_id}")
+                for issue in issues_list:
+                    sprints_field = issue.get('fields', {}).get(sprints_field_external_id)  # Sprint field from mapping
+                    if sprints_field:
+                        sprint_field_found_count += 1
+                        logger.debug(f"🔍 Found sprint field in issue {issue.get('key')}: type={type(sprints_field)}, value={sprints_field}")
+                    if sprints_field and isinstance(sprints_field, list):
+                        for sprint in sprints_field:
+                            if isinstance(sprint, dict):
+                                board_id = sprint.get('boardId')
+                                sprint_id = sprint.get('id')
+                                if board_id and sprint_id:
+                                    sprint_combinations.add((board_id, sprint_id))
+                                    logger.debug(f"✅ Added sprint combination: board_id={board_id}, sprint_id={sprint_id}")
+                                else:
+                                    logger.debug(f"⚠️ Sprint dict missing boardId or id: {sprint}")
             else:
-                logger.debug(f"⏭️ No sprint data found - Step 5 will be skipped")
+                logger.warning(f"⚠️ No sprints field mapped - Step 5 (sprint_reports) will be skipped")
 
-            logger.info(f"✅ Issues with changelogs extraction completed ({total_issues} issues, {len(issues_with_dev)} with dev status, {len(sprint_combinations)} unique sprints)")
+            logger.info(f"📊 Sprint field analysis: {sprint_field_found_count} issues with sprint field, {len(sprint_combinations)} unique sprint combinations found")
+
+            # Count items for each step
+            dev_count = len(issues_with_dev)
+            sprint_count = len(sprint_combinations)
+
+            logger.info(f"� Step completion analysis: dev_count={dev_count}, sprint_count={sprint_count}")
+
+            # 🎯 Determine which step gets last_job_item=True based on 4 scenarios
+            # Scenario 1: Dev YES, Sprint NO → Dev gets last_job_item
+            # Scenario 2: Dev NO, Sprint YES → Sprint gets last_job_item
+            # Scenario 3: Dev NO, Sprint NO → Already handled (no steps to queue)
+            # Scenario 4: Dev YES, Sprint YES → Bigger one gets last_job_item, queue smaller first
+
+            # Determine queue order and last_job_item assignment
+            if dev_count > 0 and sprint_count > 0:
+                # Scenario 4: Both exist - queue smaller first, bigger gets last_job_item
+                if sprint_count > dev_count:
+                    # Sprint has more items - queue dev first, sprint second (sprint gets last_job_item)
+                    logger.info(f"🎯 Scenario 4a: Both steps exist, sprint_count > dev_count → Queue dev first, sprint gets last_job_item")
+                    queue_order = [('dev', False), ('sprint', True)]
+                else:
+                    # Dev has more items (or equal) - queue sprint first, dev second (dev gets last_job_item)
+                    logger.info(f"🎯 Scenario 4b: Both steps exist, dev_count >= sprint_count → Queue sprint first, dev gets last_job_item")
+                    queue_order = [('sprint', False), ('dev', True)]
+            elif dev_count > 0:
+                # Scenario 1: Only dev exists
+                logger.info(f"🎯 Scenario 1: Only dev_status exists → Dev gets last_job_item")
+                queue_order = [('dev', True)]
+            elif sprint_count > 0:
+                # Scenario 2: Only sprint exists
+                logger.info(f"🎯 Scenario 2: Only sprint_reports exists → Sprint gets last_job_item")
+                queue_order = [('sprint', True)]
+            else:
+                # Scenario 3: Neither exists (already handled by earlier logic, but just in case)
+                logger.info(f"🎯 Scenario 3: No dev_status or sprint_reports to queue")
+                queue_order = []
+
+            # Execute queuing based on determined order
+            for step_type, gets_last_job_item in queue_order:
+                if step_type == 'dev':
+                    # Queue dev_status items
+                    logger.info(f"📋 Queuing Step 4 (dev_status) for {dev_count} issues (last_job_item={gets_last_job_item})")
+
+                    with queue_manager.get_channel() as channel:
+                        for i, issue in enumerate(issues_with_dev):
+                            is_first_dev = (i == 0)
+                            is_last_dev = (i == dev_count - 1)
+
+                            issue_key = issue.get('key')
+                            issue_id = issue.get('id')
+
+                            # Build message
+                            dev_message = {
+                                'tenant_id': tenant_id,
+                                'integration_id': integration_id,
+                                'job_id': job_id,
+                                'type': 'jira_dev_status',
+                                'provider': 'jira',
+                                'issue_id': issue_id,
+                                'issue_key': issue_key,
+                                'first_item': is_first_dev,
+                                'last_item': is_last_dev,
+                                'last_job_item': gets_last_job_item and is_last_dev,  # Only set on last item if this step gets it
+                                'token': token,
+                                'old_last_sync_date': old_last_sync_date,
+                                'new_last_sync_date': new_last_sync_date
+                            }
+
+                            # Publish using shared channel
+                            tier = queue_manager._get_tenant_tier(tenant_id)
+                            tier_queue = queue_manager.get_tier_queue_name(tier, 'extraction')
+
+                            channel.basic_publish(
+                                exchange='',
+                                routing_key=tier_queue,
+                                body=json.dumps(dev_message),
+                                properties=pika.BasicProperties(
+                                    delivery_mode=2,
+                                    content_type='application/json'
+                                )
+                            )
+
+                            # Log progress every 50 issues
+                            if (i + 1) % 50 == 0 or (i + 1) == dev_count:
+                                logger.info(f"Queued {i+1}/{dev_count} dev_status extractions")
+
+                    logger.info(f"✅ All {dev_count} dev_status extractions queued (last_job_item={gets_last_job_item})")
+
+                elif step_type == 'sprint':
+                    # Queue sprint_reports items
+                    sprint_list = list(sprint_combinations)
+                    logger.info(f"📋 Queuing Step 5 (sprint_reports) for {sprint_count} unique sprints (last_job_item={gets_last_job_item})")
+
+                    with queue_manager.get_channel() as channel:
+                        for i, (board_id, sprint_id) in enumerate(sprint_list):
+                            is_first_sprint = (i == 0)
+                            is_last_sprint = (i == sprint_count - 1)
+
+                            # Build message
+                            sprint_message = {
+                                'tenant_id': tenant_id,
+                                'integration_id': integration_id,
+                                'job_id': job_id,
+                                'type': 'jira_sprint_reports',
+                                'provider': 'jira',
+                                'board_id': board_id,
+                                'sprint_id': sprint_id,
+                                'first_item': is_first_sprint,
+                                'last_item': is_last_sprint,
+                                'last_job_item': gets_last_job_item and is_last_sprint,  # Only set on last item if this step gets it
+                                'token': token,
+                                'old_last_sync_date': old_last_sync_date,
+                                'new_last_sync_date': new_last_sync_date
+                            }
+
+                            # Publish using shared channel
+                            tier = queue_manager._get_tenant_tier(tenant_id)
+                            tier_queue = queue_manager.get_tier_queue_name(tier, 'extraction')
+
+                            channel.basic_publish(
+                                exchange='',
+                                routing_key=tier_queue,
+                                body=json.dumps(sprint_message),
+                                properties=pika.BasicProperties(
+                                    delivery_mode=2,
+                                    content_type='application/json'
+                                )
+                            )
+
+                            # Log progress every 20 sprints
+                            if (i + 1) % 20 == 0 or (i + 1) == sprint_count:
+                                logger.info(f"Queued {i+1}/{sprint_count} sprint_reports extractions")
+
+                    logger.info(f"✅ All {sprint_count} sprint_reports extractions queued (last_job_item={gets_last_job_item})")
+
+            logger.info(f"✅ Issues with changelogs extraction completed ({total_issues} issues, {dev_count} with dev status, {sprint_count} unique sprints)")
             return True
 
         except Exception as e:
@@ -946,8 +993,9 @@ class JiraExtractionWorker:
             issue_key = message.get('issue_key')
             first_item = message.get('first_item', False)
             last_item = message.get('last_item', False)
+            last_job_item = message.get('last_job_item', False)  # 🔑 Extract from message
 
-            logger.info(f"🏁 [JIRA] Starting dev status extraction for issue {issue_key} (first_item={first_item}, last_item={last_item})")
+            logger.info(f"🏁 [JIRA] Starting dev status extraction for issue {issue_key} (first_item={first_item}, last_item={last_item}, last_job_item={last_job_item})")
 
             # Get Jira client
             integration, jira_client = self._get_jira_client(tenant_id, integration_id)
@@ -1002,7 +1050,7 @@ class JiraExtractionWorker:
                 new_last_sync_date=new_last_sync_date,  # 🔑 Forward to transform
                 first_item=first_item,      # True only for first dev status
                 last_item=last_item,        # True only for last dev status
-                last_job_item=last_item,    # 🎯 True on last item (final step)
+                last_job_item=last_job_item,    # 🎯 Forward from message (set by Step 3 logic)
                 token=token
             )
 
@@ -1011,7 +1059,7 @@ class JiraExtractionWorker:
                 self._update_job_status(job_id, "FAILED", f"Failed to queue dev status for {issue_key}")
                 return False
 
-            logger.debug(f"✅ Queued dev status for issue {issue_key} to transform (first_item={first_item}, last_item={last_item}, last_job_item={last_item})")
+            logger.debug(f"✅ Queued dev status for issue {issue_key} to transform (first_item={first_item}, last_item={last_item}, last_job_item={last_job_item})")
 
             # Send finished status ONLY on last item
             if last_item:
@@ -1061,11 +1109,12 @@ class JiraExtractionWorker:
             old_last_sync_date = message.get('old_last_sync_date')
             new_last_sync_date = message.get('new_last_sync_date')
 
-            logger.info(f"📊 [JIRA] Extracting sprint report for board_id={board_id}, sprint_id={sprint_id} (first_item={first_item}, last_item={last_item})")
+            logger.info(f"📊 [JIRA] Extracting sprint report for board_id={board_id}, sprint_id={sprint_id} (first_item={first_item}, last_item={last_item}, last_job_item={last_job_item})")
 
             # Send running status on first item
             if first_item:
                 await self._send_worker_status("extraction", tenant_id, job_id, "running", "jira_sprint_reports")
+                logger.info(f"✅ Sent 'running' status for jira_sprint_reports")
 
             # Get Jira client
             integration, jira_client = self._get_jira_client(tenant_id, integration_id)
@@ -1073,8 +1122,10 @@ class JiraExtractionWorker:
                 logger.error(f"Failed to initialize Jira client for sprint report extraction")
                 return False
 
+            logger.info(f"🔍 Fetching sprint report from Jira API: board_id={board_id}, sprint_id={sprint_id}")
             # Fetch sprint report data from Jira API
             sprint_report_data = jira_client.get_sprint_report(board_id, sprint_id)
+            logger.info(f"📊 Sprint report API response: {bool(sprint_report_data)} (has data: {sprint_report_data is not None})")
 
             if not sprint_report_data:
                 logger.warning(f"No sprint report data returned for board_id={board_id}, sprint_id={sprint_id}")

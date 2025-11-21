@@ -44,6 +44,12 @@ SOURCE_TYPE_MAPPING = {
     'work_items_prs_links': 'JIRA',  # Jira agent owns the links
     'sprints': 'JIRA',  # Sprint data from Jira
 
+    # Portfolio Management (Jira-related strategic planning)
+    'programs': 'JIRA',
+    'portfolios': 'JIRA',
+    'risks': 'JIRA',
+    'dependencies': 'JIRA',
+
     # GitHub Agent's scope (all GitHub-related data + DORA metrics)
     'prs': 'GITHUB',
     'prs_commits': 'GITHUB',
