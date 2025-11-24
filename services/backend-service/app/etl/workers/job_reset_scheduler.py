@@ -27,6 +27,9 @@ from app.etl.workers.queue_manager import QueueManager
 
 logger = logging.getLogger(__name__)
 
+# Track active reset check tasks by job_id to prevent duplicate tasks
+_active_reset_tasks: Dict[int, asyncio.Task] = {}
+
 
 def calculate_next_interval(reset_attempt: int) -> int:
     """
@@ -111,42 +114,64 @@ async def reset_check_task(job_id: int, tenant_id: int):
         
         logger.info(f"🔍 Checking job {job_id} reset eligibility (token={token}, tier={tier})")
         
-        # Check each step's status AND its corresponding queue (only if status = 'running')
+        # Check each step's status AND its corresponding queue
+        # IMPORTANT: Always check queues even if status is 'finished' because:
+        # - Multiple workers process messages concurrently
+        # - One worker finishing doesn't mean all messages are processed
+        # - Status updates are per-message, not per-queue
         all_steps_finished = True
         steps = status.get('steps', {})
-        
+
         for step_name, step_data in steps.items():
             # Check EXTRACTION status + queue
             extraction_status = step_data.get('extraction', 'idle')
+
+            # If status is 'running', worker is actively processing - extend deadline
             if extraction_status == 'running':
-                # Status shows running - check if there are still messages in queue
+                all_steps_finished = False
+                logger.info(f"   ⏳ Step '{step_name}' extraction is still running (worker actively processing)")
+                break
+
+            # If status is 'finished', check if there are still messages in queue
+            if extraction_status == 'finished':
                 extraction_messages = queue_manager.check_messages_with_token(extraction_queue_name, token)
-                
                 if extraction_messages:
                     all_steps_finished = False
-                    logger.info(f"   ⏳ Step '{step_name}' extraction is running with messages in {extraction_queue_name}")
+                    logger.info(f"   ⏳ Step '{step_name}' extraction has messages in {extraction_queue_name} (status={extraction_status})")
                     break
-            
+
             # Check TRANSFORM status + queue
             transform_status = step_data.get('transform', 'idle')
+
+            # If status is 'running', worker is actively processing - extend deadline
             if transform_status == 'running':
-                # Status shows running - check if there are still messages in queue
+                all_steps_finished = False
+                logger.info(f"   ⏳ Step '{step_name}' transform is still running (worker actively processing)")
+                break
+
+            # If status is 'finished', check if there are still messages in queue
+            if transform_status == 'finished':
                 transform_messages = queue_manager.check_messages_with_token(transform_queue_name, token)
-                
                 if transform_messages:
                     all_steps_finished = False
-                    logger.info(f"   ⏳ Step '{step_name}' transform is running with messages in {transform_queue_name}")
+                    logger.info(f"   ⏳ Step '{step_name}' transform has messages in {transform_queue_name} (status={transform_status})")
                     break
-            
+
             # Check EMBEDDING status + queue
             embedding_status = step_data.get('embedding', 'idle')
+
+            # If status is 'running', worker is actively processing - extend deadline
             if embedding_status == 'running':
-                # Status shows running - check if there are still messages in queue
+                all_steps_finished = False
+                logger.info(f"   ⏳ Step '{step_name}' embedding is still running (worker actively processing)")
+                break
+
+            # If status is 'finished', check if there are still messages in queue
+            if embedding_status == 'finished':
                 embedding_messages = queue_manager.check_messages_with_token(embedding_queue_name, token)
-                
                 if embedding_messages:
                     all_steps_finished = False
-                    logger.info(f"   ⏳ Step '{step_name}' embedding is running with messages in {embedding_queue_name}")
+                    logger.info(f"   ⏳ Step '{step_name}' embedding has messages in {embedding_queue_name} (status={embedding_status})")
                     break
         
         if not all_steps_finished:
@@ -183,10 +208,13 @@ async def extend_deadline_and_reschedule(job_id: int, tenant_id: int, status: Di
         now_with_tz = DateTimeHelper.now_default_with_tz()
         new_deadline_with_tz = now_with_tz + timedelta(seconds=next_interval)
 
+        # Get timezone-naive now for database update
+        now = DateTimeHelper.now_default()  # ✅ Fixed: now_default() not default_now()
+
         # Update status JSON
         status['reset_deadline'] = new_deadline_with_tz.isoformat()
         status['reset_attempt'] = reset_attempt + 1
-        
+
         # Update database
         with database.get_write_session_context() as db:
             update_query = text("""
@@ -201,8 +229,8 @@ async def extend_deadline_and_reschedule(job_id: int, tenant_id: int, status: Di
                 'status': json.dumps(status),
                 'now': now
             })
-        
-        logger.info(f"⏰ Extended reset deadline for job {job_id} to {new_deadline} (attempt {reset_attempt + 1}, next check in {next_interval}s)")
+
+        logger.info(f"⏰ Extended reset deadline for job {job_id} to {new_deadline_with_tz.isoformat()} (attempt {reset_attempt + 1}, next check in {next_interval}s)")
 
         # Send WebSocket update to active users (if any)
         try:
@@ -218,7 +246,7 @@ async def extend_deadline_and_reschedule(job_id: int, tenant_id: int, status: Di
             logger.debug(f"WebSocket update failed (no active connections): {ws_error}")
 
         # Schedule another reset check task
-        schedule_reset_check_task(job_id, tenant_id, delay_seconds=next_interval)
+        await schedule_reset_check_task(job_id, tenant_id, delay_seconds=next_interval)
         
     except Exception as e:
         logger.error(f"❌ Error extending deadline for job {job_id}: {e}", exc_info=True)
@@ -284,18 +312,26 @@ async def reset_job_to_ready(job_id: int, tenant_id: int, status: Dict[str, Any]
         logger.error(f"❌ Error resetting job {job_id} to READY: {e}", exc_info=True)
 
 
-def schedule_reset_check_task(job_id: int, tenant_id: int, delay_seconds: int):
+async def schedule_reset_check_task(job_id: int, tenant_id: int, delay_seconds: int):
     """
     Schedule a delayed task to check and reset job.
-    
+
     Args:
         job_id: ETL job ID
         tenant_id: Tenant ID
         delay_seconds: Delay in seconds before running the task
     """
     try:
-        # Create the delayed task
-        asyncio.create_task(delayed_reset_check(job_id, tenant_id, delay_seconds))
+        # Cancel any existing task for this job
+        if job_id in _active_reset_tasks:
+            existing_task = _active_reset_tasks[job_id]
+            if not existing_task.done():
+                existing_task.cancel()
+                logger.debug(f"🔄 Cancelled existing reset check task for job {job_id}")
+
+        # Create the delayed task and store reference
+        task = asyncio.create_task(delayed_reset_check(job_id, tenant_id, delay_seconds))
+        _active_reset_tasks[job_id] = task
         logger.info(f"📅 Scheduled reset check for job {job_id} in {delay_seconds}s")
     except Exception as e:
         logger.error(f"❌ Error scheduling reset check task for job {job_id}: {e}", exc_info=True)
@@ -304,16 +340,26 @@ def schedule_reset_check_task(job_id: int, tenant_id: int, delay_seconds: int):
 async def delayed_reset_check(job_id: int, tenant_id: int, delay_seconds: int):
     """
     Wait for delay, then run reset check task.
-    
+
     Args:
         job_id: ETL job ID
         tenant_id: Tenant ID
         delay_seconds: Delay in seconds
     """
+    # Store reference to current task for cleanup check
+    current_task = asyncio.current_task()
+
     try:
         logger.debug(f"⏱️ Waiting {delay_seconds}s before checking job {job_id} for reset")
         await asyncio.sleep(delay_seconds)
         await reset_check_task(job_id, tenant_id)
+    except asyncio.CancelledError:
+        logger.debug(f"🔄 Reset check task for job {job_id} was cancelled (replaced by new task)")
     except Exception as e:
         logger.error(f"❌ Error in delayed reset check for job {job_id}: {e}", exc_info=True)
+    finally:
+        # Only clean up if we're still the active task (not replaced by a newer one)
+        if job_id in _active_reset_tasks and _active_reset_tasks[job_id] == current_task:
+            del _active_reset_tasks[job_id]
+            logger.debug(f"🧹 Cleaned up reset check task for job {job_id}")
 

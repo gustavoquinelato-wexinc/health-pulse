@@ -355,40 +355,117 @@ class JiraTransformHandler:
                 logger.debug(f"✅ Committed projects and issue types to database")
 
             # Queue entities for embedding (after commit)
-            # Queue projects - loop and queue individual projects
+            # 🚀 PERFORMANCE: Use shared channel to queue projects and WITs individually (same pattern as extraction worker)
             has_projects = bool(projects_to_insert or projects_to_update)
             has_wits = bool(wits_to_insert or wits_to_update)
 
-            if has_projects:
-                all_projects = projects_to_insert + projects_to_update
-                self._queue_entities_for_embedding(
-                    tenant_id, 'projects', all_projects, job_id,
-                    message_type='jira_projects_and_issue_types',
-                    integration_id=integration_id,
-                    provider=provider,
-                    old_last_sync_date=old_last_sync_date,  # 🔑 Forward old_last_sync_date
-                    new_last_sync_date=new_last_sync_date,
-                    first_item=first_item,  # First project gets first_item=True
-                    last_item=False if has_wits else last_item,  # Only last if no WITs to follow
-                    last_job_item=False if has_wits else last_job_item,  # Only last_job_item if no WITs
-                    token=token
-                )
+            import pika
+            import json
 
-            # Queue WITs - loop and queue individual WITs, last WIT gets last_item=True
-            if has_wits:
-                all_wits = wits_to_insert + wits_to_update
-                self._queue_entities_for_embedding(
-                    tenant_id, 'wits', all_wits, job_id,
-                    message_type='jira_projects_and_issue_types',
-                    integration_id=integration_id,
-                    provider=provider,
-                    old_last_sync_date=old_last_sync_date,  # 🔑 Forward old_last_sync_date
-                    new_last_sync_date=new_last_sync_date,
-                    first_item=first_item if not has_projects else False,  # First WIT gets first_item=True only if no projects
-                    last_item=last_item,  # 🔑 Last WIT gets last_item=True
-                    last_job_item=last_job_item,  # 🔑 Forward last_job_item flag
-                    token=token
-                )
+            # 🔧 FIX: Check for entities that need embedding but weren't inserted/updated
+            # This handles the case where entities exist in DB but not in qdrant_vectors (first run scenario)
+            all_projects = projects_to_insert + projects_to_update if has_projects else []
+            all_wits = wits_to_insert + wits_to_update if has_wits else []
+
+            # Add existing entities that don't have vectors yet
+            unembedded_projects = self._get_unembedded_entities(tenant_id, integration_id, 'projects')
+            unembedded_wits = self._get_unembedded_entities(tenant_id, integration_id, 'wits')
+
+            # Merge with existing lists, avoiding duplicates
+            all_projects = self._merge_entity_lists(all_projects, unembedded_projects)
+            all_wits = self._merge_entity_lists(all_wits, unembedded_wits)
+
+            # Queue projects and WITs using shared channel (same pattern as extraction worker for issues)
+            if all_projects or all_wits:
+                total_entities = len(all_projects) + len(all_wits)
+                logger.info(f"🔄 [PROJECTS/WITS] Queuing {len(all_projects)} projects + {len(all_wits)} WITs = {total_entities} entities to embedding using shared channel")
+
+                with self.queue_manager.get_channel() as channel:
+                    entity_index = 0
+
+                    # Queue projects first
+                    for i, project in enumerate(all_projects):
+                        is_first = (entity_index == 0)
+
+                        # Build embedding message
+                        message = {
+                            'tenant_id': tenant_id,
+                            'integration_id': integration_id,
+                            'job_id': job_id,
+                            'type': 'jira_projects_and_issue_types',
+                            'provider': provider,
+                            'first_item': is_first,
+                            'last_item': False,
+                            'old_last_sync_date': old_last_sync_date,
+                            'new_last_sync_date': new_last_sync_date,
+                            'last_job_item': False,
+                            'token': token,
+                            'rate_limited': False,
+                            'table_name': 'projects',
+                            'external_id': str(project.get('external_id'))
+                        }
+
+                        # Publish using shared channel
+                        tier = self.queue_manager._get_tenant_tier(tenant_id)
+                        tier_queue = self.queue_manager.get_tier_queue_name(tier, 'embedding')
+
+                        channel.basic_publish(
+                            exchange='',
+                            routing_key=tier_queue,
+                            body=json.dumps(message),
+                            properties=pika.BasicProperties(
+                                delivery_mode=2,
+                                content_type='application/json'
+                            )
+                        )
+
+                        if i == 0:
+                            logger.info(f"📤 [PROJECTS] Queued project {i+1}/{len(all_projects)}: external_id={project.get('external_id')}, first={is_first}")
+
+                        entity_index += 1
+
+                    # Queue WITs second
+                    for i, wit in enumerate(all_wits):
+                        is_last = (entity_index == total_entities - 1)
+
+                        # Build embedding message
+                        message = {
+                            'tenant_id': tenant_id,
+                            'integration_id': integration_id,
+                            'job_id': job_id,
+                            'type': 'jira_projects_and_issue_types',
+                            'provider': provider,
+                            'first_item': False,
+                            'last_item': is_last,
+                            'old_last_sync_date': old_last_sync_date,
+                            'new_last_sync_date': new_last_sync_date,
+                            'last_job_item': False,
+                            'token': token,
+                            'rate_limited': False,
+                            'table_name': 'wits',
+                            'external_id': str(wit.get('external_id'))
+                        }
+
+                        # Publish using shared channel
+                        tier = self.queue_manager._get_tenant_tier(tenant_id)
+                        tier_queue = self.queue_manager.get_tier_queue_name(tier, 'embedding')
+
+                        channel.basic_publish(
+                            exchange='',
+                            routing_key=tier_queue,
+                            body=json.dumps(message),
+                            properties=pika.BasicProperties(
+                                delivery_mode=2,
+                                content_type='application/json'
+                            )
+                        )
+
+                        if i == len(all_wits) - 1:
+                            logger.info(f"📤 [WITS] Queued WIT {i+1}/{len(all_wits)}: external_id={wit.get('external_id')}, last={is_last}")
+
+                        entity_index += 1
+
+                logger.info(f"✅ [PROJECTS/WITS] Queued {total_entities} entities to embedding using shared channel")
 
             # 🎯 HANDLE NO UPDATES: If no projects and no WITs, mark both transform and embedding as finished
             if not has_projects and not has_wits and last_item:
@@ -1065,28 +1142,88 @@ class JiraTransformHandler:
             if project_external_id in existing_projects:
                 # Check if project needs update
                 existing_project = existing_projects[project_external_id]
-                if (existing_project.key != project_key or
-                    existing_project.name != project_name):
-                    result['projects_to_update'].append({
+
+                # Check if this is from custom fields extraction (has custom_fields dict)
+                # vs regular job extraction (no custom_fields dict)
+                is_custom_fields_extraction = bool(existing_custom_fields)
+
+                if is_custom_fields_extraction:
+                    # Custom fields extraction: minimal update (only key if changed)
+                    # This ensures regular job will detect name/type changes and trigger embedding
+                    if existing_project.key != project_key:
+                        result['projects_to_update'].append({
+                            'id': existing_project.id,
+                            'external_id': project_external_id,  # Include for consistency
+                            'key': project_key,
+                            'last_updated_at': DateTimeHelper.now_default()
+                        })
+                else:
+                    # Regular job extraction: full update check
+                    # Check if project was created by custom fields extraction (has incomplete data)
+                    # OR if key/name changed
+                    project_type_from_api = project_data.get('projectTypeKey')
+                    needs_update = False
+                    update_data = {
                         'id': existing_project.id,
-                        'key': project_key,
-                        'name': project_name,
+                        'external_id': project_external_id,  # Include for embedding queue
                         'last_updated_at': DateTimeHelper.now_default()
-                    })
+                    }
+
+                    # Check if project has incomplete data (created by custom fields extraction)
+                    if existing_project.project_type is None and project_type_from_api:
+                        needs_update = True
+                        update_data['project_type'] = project_type_from_api
+                        logger.debug(f"Project {project_key} needs update: missing project_type")
+
+                    # Check if key changed
+                    if existing_project.key != project_key:
+                        needs_update = True
+                        update_data['key'] = project_key
+                        logger.debug(f"Project {project_key} needs update: key changed")
+
+                    # Check if name changed
+                    if existing_project.name != project_name:
+                        needs_update = True
+                        update_data['name'] = project_name
+                        logger.debug(f"Project {project_key} needs update: name changed")
+
+                    if needs_update:
+                        result['projects_to_update'].append(update_data)
+                        logger.debug(f"✅ Project {project_key} will be updated and queued for embedding")
+
                 project_id = existing_project.id
             else:
                 # New project
-                project_insert_data = {
-                    'external_id': project_external_id,
-                    'key': project_key,
-                    'name': project_name,
-                    'project_type': None,  # Project type not available in createmeta, fetch separately later
-                    'tenant_id': tenant_id,
-                    'integration_id': integration_id,
-                    'active': True,
-                    'created_at': DateTimeHelper.now_default(),
-                    'last_updated_at': DateTimeHelper.now_default()
-                }
+                # Check if this is from custom fields extraction vs regular job
+                is_custom_fields_extraction = bool(existing_custom_fields)
+
+                if is_custom_fields_extraction:
+                    # Custom fields extraction: minimal insert (id, external_id, key only)
+                    # This ensures regular job will detect missing name/type and trigger update+embedding
+                    project_insert_data = {
+                        'external_id': project_external_id,
+                        'key': project_key,
+                        'name': project_name or 'Pending',  # Placeholder to satisfy NOT NULL constraint
+                        'project_type': None,
+                        'tenant_id': tenant_id,
+                        'integration_id': integration_id,
+                        'active': True,
+                        'created_at': DateTimeHelper.now_default(),
+                        'last_updated_at': DateTimeHelper.now_default()
+                    }
+                else:
+                    # Regular job extraction: full insert with all available fields
+                    project_insert_data = {
+                        'external_id': project_external_id,
+                        'key': project_key,
+                        'name': project_name,
+                        'project_type': project_data.get('projectTypeKey'),  # Available in project search API
+                        'tenant_id': tenant_id,
+                        'integration_id': integration_id,
+                        'active': True,
+                        'created_at': DateTimeHelper.now_default(),
+                        'last_updated_at': DateTimeHelper.now_default()
+                    }
                 result['projects_to_insert'].append(project_insert_data)
                 project_id = None  # Will be set after insert
 
@@ -1263,6 +1400,97 @@ class JiraTransformHandler:
         except Exception as e:
             logger.warning(f"Error looking up wit mapping for '{wit_name}': {e}")
             return None
+
+    def _get_unembedded_entities(self, tenant_id: int, integration_id: int, table_name: str) -> List[Dict[str, Any]]:
+        """
+        Get entities that exist in the database but don't have vectors in qdrant_vectors table.
+
+        This handles the first run scenario where entities were created during custom fields extraction
+        but never embedded because they didn't need updates during regular job execution.
+
+        Args:
+            tenant_id: Tenant ID
+            integration_id: Integration ID
+            table_name: Table name ('projects' or 'wits')
+
+        Returns:
+            List of entity dictionaries with 'id' and 'external_id' fields
+        """
+        try:
+            with self.get_db_session() as session:
+                from app.models.unified_models import QdrantVector
+
+                # Query entities that don't have vectors
+                if table_name == 'projects':
+                    from app.models.unified_models import Project
+                    query = text("""
+                        SELECT p.id, p.external_id
+                        FROM projects p
+                        LEFT JOIN qdrant_vectors qv ON qv.table_name = 'projects'
+                            AND qv.record_id = p.id
+                            AND qv.tenant_id = p.tenant_id
+                            AND qv.active = true
+                        WHERE p.tenant_id = :tenant_id
+                            AND p.integration_id = :integration_id
+                            AND p.active = true
+                            AND qv.id IS NULL
+                    """)
+                elif table_name == 'wits':
+                    from app.models.unified_models import Wit
+                    query = text("""
+                        SELECT w.id, w.external_id
+                        FROM wits w
+                        LEFT JOIN qdrant_vectors qv ON qv.table_name = 'wits'
+                            AND qv.record_id = w.id
+                            AND qv.tenant_id = w.tenant_id
+                            AND qv.active = true
+                        WHERE w.tenant_id = :tenant_id
+                            AND w.integration_id = :integration_id
+                            AND w.active = true
+                            AND qv.id IS NULL
+                    """)
+                else:
+                    logger.warning(f"Unsupported table name for unembedded entities check: {table_name}")
+                    return []
+
+                result = session.execute(query, {
+                    'tenant_id': tenant_id,
+                    'integration_id': integration_id
+                }).fetchall()
+
+                unembedded = [{'id': row[0], 'external_id': str(row[1])} for row in result]
+
+                if unembedded:
+                    logger.info(f"🔍 [UNEMBEDDED] Found {len(unembedded)} {table_name} without vectors")
+
+                return unembedded
+
+        except Exception as e:
+            logger.error(f"Error getting unembedded entities for {table_name}: {e}")
+            return []
+
+    def _merge_entity_lists(self, existing_list: List[Dict], new_list: List[Dict]) -> List[Dict]:
+        """
+        Merge two entity lists, avoiding duplicates based on external_id.
+
+        Args:
+            existing_list: List of entities already marked for embedding (from insert/update)
+            new_list: List of unembedded entities to add
+
+        Returns:
+            Merged list without duplicates
+        """
+        # Create a set of external_ids from existing list
+        existing_external_ids = {entity.get('external_id') for entity in existing_list if entity.get('external_id')}
+
+        # Add entities from new_list that aren't already in existing_list
+        for entity in new_list:
+            external_id = entity.get('external_id')
+            if external_id and external_id not in existing_external_ids:
+                existing_list.append(entity)
+                existing_external_ids.add(external_id)
+
+        return existing_list
 
     def _process_custom_field_data(
         self,
@@ -1513,43 +1741,41 @@ class JiraTransformHandler:
                     first_item_flag = message.get('first_item', False)
                     token = message.get('token')  # 🔑 Extract token from message
 
-                    # 🎯 Query statuses updated AFTER new_last_sync_date
-                    # This ensures we only queue statuses that were actually updated during this extraction
-                    if new_last_sync_date:
-                        logger.debug(f"🎯 [STATUSES] Querying statuses updated after {new_last_sync_date}")
-                        statuses_query = text("""
-                            SELECT DISTINCT external_id
-                            FROM statuses
-                            WHERE tenant_id = :tenant_id
-                              AND integration_id = :integration_id
-                              AND last_updated_at > :new_last_sync_date
-                            ORDER BY external_id
-                        """)
+                    # 🎯 Query statuses that need embedding
+                    # Since new_last_sync_date is set BEFORE extraction starts, all statuses
+                    # inserted/updated during this run will have last_updated_at >= new_last_sync_date
+                    # - First run: all statuses inserted → all have last_updated_at >= new_last_sync_date
+                    # - Incremental run: only changed statuses updated → only those have last_updated_at >= new_last_sync_date
 
-                        with self.get_db_session() as db_read:
-                            status_rows = db_read.execute(statuses_query, {
-                                'tenant_id': tenant_id,
-                                'integration_id': integration_id,
-                                'new_last_sync_date': new_last_sync_date
-                            }).fetchall()
-                    else:
-                        # Fallback: If no new_last_sync_date, query all statuses (first run scenario)
-                        logger.debug(f"🎯 [STATUSES] No new_last_sync_date - querying all statuses (first run)")
-                        statuses_query = text("""
-                            SELECT DISTINCT external_id
-                            FROM statuses
-                            WHERE tenant_id = :tenant_id AND integration_id = :integration_id
-                            ORDER BY external_id
-                        """)
+                    # 🔑 Convert new_last_sync_date string to datetime object for proper comparison
+                    # This ensures PostgreSQL interprets the timezone correctly
+                    from datetime import datetime
+                    new_last_sync_dt = datetime.strptime(new_last_sync_date, '%Y-%m-%d %H:%M:%S')
 
-                        with self.get_db_session() as db_read:
-                            status_rows = db_read.execute(statuses_query, {
-                                'tenant_id': tenant_id,
-                                'integration_id': integration_id
-                            }).fetchall()
+                    # 🔍 DEBUG: Check what values we're comparing
+                    logger.info(f"🔍 [DEBUG] new_last_sync_date = {new_last_sync_date} (New York time)")
+                    logger.info(f"🔍 [DEBUG] new_last_sync_dt = {new_last_sync_dt} (datetime object)")
+
+                    logger.debug(f"🎯 [STATUSES] Querying statuses updated since {new_last_sync_date}")
+                    statuses_query = text("""
+                        SELECT DISTINCT external_id
+                        FROM statuses
+                        WHERE tenant_id = :tenant_id
+                            AND integration_id = :integration_id
+                            AND active = true
+                            AND last_updated_at >= :new_last_sync_date
+                        ORDER BY external_id
+                    """)
+
+                    with self.get_db_session() as db_read:
+                        status_rows = db_read.execute(statuses_query, {
+                            'tenant_id': tenant_id,
+                            'integration_id': integration_id,
+                            'new_last_sync_date': new_last_sync_dt  # Pass datetime object, not string
+                        }).fetchall()
 
                     status_external_ids = [row[0] for row in status_rows]
-                    logger.debug(f"🎯 [STATUSES] Found {len(status_external_ids)} statuses updated after {new_last_sync_date}")
+                    logger.info(f"🎯 [STATUSES] Found {len(status_external_ids)} statuses that need embedding")
 
                     # 🎯 HANDLE NO UPDATED STATUSES: If no statuses were updated, mark both transform and embedding as finished
                     if not status_external_ids:
@@ -1631,6 +1857,9 @@ class JiraTransformHandler:
             statuses_to_update = []
             now = DateTimeHelper.now_default()
 
+            # 🔍 DEBUG: Check what timezone is actually being used
+            logger.info(f"🔍 [DEBUG] now = {now} (should be New York time)")
+
             # Get existing statuses
             existing_query = text("""
                 SELECT external_id, id, original_name, category, description, status_mapping_id
@@ -1699,7 +1928,7 @@ class JiraTransformHandler:
                         'tenant_id': tenant_id
                     })
 
-            # Bulk insert new statuses
+            # Bulk insert new statuses with ON CONFLICT to handle race conditions
             if statuses_to_insert:
                 # Add timestamps to each record
                 for status in statuses_to_insert:
@@ -1714,9 +1943,16 @@ class JiraTransformHandler:
                         :external_id, :original_name, :category, :description, :status_mapping_id,
                         :integration_id, :tenant_id, TRUE, :created_at, :last_updated_at
                     )
+                    ON CONFLICT (external_id, tenant_id, integration_id)
+                    DO UPDATE SET
+                        original_name = EXCLUDED.original_name,
+                        category = EXCLUDED.category,
+                        description = EXCLUDED.description,
+                        status_mapping_id = EXCLUDED.status_mapping_id,
+                        last_updated_at = EXCLUDED.last_updated_at
                 """)
                 db.execute(insert_query, statuses_to_insert)
-                logger.debug(f"Inserted {len(statuses_to_insert)} new statuses with mapping links")
+                logger.info(f"✅ Inserted/Updated {len(statuses_to_insert)} statuses with last_updated_at={now}")
 
             # Bulk update existing statuses
             if statuses_to_update:
@@ -1732,7 +1968,7 @@ class JiraTransformHandler:
                     WHERE id = :id
                 """)
                 db.execute(update_query, statuses_to_update)
-                logger.debug(f"Updated {len(statuses_to_update)} existing statuses with mapping links")
+                logger.info(f"✅ Updated {len(statuses_to_update)} existing statuses with last_updated_at={now}")
 
             # Return entities for vectorization (to be queued AFTER commit)
             return {
@@ -1881,12 +2117,23 @@ class JiraTransformHandler:
         """
         Queue entities for embedding by publishing messages to embedding queue.
 
+        This method is used for ALL entity types (projects, WITs, statuses, issues, changelogs, etc.).
+        It loops through the entities list and publishes one message per entity to the embedding queue.
+
         Args:
             tenant_id: Tenant ID
-            table_name: Name of the table (projects, wits, statuses, etc.)
+            table_name: Name of the table (projects, wits, statuses, work_items, etc.)
             entities: List of entity dictionaries with external_id or key
+            job_id: ETL job ID
+            last_item: Whether this is the last batch in the step
+            provider: Provider name (jira, github, etc.)
             old_last_sync_date: Old last sync date used for filtering
             new_last_sync_date: New last sync date to update on completion (extraction end date)
+            message_type: ETL step type for status tracking
+            integration_id: Integration ID
+            first_item: Whether this is the first batch in the step
+            last_job_item: Whether this is the final batch in the entire job
+            token: Job execution token for tracking messages through pipeline
         """
         # 🎯 HANDLE COMPLETION MESSAGE: Empty entities with last_job_item=True
         if not entities and last_job_item:
@@ -1962,151 +2209,74 @@ class JiraTransformHandler:
                 # Don't update overall status here - let embedding worker handle completion
                 logger.debug(f"Transform completed, queuing {table_name} for embedding")
 
-            for entity in entities:
-                # Get external ID - work_items_prs_links uses internal ID, all others use external_id
-                if table_name == 'work_items_prs_links':
-                    external_id = str(entity.get('id'))
-                else:
-                    external_id = entity.get('external_id')
+            # 🚀 PERFORMANCE: Use shared channel for batch publishing (same pattern as extraction worker)
+            import pika
+            import json
 
-                if not external_id:
-                    logger.warning(f"No external_id found for {table_name} entity: {entity}")
-                    continue
+            with self.queue_manager.get_channel() as channel:
+                for idx, entity in enumerate(entities):
+                    # Get external ID - work_items_prs_links uses internal ID, all others use external_id
+                    if table_name == 'work_items_prs_links':
+                        external_id = str(entity.get('id'))
+                    else:
+                        external_id = entity.get('external_id')
 
-                # Calculate flags for this entity
-                entity_first_item = first_item and (queued_count == 0)
-                entity_last_item = last_item and (queued_count == len(entities) - 1)
+                    if not external_id:
+                        logger.warning(f"No external_id found for {table_name} entity: {entity}")
+                        continue
 
-                # 🎯 DEBUG: Log flags for first entity
-                if queued_count == 0:
-                    logger.info(f"🎯 [EMBEDDING-QUEUE] First entity: table={table_name}, external_id={external_id}, first_item={entity_first_item}, last_item={entity_last_item}, incoming_first={first_item}, incoming_last={last_item}")
+                    # Calculate flags for this entity using enumerate index (not queued_count)
+                    entity_first_item = first_item and (idx == 0)
+                    entity_last_item = last_item and (idx == len(entities) - 1)
 
-                # Publish embedding message with standardized structure
-                success = self.queue_manager.publish_embedding_job(
-                    tenant_id=tenant_id,
-                    table_name=table_name,
-                    external_id=str(external_id),
-                    job_id=job_id,
-                    integration_id=integration_id,
-                    provider=provider,
-                    old_last_sync_date=old_last_sync_date,  # 🔑 Old last sync date (for filtering)
-                    new_last_sync_date=new_last_sync_date,  # 🔑 New last sync date (for job completion)
-                    first_item=entity_first_item,  # True only for first entity when incoming first_item=True
-                    last_item=entity_last_item,  # True only for last entity when incoming last_item=True
-                    last_job_item=last_job_item,  # Forward last_job_item flag from incoming message
-                    step_type=message_type,  # Pass the step type (e.g., 'jira_projects_and_issue_types')
-                    token=token  # 🔑 Include token in message
-                )
+                    # 🎯 DEBUG: Log flags for first and last entities
+                    if idx == 0 or idx == len(entities) - 1:
+                        logger.info(f"🎯 [EMBEDDING-QUEUE] Entity {idx+1}/{len(entities)}: table={table_name}, external_id={external_id}, first_item={entity_first_item}, last_item={entity_last_item}, incoming_first={first_item}, incoming_last={last_item}")
 
-                if success:
+                    # Build embedding message
+                    message = {
+                        'tenant_id': tenant_id,
+                        'integration_id': integration_id,
+                        'job_id': job_id,
+                        'type': message_type,  # ETL step name for status tracking
+                        'provider': provider,
+                        'first_item': entity_first_item,
+                        'last_item': entity_last_item,
+                        'old_last_sync_date': old_last_sync_date,
+                        'new_last_sync_date': new_last_sync_date,
+                        'last_job_item': last_job_item,
+                        'token': token,
+                        'rate_limited': False,
+                        # Transform → Embedding specific fields
+                        'table_name': table_name,
+                        'external_id': str(external_id)
+                    }
+
+                    # Publish using shared channel
+                    tier = self.queue_manager._get_tenant_tier(tenant_id)
+                    tier_queue = self.queue_manager.get_tier_queue_name(tier, 'embedding')
+
+                    channel.basic_publish(
+                        exchange='',
+                        routing_key=tier_queue,
+                        body=json.dumps(message),
+                        properties=pika.BasicProperties(
+                            delivery_mode=2,
+                            content_type='application/json'
+                        )
+                    )
+
                     queued_count += 1
 
             if queued_count > 0:
-                logger.debug(f"Queued {queued_count} {table_name} entities for embedding")
+                logger.debug(f"Queued {queued_count} {table_name} entities for embedding using shared channel")
 
         except Exception as e:
             logger.error(f"Error queuing entities for embedding: {e}")
             # Don't raise - embedding is async and shouldn't block transform
 
-    def _queue_all_entities_for_embedding(
-        self,
-        session,
-        tenant_id: int,
-        integration_id: int,
-        job_id: int,
-        message_type: str,
-        provider: str,
-        old_last_sync_date: str,  # 🔑 Old last sync date (for filtering)
-        new_last_sync_date: str,  # 🔑 New last sync date (for job completion)
-        last_job_item: bool,
-        token: str = None  # 🔑 Job execution token
-    ):
-        """
-        Queue ALL active projects and wits for embedding (not just changed ones).
-
-        This ensures complete vectorization of all entities, regardless of what was
-        inserted/updated in the current batch.
-
-        Args:
-            session: Database session
-            tenant_id: Tenant ID
-            integration_id: Integration ID
-            job_id: ETL job ID
-            message_type: ETL step type
-            provider: Provider name (jira, github, etc.)
-            old_last_sync_date: Old last sync date (for filtering)
-            new_last_sync_date: New last sync date (for job completion)
-            last_job_item: Whether this is the final job item
-        """
-        try:
-            # Get ALL active projects for this tenant/integration
-            all_projects = session.query(Project.external_id).filter(
-                Project.tenant_id == tenant_id,
-                Project.integration_id == integration_id,
-                Project.active == True
-            ).all()
-
-            # Get ALL active wits for this tenant/integration
-            all_wits = session.query(Wit.external_id).filter(
-                Wit.tenant_id == tenant_id,
-                Wit.integration_id == integration_id,
-                Wit.active == True
-            ).all()
-
-            total_entities = len(all_projects) + len(all_wits)
-            logger.debug(f"🔄 Queueing ALL entities for embedding: {len(all_projects)} projects + {len(all_wits)} wits = {total_entities} total")
-
-            if total_entities == 0:
-                logger.warning(f"No active projects or wits found for tenant {tenant_id}, integration {integration_id}")
-                return
-
-            # Queue ALL projects (not just changed ones)
-            for i, project in enumerate(all_projects):
-                is_first = (i == 0)
-                is_last = (i == len(all_projects) - 1) and len(all_wits) == 0
-
-                self._queue_entities_for_embedding(
-                    tenant_id=tenant_id,
-                    table_name='projects',
-                    entities=[{'external_id': project.external_id}],
-                    job_id=job_id,
-                    message_type=message_type,
-                    integration_id=integration_id,
-                    provider=provider,
-                    old_last_sync_date=old_last_sync_date,  # 🔑 Forward old_last_sync_date
-                    new_last_sync_date=new_last_sync_date,
-                    first_item=is_first,
-                    last_item=is_last,
-                    last_job_item=last_job_item,
-                    token=token  # 🔑 Include token in message
-                )
-
-            # Queue ALL wits (not just changed ones)
-            for i, wit in enumerate(all_wits):
-                is_first = (i == 0) and len(all_projects) == 0
-                is_last = (i == len(all_wits) - 1)
-
-                self._queue_entities_for_embedding(
-                    tenant_id=tenant_id,
-                    table_name='wits',
-                    entities=[{'external_id': wit.external_id}],
-                    job_id=job_id,
-                    message_type=message_type,
-                    integration_id=integration_id,
-                    provider=provider,
-                    old_last_sync_date=old_last_sync_date,  # 🔑 Forward old_last_sync_date
-                    new_last_sync_date=new_last_sync_date,
-                    first_item=is_first,
-                    last_item=is_last,
-                    last_job_item=last_job_item,
-                    token=token  # 🔑 Include token in message
-                )
-
-            logger.debug(f"✅ Successfully queued {total_entities} entities for embedding")
-
-        except Exception as e:
-            logger.error(f"Error queuing all entities for embedding: {e}")
-            # Don't raise - embedding is async and shouldn't block transform
+    # REMOVED: _queue_all_entities_for_embedding - leftover/dead code, never called
+    # We now queue entities individually using shared channel pattern in _process_jira_project_search
 
     # REMOVED: _process_jira_issues_changelogs and _process_jira_single_issue
     # These were leftover/dead code - never called. The actual method used is _process_jira_single_issue_changelog below.

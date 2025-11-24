@@ -256,7 +256,7 @@ class WorkerStatusManager:
             # RATE_LIMITED jobs don't need reset scheduler - they auto-resume via job scheduler
             if not rate_limited:
                 from app.etl.workers.job_reset_scheduler import schedule_reset_check_task
-                schedule_reset_check_task(job_id, tenant_id, delay_seconds=30)
+                await schedule_reset_check_task(job_id, tenant_id, delay_seconds=30)
                 logger.info(f"📅 Scheduled automatic reset check for job {job_id} in 30 seconds")
 
         except Exception as e:

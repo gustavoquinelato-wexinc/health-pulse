@@ -89,6 +89,30 @@ class BulkOperations:
             elif table_name == 'sprints':
                 # sprints has unique constraint on (tenant_id, integration_id, external_id)
                 on_conflict_clause = "ON CONFLICT (tenant_id, integration_id, external_id) DO NOTHING"
+            elif table_name == 'wits':
+                # wits has unique constraint on (external_id, tenant_id, integration_id)
+                # Use DO UPDATE to handle race conditions between concurrent workers
+                on_conflict_clause = """
+                    ON CONFLICT (external_id, tenant_id, integration_id)
+                    DO UPDATE SET
+                        original_name = EXCLUDED.original_name,
+                        description = EXCLUDED.description,
+                        hierarchy_level = EXCLUDED.hierarchy_level,
+                        wits_mapping_id = EXCLUDED.wits_mapping_id,
+                        last_updated_at = EXCLUDED.last_updated_at
+                """
+            elif table_name == 'statuses':
+                # statuses has unique constraint on (external_id, tenant_id, integration_id)
+                # Note: This is a fallback - statuses use custom insert query in transform worker
+                on_conflict_clause = """
+                    ON CONFLICT (external_id, tenant_id, integration_id)
+                    DO UPDATE SET
+                        original_name = EXCLUDED.original_name,
+                        category = EXCLUDED.category,
+                        description = EXCLUDED.description,
+                        status_mapping_id = EXCLUDED.status_mapping_id,
+                        last_updated_at = EXCLUDED.last_updated_at
+                """
 
             bulk_sql = f"""
                 INSERT INTO {table_name} ({columns_str})

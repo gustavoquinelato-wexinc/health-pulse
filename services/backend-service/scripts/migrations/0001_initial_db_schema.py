@@ -1198,6 +1198,8 @@ def apply(connection):
         ensure_unique_constraint('integrations', 'uk_integrations_provider_tenant_id', 'provider, tenant_id')
         ensure_unique_constraint('statuses_mappings', 'uk_statuses_mappings_from_tenant', 'status_from, tenant_id')
         ensure_unique_constraint('wits_mappings', 'uk_wits_mappings_from_tenant', 'wit_from, tenant_id')
+        ensure_unique_constraint('statuses', 'uk_statuses_external_id_tenant_integration', 'external_id, tenant_id, integration_id')
+        ensure_unique_constraint('wits', 'uk_wits_external_id_tenant_integration', 'external_id, tenant_id, integration_id')
         ensure_unique_constraint('migration_history', 'uk_migration_history_migration_number', 'migration_number')
 
         # Unique constraints for global DORA tables
