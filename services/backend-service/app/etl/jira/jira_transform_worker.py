@@ -1928,7 +1928,8 @@ class JiraTransformHandler:
                         'tenant_id': tenant_id
                     })
 
-            # Bulk insert new statuses with ON CONFLICT to handle race conditions
+            # Bulk insert new statuses with ON CONFLICT DO NOTHING to avoid deadlocks
+            # When multiple workers process the same statuses, DO NOTHING prevents lock conflicts
             if statuses_to_insert:
                 # Add timestamps to each record
                 for status in statuses_to_insert:
@@ -1943,16 +1944,10 @@ class JiraTransformHandler:
                         :external_id, :original_name, :category, :description, :status_mapping_id,
                         :integration_id, :tenant_id, TRUE, :created_at, :last_updated_at
                     )
-                    ON CONFLICT (external_id, tenant_id, integration_id)
-                    DO UPDATE SET
-                        original_name = EXCLUDED.original_name,
-                        category = EXCLUDED.category,
-                        description = EXCLUDED.description,
-                        status_mapping_id = EXCLUDED.status_mapping_id,
-                        last_updated_at = EXCLUDED.last_updated_at
+                    ON CONFLICT (external_id, tenant_id, integration_id) DO NOTHING
                 """)
                 db.execute(insert_query, statuses_to_insert)
-                logger.info(f"✅ Inserted/Updated {len(statuses_to_insert)} statuses with last_updated_at={now}")
+                logger.info(f"✅ Inserted {len(statuses_to_insert)} new statuses (skipped existing)")
 
             # Bulk update existing statuses
             if statuses_to_update:

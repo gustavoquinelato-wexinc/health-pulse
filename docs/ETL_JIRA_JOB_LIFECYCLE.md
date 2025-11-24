@@ -250,11 +250,16 @@ Step 1 → Step 2 (multiple projects → multiple statuses) → Step 3 (completi
    - Schedules delayed task to check and reset job
 
 4. **Backend Scheduler** (`job_reset_scheduler.py`):
-   - After 30 seconds, runs `check_and_reset_job()` task
+   - After 30 seconds, runs `reset_check_task()` via `threading.Timer`
    - Verifies all steps are finished
-   - Checks embedding queue for remaining messages with job token
-   - **If work remains**: Extends deadline (60s, 180s, 300s) and reschedules
-   - **If all complete**: Resets job to READY
+   - Checks all queues (extraction, transform, embedding) for remaining messages with job token
+   - **If work remains**:
+     - Extends deadline (60s, 180s, 300s) and updates database
+     - Does NOT send WebSocket (workers handle their own status updates)
+     - Schedules next check using `threading.Timer`
+   - **If all complete**:
+     - Resets job to READY, all steps to 'idle'
+     - Sends WebSocket update to notify UI
 
 5. **UI Countdown** (system-level, not per-session):
    - Receives `reset_deadline` via WebSocket

@@ -2,7 +2,7 @@
 Job Reset Scheduler
 
 Handles automatic reset of FINISHED ETL jobs after checking that all steps are complete
-and all queues are empty. Uses self-scheduling delayed tasks with exponential backoff.
+and all queues are empty. Uses threading.Timer for delayed execution with exponential backoff.
 
 Flow:
 1. Job finishes → set reset_deadline = now + 30s, schedule reset check task
@@ -12,11 +12,15 @@ Flow:
 
 This ensures the countdown is system-level (not per-user session) and works even
 when no users are logged in.
+
+Uses threading.Timer instead of asyncio.create_task to avoid event loop issues
+when called from worker threads.
 """
 
 import asyncio
 import json
 import logging
+import threading
 from datetime import timedelta
 from typing import Dict, Any, Optional
 from sqlalchemy import text
@@ -27,8 +31,8 @@ from app.etl.workers.queue_manager import QueueManager
 
 logger = logging.getLogger(__name__)
 
-# Track active reset check tasks by job_id to prevent duplicate tasks
-_active_reset_tasks: Dict[int, asyncio.Task] = {}
+# Track active reset check timers by job_id to prevent duplicate timers
+_active_reset_timers: Dict[int, threading.Timer] = {}
 
 
 def calculate_next_interval(reset_attempt: int) -> int:
@@ -232,18 +236,11 @@ async def extend_deadline_and_reschedule(job_id: int, tenant_id: int, status: Di
 
         logger.info(f"⏰ Extended reset deadline for job {job_id} to {new_deadline_with_tz.isoformat()} (attempt {reset_attempt + 1}, next check in {next_interval}s)")
 
-        # Send WebSocket update to active users (if any)
-        try:
-            from app.api.websocket_routes import get_job_websocket_manager
-            job_websocket_manager = get_job_websocket_manager()
-            await job_websocket_manager.send_job_status_update(
-                tenant_id=tenant_id,
-                job_id=job_id,
-                status_json=status
-            )
-            logger.info(f"✅ WebSocket update sent for extended deadline")
-        except Exception as ws_error:
-            logger.debug(f"WebSocket update failed (no active connections): {ws_error}")
+        # 🔑 DO NOT send WebSocket updates from reset scheduler
+        # Workers are responsible for sending step status updates
+        # Reset scheduler only updates reset_deadline field in database
+        # This prevents race conditions where reset scheduler overwrites worker status updates
+        logger.debug(f"📝 Reset deadline updated in database - workers will send status updates")
 
         # Schedule another reset check task
         await schedule_reset_check_task(job_id, tenant_id, delay_seconds=next_interval)
@@ -314,7 +311,7 @@ async def reset_job_to_ready(job_id: int, tenant_id: int, status: Dict[str, Any]
 
 async def schedule_reset_check_task(job_id: int, tenant_id: int, delay_seconds: int):
     """
-    Schedule a delayed task to check and reset job.
+    Schedule a delayed task to check and reset job using threading.Timer.
 
     Args:
         job_id: ETL job ID
@@ -322,44 +319,53 @@ async def schedule_reset_check_task(job_id: int, tenant_id: int, delay_seconds: 
         delay_seconds: Delay in seconds before running the task
     """
     try:
-        # Cancel any existing task for this job
-        if job_id in _active_reset_tasks:
-            existing_task = _active_reset_tasks[job_id]
-            if not existing_task.done():
-                existing_task.cancel()
-                logger.debug(f"🔄 Cancelled existing reset check task for job {job_id}")
+        # Cancel any existing timer for this job
+        if job_id in _active_reset_timers:
+            existing_timer = _active_reset_timers[job_id]
+            existing_timer.cancel()
+            logger.debug(f"🔄 Cancelled existing reset check timer for job {job_id}")
 
-        # Create the delayed task and store reference
-        task = asyncio.create_task(delayed_reset_check(job_id, tenant_id, delay_seconds))
-        _active_reset_tasks[job_id] = task
+        # Create a threading.Timer that will run the reset check
+        timer = threading.Timer(delay_seconds, _run_reset_check_sync, args=(job_id, tenant_id))
+        timer.daemon = True  # Daemon thread so it doesn't block shutdown
+        timer.start()
+
+        _active_reset_timers[job_id] = timer
         logger.info(f"📅 Scheduled reset check for job {job_id} in {delay_seconds}s")
     except Exception as e:
         logger.error(f"❌ Error scheduling reset check task for job {job_id}: {e}", exc_info=True)
 
 
-async def delayed_reset_check(job_id: int, tenant_id: int, delay_seconds: int):
+def _run_reset_check_sync(job_id: int, tenant_id: int):
     """
-    Wait for delay, then run reset check task.
+    Synchronous wrapper to run async reset check task in a new event loop.
+
+    This is called by threading.Timer and creates its own event loop to run
+    the async reset_check_task function.
 
     Args:
         job_id: ETL job ID
         tenant_id: Tenant ID
-        delay_seconds: Delay in seconds
     """
-    # Store reference to current task for cleanup check
-    current_task = asyncio.current_task()
-
     try:
-        logger.debug(f"⏱️ Waiting {delay_seconds}s before checking job {job_id} for reset")
-        await asyncio.sleep(delay_seconds)
-        await reset_check_task(job_id, tenant_id)
-    except asyncio.CancelledError:
-        logger.debug(f"🔄 Reset check task for job {job_id} was cancelled (replaced by new task)")
+        logger.debug(f"⏱️ Running reset check for job {job_id}")
+
+        # Create a new event loop for this thread
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+
+        try:
+            # Run the async reset check task
+            loop.run_until_complete(reset_check_task(job_id, tenant_id))
+        finally:
+            # Clean up the event loop
+            loop.close()
+
+        # Clean up the timer reference
+        if job_id in _active_reset_timers:
+            del _active_reset_timers[job_id]
+            logger.debug(f"🧹 Cleaned up reset check timer for job {job_id}")
+
     except Exception as e:
-        logger.error(f"❌ Error in delayed reset check for job {job_id}: {e}", exc_info=True)
-    finally:
-        # Only clean up if we're still the active task (not replaced by a newer one)
-        if job_id in _active_reset_tasks and _active_reset_tasks[job_id] == current_task:
-            del _active_reset_tasks[job_id]
-            logger.debug(f"🧹 Cleaned up reset check task for job {job_id}")
+        logger.error(f"❌ Error in reset check for job {job_id}: {e}", exc_info=True)
 
