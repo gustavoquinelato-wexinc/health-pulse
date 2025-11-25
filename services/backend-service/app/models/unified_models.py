@@ -334,10 +334,10 @@ class CustomField(Base, IntegrationBaseEntity):
 
 
 class CustomFieldMapping(Base, IntegrationBaseEntity):
-    """Custom fields mapping table - stores direct mapping to special + 20 work item columns"""
-    __tablename__ = 'custom_fields_mapping'
+    """Custom fields mappings table - stores direct mapping to special + 20 work item columns"""
+    __tablename__ = 'custom_fields_mappings'
     __table_args__ = (
-        UniqueConstraint('tenant_id', 'integration_id', name='uk_custom_fields_mapping_integration'),
+        UniqueConstraint('tenant_id', 'integration_id', name='uk_custom_fields_mappings_integration'),
         {'quote': False}
     )
 

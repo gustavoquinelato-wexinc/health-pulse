@@ -88,10 +88,19 @@ Jira has 5 sequential steps:
   - Uses the development field presence as the indicator of code changes
   - Queues one extraction job per issue with code changes
 - **Sprint Processing**: Transform worker processes sprint associations for each issue
-  - Queries `custom_fields_mapping` table to get the configured sprints field external_id
+  - Queries `custom_fields_mapping` table to get the configured sprints field external_id and story_points field external_id
   - Extracts sprint data from the issue's fields using the mapped field ID (e.g., `customfield_10020`)
+  - **Changelog-Based Precision**: For each sprint association, calculates:
+    - `added_date`: Parses issue's changelog JSON to find LAST time sprint was added to Sprint field (simple approach: last add event)
+    - `removed_date`: Parses issue's changelog JSON to find LAST time sprint was removed (only if after last add), NULL otherwise
+    - `estimate_at_start`: Parses issue's changelog JSON to find Story Points value at sprint start date (sprint.startDate boundary)
+    - `carried_over_from_sprint_id`: Previous sprint in the sequence (NULL for first sprint)
+    - `carried_over_to_sprint_id`: Next sprint in the sequence (NULL for last/current sprint)
+    - **Sprint Sequence Algorithm**: Extracts complete sprint history from FIRST (newest) changelog entry's 'to' value (e.g., "101, 102, 103, 104"), then maps carry-over chain: Sprint 101 → 102 → 103 → 104
+    - **Algorithm**: Uses issue JSON from raw_extraction_data (no database queries), parses changelog.histories array, filters by sprint field changes and story points changes
+    - **Fallback**: If no changelog found, uses sprint.startDate for added_date, current Story Points for estimate_at_start
   - Upserts sprint records in `sprints` table using `ON CONFLICT DO UPDATE` to handle concurrent workers
-  - Creates associations in `work_items_sprints` junction table using `ON CONFLICT DO NOTHING` for idempotency
+  - Creates associations in `work_items_sprints` junction table with calculated dates, estimate, and carry-over tracking using `ON CONFLICT DO NOTHING` for idempotency
   - Both operations are race-condition safe for concurrent processing by multiple transform workers
   - **Note**: Sprints are NOT queued to embedding at this step - only metadata is stored
   - **Note**: Sprint field is NOT stored in `work_items` table - uses normalized `sprints` and `work_items_sprints` tables
@@ -147,7 +156,14 @@ Jira has 5 sequential steps:
   - Last sprint: `first_item=False, last_item=True, last_job_item=True`
 - **Transform Processing**:
   - Queries raw_extraction_data using raw_data_id
+  - Extracts sprint metadata (startDate, completeDate) from sprint_report.sprint
   - Updates sprint record in `sprints` table with metrics
+  - Updates `work_items_sprints` table with sprint outcome classification:
+    - `sprint_outcome`: 'completed', 'not_completed', or 'punted' based on issue classification
+    - `added_during_sprint`: TRUE if issue key exists in issueKeysAddedDuringSprint
+    - `committed`: TRUE if NOT added_during_sprint AND outcome != 'punted'
+    - `estimate_at_end`: Extracted from issue.estimateStatistic.statFieldValue.value
+    - **NOTE**: `added_date`, `removed_date`, `estimate_at_start`, `carried_over_from_sprint_id`, and `carried_over_to_sprint_id` are calculated in Step 3 (Issues) using changelog from issue JSON, not in Step 5
   - Queues sprint to embedding with `table_name='sprints'` and sprint's `external_id`
 - **Embedding Processing**:
   - Fetches sprint entity from database using external_id

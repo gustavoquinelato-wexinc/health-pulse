@@ -687,11 +687,15 @@ class JiraTransformHandler:
 
                 # 6. Auto-map special fields if they exist
                 import os
+                team_field_id = os.getenv('JIRA_TEAM_FIELD_ID', 'customfield_10001')
                 development_field_id = os.getenv('JIRA_DEVELOPMENT_FIELD_ID', 'customfield_10000')
                 sprints_field_id = os.getenv('JIRA_SPRINTS_FIELD_ID', 'customfield_10021')
+                story_points_field_id = os.getenv('JIRA_STORY_POINTS_FIELD_ID', 'customfield_10024')
 
+                self._auto_map_special_field(session, tenant_id, integration_id, team_field_id, 'team_field_id')
                 self._auto_map_special_field(session, tenant_id, integration_id, development_field_id, 'development_field_id')
                 self._auto_map_special_field(session, tenant_id, integration_id, sprints_field_id, 'sprints_field_id')
+                self._auto_map_special_field(session, tenant_id, integration_id, story_points_field_id, 'story_points_field_id')
 
                 # 7. Update raw data status
                 self._update_raw_data_status(session, raw_data_id, 'completed')
@@ -825,13 +829,19 @@ class JiraTransformHandler:
 
                 # 5. Auto-map special fields if this is a special field
                 import os
+                team_field_id = os.getenv('JIRA_TEAM_FIELD_ID', 'customfield_10001')
                 development_field_id = os.getenv('JIRA_DEVELOPMENT_FIELD_ID', 'customfield_10000')
                 sprints_field_id = os.getenv('JIRA_SPRINTS_FIELD_ID', 'customfield_10021')
+                story_points_field_id = os.getenv('JIRA_STORY_POINTS_FIELD_ID', 'customfield_10024')
 
-                if field_id == development_field_id:
+                if field_id == team_field_id:
+                    self._auto_map_special_field(session, tenant_id, integration_id, field_id, 'team_field_id')
+                elif field_id == development_field_id:
                     self._auto_map_special_field(session, tenant_id, integration_id, field_id, 'development_field_id')
                 elif field_id == sprints_field_id:
                     self._auto_map_special_field(session, tenant_id, integration_id, field_id, 'sprints_field_id')
+                elif field_id == story_points_field_id:
+                    self._auto_map_special_field(session, tenant_id, integration_id, field_id, 'story_points_field_id')
 
                 # 6. Update raw data status
                 self._update_raw_data_status(session, raw_data_id, 'completed')
@@ -878,7 +888,7 @@ class JiraTransformHandler:
     def _auto_map_special_field(self, session, tenant_id: int, integration_id: int,
                                  field_external_id: str, mapping_column: str):
         """
-        Auto-map special field to custom_fields_mapping table.
+        Auto-map special field to custom_fields_mappings table.
         This is called after a special field is saved to custom_fields table.
 
         Args:
@@ -886,7 +896,7 @@ class JiraTransformHandler:
             tenant_id: Tenant ID
             integration_id: Integration ID
             field_external_id: External ID of the field (e.g., 'customfield_10000')
-            mapping_column: Column name in custom_fields_mapping (e.g., 'development_field_id', 'sprints_field_id')
+            mapping_column: Column name in custom_fields_mappings (e.g., 'development_field_id', 'sprints_field_id')
         """
         try:
             from app.core.utils import DateTimeHelper
@@ -914,9 +924,9 @@ class JiraTransformHandler:
             custom_field_db_id = result[0]
             logger.debug(f"Found special field {field_external_id} with ID {custom_field_db_id}")
 
-            # Check if custom_fields_mapping record exists
+            # Check if custom_fields_mappings record exists
             mapping_check_query = text("""
-                SELECT id FROM custom_fields_mapping
+                SELECT id FROM custom_fields_mappings
                 WHERE tenant_id = :tenant_id
                 AND integration_id = :integration_id
             """)
@@ -928,7 +938,7 @@ class JiraTransformHandler:
             if mapping_result:
                 # Update existing mapping
                 update_query = text(f"""
-                    UPDATE custom_fields_mapping
+                    UPDATE custom_fields_mappings
                     SET {mapping_column} = :field_id,
                         last_updated_at = :now
                     WHERE tenant_id = :tenant_id
@@ -944,7 +954,7 @@ class JiraTransformHandler:
             else:
                 # Create new mapping record
                 insert_query = text(f"""
-                    INSERT INTO custom_fields_mapping (
+                    INSERT INTO custom_fields_mappings (
                         tenant_id, integration_id, {mapping_column},
                         active, created_at, last_updated_at
                     ) VALUES (
@@ -959,7 +969,7 @@ class JiraTransformHandler:
                     'created_at': now,
                     'last_updated_at': now
                 })
-                logger.debug(f"Created custom_fields_mapping and auto-mapped special field {field_external_id} to {mapping_column}")
+                logger.debug(f"Created custom_fields_mappings and auto-mapped special field {field_external_id} to {mapping_column}")
 
         except Exception as e:
             logger.error(f"Error auto-mapping special field {field_external_id}: {e}")
@@ -1936,6 +1946,10 @@ class JiraTransformHandler:
                     status['created_at'] = now
                     status['last_updated_at'] = now
 
+                # CRITICAL: Sort by external_id to prevent deadlocks
+                # Multiple workers must acquire locks in the same order
+                statuses_to_insert.sort(key=lambda x: x['external_id'])
+
                 insert_query = text("""
                     INSERT INTO statuses (
                         external_id, original_name, category, description, status_mapping_id,
@@ -1954,6 +1968,10 @@ class JiraTransformHandler:
                 # Add timestamp to each record
                 for status in statuses_to_update:
                     status['last_updated_at'] = now
+
+                # CRITICAL: Sort by id to prevent deadlocks
+                # Multiple workers must acquire locks in the same order
+                statuses_to_update.sort(key=lambda x: x['id'])
 
                 update_query = text("""
                     UPDATE statuses
@@ -2457,7 +2475,7 @@ class JiraTransformHandler:
 
     def _get_custom_field_mappings(self, db, integration_id: int, tenant_id: int) -> Dict[str, str]:
         """
-        Get custom field mappings from custom_fields_mapping table.
+        Get custom field mappings from custom_fields_mappings table.
 
         Returns:
             Dict mapping Jira field IDs (e.g., 'customfield_10024') to work_items column names or special fields
@@ -2474,7 +2492,7 @@ class JiraTransformHandler:
             }
         """
         try:
-            # Get custom field mappings from custom_fields_mapping table
+            # Get custom field mappings from custom_fields_mappings table
             query = text("""
                 SELECT
                     cfm.team_field_id,
@@ -2488,7 +2506,7 @@ class JiraTransformHandler:
                     cfm.custom_field_13_id, cfm.custom_field_14_id, cfm.custom_field_15_id,
                     cfm.custom_field_16_id, cfm.custom_field_17_id, cfm.custom_field_18_id,
                     cfm.custom_field_19_id, cfm.custom_field_20_id
-                FROM custom_fields_mapping cfm
+                FROM custom_fields_mappings cfm
                 WHERE cfm.integration_id = :integration_id AND cfm.tenant_id = :tenant_id
             """)
             result = db.execute(query, {
@@ -2880,18 +2898,20 @@ class JiraTransformHandler:
         try:
             logger.debug(f"🔍 [SPRINT-DEBUG] Starting sprint associations processing for {len(issues_data)} issues")
 
-            # Find the sprint field ID from custom_field_mappings
+            # Find the sprint field ID and story points field ID from custom_field_mappings
             sprint_field_id = None
+            story_points_field_id = None
             for field_id, field_name in custom_field_mappings.items():
                 if field_name == 'sprints':
                     sprint_field_id = field_id
-                    break
+                elif field_name == 'story_points':
+                    story_points_field_id = field_id
 
             if not sprint_field_id:
-                logger.warning(f"⚠️ [SPRINT-DEBUG] No sprint field mapping found in custom_field_mappings - skipping sprint associations")
+                logger.warning(f"No sprint field mapping found in custom_field_mappings - skipping sprint associations")
                 return 0
 
-            logger.debug(f"🔍 [SPRINT-DEBUG] Using sprint field: {sprint_field_id}")
+            logger.debug(f"Using sprint field: {sprint_field_id}, story points field: {story_points_field_id}")
 
             # Collect issue external_ids from payload
             issue_external_ids = [issue.get('id') for issue in issues_data if issue.get('id')]
@@ -2934,6 +2954,12 @@ class JiraTransformHandler:
                     if not sprints_field or not isinstance(sprints_field, list):
                         continue
 
+                    # Extract sprint sequence from changelog (for carry-over tracking)
+                    sprint_sequence = self._extract_sprint_sequence_from_changelog(issue, sprint_field_id)
+
+                    # Create a map of sprint_id -> position in sequence for carry-over tracking
+                    sprint_sequence_map = {sprint_id: idx for idx, sprint_id in enumerate(sprint_sequence)}
+
                     # Extract sprint data from sprints array
                     for sprint in sprints_field:
                         if isinstance(sprint, dict):
@@ -2960,11 +2986,49 @@ class JiraTransformHandler:
                                         'complete_date': complete_date
                                     }
 
-                                # Collect association (using external_id, will map to internal later)
+                                # Calculate changelog-based added_date and removed_date
+                                added_date, removed_date = self._calculate_sprint_dates_from_issue_changelog(
+                                    issue, sprint_external_id, sprint_field_id
+                                )
+
+                                # Calculate estimate_at_start using sprint start date
+                                estimate_at_start = None
+                                if start_date and story_points_field_id:
+                                    estimate_at_start = self._calculate_estimate_at_start(
+                                        issue, start_date, story_points_field_id
+                                    )
+
+                                # Fallback for added_date: use sprint start_date if no changelog found
+                                if not added_date and start_date:
+                                    added_date = self._parse_datetime(start_date)
+
+                                # Fallback for added_date: use current_time if still None
+                                if not added_date:
+                                    added_date = current_time
+
+                                # Determine carry-over sprints based on sequence
+                                carried_over_from_sprint_id = None
+                                carried_over_to_sprint_id = None
+
+                                if sprint_sequence and sprint_external_id in sprint_sequence_map:
+                                    idx = sprint_sequence_map[sprint_external_id]
+                                    # Previous sprint in sequence
+                                    if idx > 0:
+                                        carried_over_from_sprint_id = sprint_sequence[idx - 1]
+                                    # Next sprint in sequence
+                                    if idx < len(sprint_sequence) - 1:
+                                        carried_over_to_sprint_id = sprint_sequence[idx + 1]
+
+                                # Collect association with calculated dates, estimate, and carry-over tracking
                                 sprint_associations.append({
                                     'work_item_external_id': issue_external_id,
                                     'sprint_external_id': sprint_external_id,
-                                    'tenant_id': tenant_id
+                                    'tenant_id': tenant_id,
+                                    'added_date': added_date,
+                                    'removed_date': removed_date,
+                                    'estimate_at_start': estimate_at_start,
+                                    'carried_over_from_sprint_external_id': carried_over_from_sprint_id,
+                                    'carried_over_to_sprint_external_id': carried_over_to_sprint_id
                                 })
 
                 except Exception as e:
@@ -3040,7 +3104,7 @@ class JiraTransformHandler:
             }).fetchall()
             existing_sprints_map = {row[0]: row[1] for row in existing_sprints_result}
 
-            # Step 3: Create work_items_sprints associations
+            # Step 3: Create work_items_sprints associations with changelog-based dates, estimate_at_start, and carry-over tracking
             # Map work_item external_ids to internal_ids
             associations_to_insert = []
             for assoc in sprint_associations:
@@ -3051,10 +3115,28 @@ class JiraTransformHandler:
                 sprint_id = existing_sprints_map.get(sprint_external_id)
 
                 if work_item_id and sprint_id:
+                    # Map carry-over sprint external IDs to internal IDs
+                    carried_over_from_sprint_id = None
+                    carried_over_to_sprint_id = None
+
+                    if assoc.get('carried_over_from_sprint_external_id'):
+                        carried_over_from_sprint_id = existing_sprints_map.get(
+                            assoc['carried_over_from_sprint_external_id']
+                        )
+
+                    if assoc.get('carried_over_to_sprint_external_id'):
+                        carried_over_to_sprint_id = existing_sprints_map.get(
+                            assoc['carried_over_to_sprint_external_id']
+                        )
+
                     associations_to_insert.append({
                         'work_item_id': work_item_id,
                         'sprint_id': sprint_id,
-                        'added_date': current_time,
+                        'added_date': assoc['added_date'],  # Changelog-based or fallback
+                        'removed_date': assoc.get('removed_date'),  # Changelog-based or None
+                        'estimate_at_start': assoc.get('estimate_at_start'),  # Calculated from changelog
+                        'carried_over_from_sprint_id': carried_over_from_sprint_id,  # Previous sprint in sequence
+                        'carried_over_to_sprint_id': carried_over_to_sprint_id,  # Next sprint in sequence
                         'tenant_id': assoc['tenant_id'],
                         'active': True,
                         'created_at': current_time,
@@ -3066,9 +3148,13 @@ class JiraTransformHandler:
                 # The unique constraint is on (work_item_id, sprint_id, added_date)
                 upsert_assoc_query = text("""
                     INSERT INTO work_items_sprints
-                        (work_item_id, sprint_id, added_date, tenant_id, active, created_at, last_updated_at)
+                        (work_item_id, sprint_id, added_date, removed_date, estimate_at_start,
+                         carried_over_from_sprint_id, carried_over_to_sprint_id,
+                         tenant_id, active, created_at, last_updated_at)
                     VALUES
-                        (:work_item_id, :sprint_id, :added_date, :tenant_id, :active, :created_at, :last_updated_at)
+                        (:work_item_id, :sprint_id, :added_date, :removed_date, :estimate_at_start,
+                         :carried_over_from_sprint_id, :carried_over_to_sprint_id,
+                         :tenant_id, :active, :created_at, :last_updated_at)
                     ON CONFLICT (work_item_id, sprint_id, added_date)
                     DO NOTHING
                 """)
@@ -3080,7 +3166,7 @@ class JiraTransformHandler:
                     inserted_count += result.rowcount
 
                 if inserted_count > 0:
-                    logger.info(f"✅ Created {inserted_count} new work_items_sprints associations (skipped {len(associations_to_insert) - inserted_count} duplicates)")
+                    logger.info(f"✅ Created {inserted_count} new work_items_sprints associations with changelog-based dates and estimates (skipped {len(associations_to_insert) - inserted_count} duplicates)")
                 else:
                     logger.debug(f"All {len(associations_to_insert)} sprint associations already exist")
 
@@ -3587,6 +3673,196 @@ class JiraTransformHandler:
 
             return False
 
+    def _extract_sprint_sequence_from_changelog(
+        self, issue: Dict, sprint_field_id: str
+    ) -> List[str]:
+        """
+        Extract the complete sprint sequence from the FIRST (newest) changelog entry.
+
+        The first changelog entry for the Sprint field contains the complete history
+        in the 'to' value (e.g., "101, 102, 103, 104").
+
+        Args:
+            issue: Full issue dict from Jira API (contains changelog.histories)
+            sprint_field_id: Sprint field ID from custom_field_mappings (e.g., 'customfield_10021')
+
+        Returns:
+            List of sprint IDs in chronological order (oldest to newest)
+        """
+        try:
+            changelog = issue.get('changelog', {})
+            histories = changelog.get('histories', [])
+
+            if not histories:
+                return []
+
+            # Find the FIRST (newest) changelog entry for Sprint field
+            for history in histories:
+                items = history.get('items', [])
+                for item in items:
+                    if item.get('field') == 'Sprint' and item.get('fieldId') == sprint_field_id:
+                        to_value = item.get('to', '')
+                        if to_value:
+                            # Parse sprint IDs from comma-separated string
+                            sprint_ids = [sid.strip() for sid in to_value.split(',') if sid.strip()]
+                            return sprint_ids
+
+            return []
+
+        except Exception as e:
+            logger.error(f"Error extracting sprint sequence from changelog: {e}")
+            return []
+
+    def _calculate_sprint_dates_from_issue_changelog(
+        self, issue: Dict, sprint_id: str, sprint_field_id: str
+    ) -> tuple[Optional[str], Optional[str]]:
+        """
+        Calculate precise added_date and removed_date for a sprint from issue's changelog JSON.
+
+        Algorithm (Simple Approach - Last Added / Last Removed):
+        1. Parse changelog histories from issue JSON
+        2. Find all ADD events: sprint_id appears in 'to' but not in 'from'
+        3. Find all REMOVE events: sprint_id appears in 'from' but not in 'to'
+        4. Use LAST add event as added_date
+        5. Use LAST remove event (only if after last add) as removed_date
+
+        Args:
+            issue: Full issue dict from Jira API (contains changelog.histories)
+            sprint_id: Sprint external_id to track (as string)
+            sprint_field_id: Sprint field ID from custom_field_mappings (e.g., 'customfield_10021')
+
+        Returns:
+            tuple: (added_date, removed_date) - both can be None if not found in changelog
+        """
+        try:
+            changelog = issue.get('changelog', {})
+            histories = changelog.get('histories', [])
+
+            if not histories:
+                return (None, None)
+
+            add_events = []
+            remove_events = []
+
+            # Process each changelog history entry
+            for history in histories:
+                created = history.get('created')
+                if not created:
+                    continue
+
+                items = history.get('items', [])
+                for item in items:
+                    # Only process Sprint field changes
+                    if item.get('field') == 'Sprint' and item.get('fieldId') == sprint_field_id:
+                        from_value = item.get('from', '')
+                        to_value = item.get('to', '')
+
+                        # Parse sprint IDs from comma-separated strings
+                        from_sprints = set(from_value.split(', ')) if from_value else set()
+                        to_sprints = set(to_value.split(', ')) if to_value else set()
+
+                        # Detect ADD event: sprint_id in 'to' but not in 'from'
+                        if sprint_id in to_sprints and sprint_id not in from_sprints:
+                            add_events.append(self._parse_datetime(created))
+
+                        # Detect REMOVE event: sprint_id in 'from' but not in 'to'
+                        if sprint_id in from_sprints and sprint_id not in to_sprints:
+                            remove_events.append(self._parse_datetime(created))
+
+            # Use LAST add event
+            added_date = add_events[-1] if add_events else None
+
+            # Use LAST remove event (only if it's AFTER the last add)
+            removed_date = None
+            if added_date and remove_events:
+                removes_after_add = [r for r in remove_events if r > added_date]
+                removed_date = removes_after_add[-1] if removes_after_add else None
+
+            return (added_date, removed_date)
+
+        except Exception as e:
+            logger.warning(f"Error calculating sprint dates from issue changelog for sprint {sprint_id}: {e}")
+            return (None, None)
+
+    def _calculate_estimate_at_start(
+        self, issue: Dict, sprint_start_date: str, story_points_field_id: str
+    ) -> Optional[float]:
+        """
+        Calculate estimate_at_start by finding Story Points value at sprint start date.
+
+        Algorithm (Option B - Estimate at sprint START DATE):
+        1. Parse changelog histories from issue JSON
+        2. Find all Story Points changes BEFORE or AT sprint start date
+        3. Return the LAST (most recent) Story Points value <= sprint start date
+        4. If no changelog found, use current Story Points value from fields
+
+        Args:
+            issue: Full issue dict from Jira API (contains changelog.histories and fields)
+            sprint_start_date: Sprint startDate from sprint metadata (ISO format string)
+            story_points_field_id: Story Points field ID from custom_field_mappings (e.g., 'customfield_10024')
+
+        Returns:
+            float: Story Points estimate at sprint start, or None if not found
+        """
+        try:
+            # Parse sprint start date
+            sprint_start = self._parse_datetime(sprint_start_date)
+            if not sprint_start:
+                return None
+
+            changelog = issue.get('changelog', {})
+            histories = changelog.get('histories', [])
+
+            # Track Story Points changes before/at sprint start
+            estimate_changes = []  # List of (timestamp, value) tuples
+
+            # Process changelog to find Story Points changes
+            for history in histories:
+                created = history.get('created')
+                if not created:
+                    continue
+
+                created_dt = self._parse_datetime(created)
+                if not created_dt or created_dt > sprint_start:
+                    continue  # Skip changes after sprint started
+
+                items = history.get('items', [])
+                for item in items:
+                    # Check both 'fieldId' and 'field' for Story Points
+                    field_id = item.get('fieldId')
+                    field_name = item.get('field')
+
+                    # Only process Story Points field changes
+                    if field_id == story_points_field_id or field_name == 'Story Points':
+                        to_value = item.get('to')
+                        if to_value:
+                            try:
+                                estimate_value = float(to_value)
+                                estimate_changes.append((created_dt, estimate_value))
+                            except (ValueError, TypeError):
+                                continue
+
+            # Use the LAST (most recent) estimate change before/at sprint start
+            if estimate_changes:
+                estimate_changes.sort(key=lambda x: x[0])  # Sort by timestamp
+                final_estimate = estimate_changes[-1][1]
+                return final_estimate
+
+            # Fallback: No changelog found, use current Story Points value from fields
+            fields = issue.get('fields', {})
+            current_estimate = fields.get(story_points_field_id)
+            if current_estimate is not None:
+                try:
+                    return float(current_estimate)
+                except (ValueError, TypeError):
+                    return None
+
+            return None
+
+        except Exception as e:
+            logger.warning(f"Error calculating estimate_at_start for issue {issue.get('key', 'unknown')}, sprint start {sprint_start_date}: {e}")
+            return None
+
     async def _process_jira_sprint_reports(
         self, raw_data_id: Optional[int], tenant_id: int, integration_id: int, job_id: int, message: Dict[str, Any]
     ) -> bool:
@@ -3640,6 +3916,11 @@ class JiraTransformHandler:
                 sprint_report = payload.get('sprint_report', {})
 
                 logger.debug(f"Processing sprint report for board_id={board_id}, sprint_id={sprint_id}")
+
+                # Extract sprint metadata from API response
+                sprint_metadata = sprint_report.get('sprint', {})
+                sprint_start_date = sprint_metadata.get('startDate')
+                sprint_complete_date = sprint_metadata.get('completeDate')
 
                 # Extract sprint metrics from API response
                 contents = sprint_report.get('contents', {})
@@ -3732,16 +4013,39 @@ class JiraTransformHandler:
                     if issue_key:
                         issue_outcomes[issue_key] = 'punted'
 
-                # Update work_items_sprints records
+                # Update work_items_sprints records with sprint outcome classification and metrics
                 if issue_outcomes:
+                    # Build a map of issue keys to their estimate_at_end values
+                    issue_estimates = {}
+                    for issue in completed_issues + not_completed_issues + punted_issues:
+                        issue_key = issue.get('key')
+                        if issue_key:
+                            # Extract estimate from issue.estimateStatistic.statFieldValue.value
+                            estimate_stat = issue.get('estimateStatistic', {})
+                            stat_field_value = estimate_stat.get('statFieldValue', {})
+                            estimate_value = stat_field_value.get('value')
+                            issue_estimates[issue_key] = estimate_value
+
                     for issue_key, outcome in issue_outcomes.items():
                         # Check if issue was added during sprint
                         added_during_sprint = issue_key in issues_added_during_sprint
+
+                        # Calculate committed: NOT added_during_sprint AND outcome != 'punted'
+                        committed = not added_during_sprint and outcome != 'punted'
+
+                        # Get estimate_at_end for this issue
+                        estimate_at_end = issue_estimates.get(issue_key)
+
+                        # NOTE: added_date, removed_date, and estimate_at_start are now calculated
+                        # in Step 3 (_process_sprint_associations) using changelog from issue JSON.
+                        # Step 5 (sprint reports) only updates sprint outcome metrics, not dates.
 
                         update_work_items_sprints_query = text("""
                             UPDATE work_items_sprints wis
                             SET sprint_outcome = :outcome,
                                 added_during_sprint = :added_during_sprint,
+                                committed = :committed,
+                                estimate_at_end = :estimate_at_end,
                                 last_updated_at = :now
                             FROM work_items wi
                             WHERE wis.work_item_id = wi.id
@@ -3753,13 +4057,15 @@ class JiraTransformHandler:
                         db.execute(update_work_items_sprints_query, {
                             'outcome': outcome,
                             'added_during_sprint': added_during_sprint,
+                            'committed': committed,
+                            'estimate_at_end': estimate_at_end,
                             'now': now,
                             'sprint_id': sprint_db_id,
                             'issue_key': issue_key,
                             'tenant_id': tenant_id
                         })
 
-                    logger.debug(f"Updated {len(issue_outcomes)} work_items_sprints records with sprint outcomes")
+                    logger.debug(f"Updated {len(issue_outcomes)} work_items_sprints records with sprint outcomes, commitment, and estimates")
 
                 # Update raw data status to completed
                 update_query = text("""

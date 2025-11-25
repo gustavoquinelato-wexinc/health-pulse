@@ -36,18 +36,18 @@ CREATE TABLE custom_fields (
 );
 ```
 
-### custom_fields_mapping Table (Tenant Configuration)
+### custom_fields_mappings Table (Tenant Configuration)
 ```sql
-CREATE TABLE custom_fields_mapping (
+CREATE TABLE custom_fields_mappings (
     id SERIAL PRIMARY KEY,
-    
+
     -- 20 direct FK columns to custom_fields
     custom_field_01_id INTEGER REFERENCES custom_fields(id),
     custom_field_02_id INTEGER REFERENCES custom_fields(id),
     custom_field_03_id INTEGER REFERENCES custom_fields(id),
     -- ... (17 more columns)
     custom_field_20_id INTEGER REFERENCES custom_fields(id),
-    
+
     integration_id INTEGER NOT NULL,
     tenant_id INTEGER NOT NULL,
     active BOOLEAN DEFAULT TRUE,
@@ -80,7 +80,7 @@ def process_jira_custom_fields():
 ### 3. Work Items Processing
 ```python
 def process_work_items():
-    # 1. Get custom_fields_mapping for tenant/integration
+    # 1. Get custom_fields_mappings for tenant/integration
     # 2. For each work item, map custom field values using FK relationships
     # 3. Store in work_items.custom_field_01 through custom_field_20
 ```
@@ -104,7 +104,7 @@ def process_work_items():
 
 ## Future Enhancements
 
-1. **UI Configuration**: Admin interface to configure custom_fields_mapping
+1. **UI Configuration**: Admin interface to configure custom_fields_mappings
 2. **Auto-mapping**: Intelligent suggestions based on field names
 3. **Validation**: Ensure mapped fields exist and are active
 4. **Overflow Handling**: JSON overflow for fields beyond 20 columns

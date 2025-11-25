@@ -1244,9 +1244,9 @@ def apply(connection):
         print("✅ Custom fields table created")
         print("📋 Creating custom fields mapping tables...")
 
-        # Custom fields mapping table - stores direct mapping to special + 20 custom work_item columns
+        # Custom fields mappings table - stores direct mapping to special + 20 custom work_item columns
         cursor.execute("""
-            CREATE TABLE IF NOT EXISTS custom_fields_mapping (
+            CREATE TABLE IF NOT EXISTS custom_fields_mappings (
                 id SERIAL PRIMARY KEY,
 
                 -- === SPECIAL FIELD MAPPINGS (Always shown first in UI) ===
@@ -1285,11 +1285,11 @@ def apply(connection):
                 last_updated_at TIMESTAMP DEFAULT NOW(),
 
                 -- === CONSTRAINTS ===
-                CONSTRAINT uk_custom_fields_mapping_integration UNIQUE(tenant_id, integration_id)
+                CONSTRAINT uk_custom_fields_mappings_integration UNIQUE(tenant_id, integration_id)
             );
         """)
 
-        print("✅ Custom fields mapping tables created")
+        print("✅ Custom fields mappings tables created")
 
         # 25. Extraction failures table - Dead letter queue for failed extraction messages
         print("   🏗️ Creating extraction_failures table...")
@@ -1401,10 +1401,10 @@ def apply(connection):
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_custom_fields_integration_id ON custom_fields(integration_id);")
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_custom_fields_external_id ON custom_fields(external_id);")
 
-        # Custom fields mapping indexes
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_custom_fields_mapping_tenant_id ON custom_fields_mapping(tenant_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_custom_fields_mapping_integration_id ON custom_fields_mapping(integration_id);")
-        cursor.execute("CREATE INDEX IF NOT EXISTS idx_custom_fields_mapping_tenant_integration ON custom_fields_mapping(tenant_id, integration_id);")
+        # Custom fields mappings indexes
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_custom_fields_mappings_tenant_id ON custom_fields_mappings(tenant_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_custom_fields_mappings_integration_id ON custom_fields_mappings(integration_id);")
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_custom_fields_mappings_tenant_integration ON custom_fields_mappings(tenant_id, integration_id);")
 
         # Work item changelogs indexes
         cursor.execute("CREATE INDEX IF NOT EXISTS idx_changelogs_work_item_id ON changelogs(work_item_id);")
@@ -1596,8 +1596,8 @@ def rollback(connection):
             'dora_metric_insights',
             'dora_market_benchmarks',
 
-            # Custom fields mapping table (depends on custom_fields)
-            'custom_fields_mapping',
+            # Custom fields mappings table (depends on custom_fields)
+            'custom_fields_mappings',
 
             # Custom fields table (global fields)
             'custom_fields',

@@ -1294,8 +1294,8 @@ def rollback(connection):
         print("📋 Removing workflows...")
         cursor.execute("DELETE FROM workflows WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Apple');")
 
-        print("📋 Removing custom fields mapping...")
-        cursor.execute("DELETE FROM custom_fields_mapping WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Apple');")
+        print("📋 Removing custom fields mappings...")
+        cursor.execute("DELETE FROM custom_fields_mappings WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Apple');")
 
         print("📋 Removing custom fields...")
         cursor.execute("DELETE FROM custom_fields WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'Apple');")

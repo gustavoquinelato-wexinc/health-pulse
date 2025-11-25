@@ -220,7 +220,7 @@ async def get_custom_field_mappings_table(
     user: UserData = Depends(require_authentication)
 ):
     """
-    Get custom field mappings from custom_fields_mapping table.
+    Get custom field mappings from custom_fields_mappings table.
     Returns the mapping of custom_field_XX_id to custom_fields.id.
     """
     try:
@@ -270,6 +270,20 @@ async def get_custom_field_mappings_table(
                 field_key = f"custom_field_{i:02d}"
                 mappings[field_key] = None
 
+        # Auto-map team field if not already mapped and field exists
+        if not mappings.get('team_field'):
+            team_field_id = os.getenv('JIRA_TEAM_FIELD_ID', 'customfield_10001')
+            team_field = db.query(CustomField).filter(
+                CustomField.external_id == team_field_id,
+                CustomField.tenant_id == user.tenant_id,
+                CustomField.integration_id == integration_id,
+                CustomField.active == True
+            ).first()
+
+            if team_field:
+                mappings['team_field'] = team_field.id
+                logger.info(f"Auto-mapped team field {team_field_id} to ID {team_field.id}")
+
         # Auto-map development field if not already mapped and field exists
         if not mappings.get('development_field'):
             development_field_id = os.getenv('JIRA_DEVELOPMENT_FIELD_ID', 'customfield_10000')
@@ -298,6 +312,20 @@ async def get_custom_field_mappings_table(
                 mappings['sprints_field'] = sprints_field.id
                 logger.info(f"Auto-mapped sprints field {sprints_field_id} to ID {sprints_field.id}")
 
+        # Auto-map story points field if not already mapped and field exists
+        if not mappings.get('story_points_field'):
+            story_points_field_id = os.getenv('JIRA_STORY_POINTS_FIELD_ID', 'customfield_10024')
+            story_points_field = db.query(CustomField).filter(
+                CustomField.external_id == story_points_field_id,
+                CustomField.tenant_id == user.tenant_id,
+                CustomField.integration_id == integration_id,
+                CustomField.active == True
+            ).first()
+
+            if story_points_field:
+                mappings['story_points_field'] = story_points_field.id
+                logger.info(f"Auto-mapped story points field {story_points_field_id} to ID {story_points_field.id}")
+
         return {
             "success": True,
             "mappings": mappings,
@@ -319,7 +347,7 @@ async def update_custom_field_mappings_table(
     user: UserData = Depends(require_authentication)
 ):
     """
-    Update custom field mappings in custom_fields_mapping table.
+    Update custom field mappings in custom_fields_mappings table.
     Expects mappings in format: { "custom_field_01": 123, "custom_field_02": 456, ... }
     """
     try:
@@ -336,7 +364,7 @@ async def update_custom_field_mappings_table(
         # Get mappings from request
         mappings = request_data.get('mappings', {})
 
-        # Query or create custom_fields_mapping record
+        # Query or create custom_fields_mappings record
         from app.models.unified_models import CustomFieldMapping
 
         mapping_record = db.query(CustomFieldMapping).filter(

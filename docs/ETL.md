@@ -912,7 +912,7 @@ CREATE TABLE custom_fields (
 );
 
 -- Direct mapping configuration per tenant/integration
-CREATE TABLE custom_fields_mapping (
+CREATE TABLE custom_fields_mappings (
     id SERIAL PRIMARY KEY,
 
     -- Special field mappings (always shown first in UI)

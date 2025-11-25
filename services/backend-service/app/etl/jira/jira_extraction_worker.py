@@ -678,14 +678,14 @@ class JiraExtractionWorker:
             total_issues = len(issues_list)
             logger.debug(f"📊 Found {total_issues} issues")
 
-            # 🔑 Get development field and sprints field external_ids from custom_fields_mapping table
+            # 🔑 Get development field and sprints field external_ids from custom_fields_mappings table
             development_field_external_id = None
             sprints_field_external_id = None
             database = get_database()
             with database.get_read_session_context() as db:
                 query = text("""
                     SELECT cf_dev.external_id, cf_sprint.external_id
-                    FROM custom_fields_mapping cfm
+                    FROM custom_fields_mappings cfm
                     LEFT JOIN custom_fields cf_dev ON cf_dev.id = cfm.development_field_id AND cf_dev.active = true
                     LEFT JOIN custom_fields cf_sprint ON cf_sprint.id = cfm.sprints_field_id AND cf_sprint.active = true
                     WHERE cfm.tenant_id = :tenant_id
@@ -703,7 +703,7 @@ class JiraExtractionWorker:
                     logger.debug(f"📋 Development field from mapping: {development_field_external_id}")
                     logger.debug(f"📋 Sprints field from mapping: {sprints_field_external_id}")
                 else:
-                    logger.debug(f"⚠️ No custom field mappings found in custom_fields_mapping table")
+                    logger.debug(f"⚠️ No custom field mappings found in custom_fields_mappings table")
 
             # Track issues with development field (for Step 4)
             issues_with_dev = []

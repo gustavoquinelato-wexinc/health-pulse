@@ -714,9 +714,9 @@ CREATE TABLE work_items (
 )
 ```
 
-#### Custom Fields Mapping Table
+#### Custom Fields Mappings Table
 ```sql
-CREATE TABLE custom_fields_mapping (
+CREATE TABLE custom_fields_mappings (
     id SERIAL PRIMARY KEY,
 
     -- Special field mappings
