@@ -520,6 +520,45 @@ const CustomFieldMappingPage: React.FC<CustomFieldMappingPageProps> = ({ embedde
                           );
                         })()}
 
+                        {/* Sprints Field Row */}
+                        {(() => {
+                          const selectedFieldId = fieldMappings['sprints_field'];
+                          const selectedField = customFields.find(f => f.id === selectedFieldId);
+
+                          return (
+                            <tr className="bg-development-row">
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                <div className="text-sm font-bold text-development-label">SPRINTS</div>
+                              </td>
+                              <td className="px-6 py-4">
+                                <SearchableSelect
+                                  value={selectedFieldId || ''}
+                                  onChange={(value) => {
+                                    setFieldMappings(prev => ({
+                                      ...prev,
+                                      sprints_field: value ? parseInt(value) : null
+                                    }));
+                                  }}
+                                  options={customFields}
+                                  placeholder="-- Not Mapped --"
+                                />
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap text-sm text-secondary">
+                                {selectedField?.field_type || '-'}
+                              </td>
+                              <td className="px-6 py-4 whitespace-nowrap">
+                                {selectedField ? (
+                                  <code className="text-xs text-secondary bg-tertiary/20 px-2 py-1 rounded">
+                                    {selectedField.external_id}
+                                  </code>
+                                ) : (
+                                  <span className="text-sm text-secondary">-</span>
+                                )}
+                              </td>
+                            </tr>
+                          );
+                        })()}
+
                         {/* Team Fields Section - Second */}
                         <tr>
                           <td colSpan={4} className="px-6 py-3 bg-team-divider">

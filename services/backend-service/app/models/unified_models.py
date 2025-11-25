@@ -81,6 +81,17 @@ class Tenant(Base):
     # Phase 1: Raw extraction data relationships
     raw_extraction_data = relationship("RawExtractionData", back_populates="tenant")
 
+    # Portfolio Management relationships
+    portfolios = relationship("Portfolio", back_populates="tenant")
+    programs = relationship("Program", back_populates="tenant")
+    sprints = relationship("Sprint", back_populates="tenant")
+    work_item_sprints = relationship("WorkItemSprint", back_populates="tenant")
+    risks = relationship("Risk", back_populates="tenant")
+    dependencies = relationship("Dependency", back_populates="tenant")
+    objectives = relationship("Objective", back_populates="tenant")
+    key_results = relationship("KeyResult", back_populates="tenant")
+    dependency_work_items = relationship("DependencyWorkItem", back_populates="tenant")
+
 
 class BaseEntity:
     """Base class with audit fields for client-level entities (no integration)."""
@@ -323,10 +334,10 @@ class CustomField(Base, IntegrationBaseEntity):
 
 
 class CustomFieldMapping(Base, IntegrationBaseEntity):
-    """Custom fields mapping table - stores direct mapping to special + 20 work item columns"""
-    __tablename__ = 'custom_fields_mapping'
+    """Custom fields mappings table - stores direct mapping to special + 20 work item columns"""
+    __tablename__ = 'custom_fields_mappings'
     __table_args__ = (
-        UniqueConstraint('tenant_id', 'integration_id', name='uk_custom_fields_mapping_integration'),
+        UniqueConstraint('tenant_id', 'integration_id', name='uk_custom_fields_mappings_integration'),
         {'quote': False}
     )
 
@@ -334,6 +345,7 @@ class CustomFieldMapping(Base, IntegrationBaseEntity):
 
     # === SPECIAL FIELD MAPPINGS (Always shown first in UI) ===
     team_field_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="team_field_id")
+    sprints_field_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="sprints_field_id")
     development_field_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="development_field_id")
     story_points_field_id = Column(Integer, ForeignKey('custom_fields.id'), quote=False, name="story_points_field_id")
 
@@ -365,6 +377,7 @@ class CustomFieldMapping(Base, IntegrationBaseEntity):
 
     # Relationships to special fields
     team_field = relationship("CustomField", foreign_keys=[team_field_id])
+    sprints_field = relationship("CustomField", foreign_keys=[sprints_field_id])
     development_field = relationship("CustomField", foreign_keys=[development_field_id])
     story_points_field = relationship("CustomField", foreign_keys=[story_points_field_id])
 
@@ -512,6 +525,7 @@ class WorkItem(Base, IntegrationBaseEntity):
     acceptance_criteria = Column(Text, quote=False, name="acceptance_criteria")
     wit_id = Column(Integer, ForeignKey('wits.id'), quote=False, name="wit_id")
     status_id = Column(Integer, ForeignKey('statuses.id'), quote=False, name="status_id")
+    story_points = Column(Float, quote=False, name="story_points")
     resolution = Column(String, quote=False, name="resolution")
     assignee = Column(String, quote=False, name="assignee")
     labels = Column(String, quote=False, name="labels")
@@ -520,7 +534,6 @@ class WorkItem(Base, IntegrationBaseEntity):
     created = Column(DateTime, quote=False, name="created")
     updated = Column(DateTime, quote=False, name="updated")
     code_changed = Column(Boolean, quote=False, name="code_changed", default=False)
-    story_points = Column(Float, quote=False, name="story_points")
 
     # Enhanced workflow timing columns
     work_first_committed_at = Column(DateTime, quote=False, name="work_first_committed_at")
@@ -846,20 +859,20 @@ class EtlJob(Base, IntegrationBaseEntity):
     retry_count = Column(Integer, default=0, quote=False, name="retry_count")
 
     # Checkpoint data for recovery
-    checkpoint_data = Column(Text, nullable=True, quote=False, name="checkpoint_data")  # JSONB stored as text
+    checkpoint_data = Column(Boolean, nullable=False, default=False, quote=False, name="checkpoint_data")  # Boolean flag indicating if job has checkpoint records
 
     # Relationships
     integration = relationship("Integration", back_populates="etl_jobs")
 
     def clear_checkpoints(self):
         """Clear checkpoint data after successful completion."""
-        self.checkpoint_data = None
+        self.checkpoint_data = False
         self.error_message = None
         self.retry_count = 0
 
     def has_recovery_checkpoints(self) -> bool:
         """Check if there are recovery checkpoints available."""
-        return self.checkpoint_data is not None
+        return self.checkpoint_data is True
 
     def set_running(self):
         """Mark job as running and update timing."""
@@ -1119,6 +1132,47 @@ class EtlJob(Base, IntegrationBaseEntity):
         import json
         queue = json.loads(self.repo_processing_queue)  # type: ignore
         return [repo for repo in queue if not repo.get("finished", False)]
+
+
+class EtlJobsGithubCheckpoint(Base, IntegrationBaseEntity):
+    """
+    GitHub Extraction Checkpoint Tracking.
+
+    Tracks per-repository checkpoint data for fine-grained recovery when rate limits occur.
+    Each record represents one repository's extraction state within a job execution.
+
+    Status values:
+    - 'pending': Repository extraction not yet completed
+    - 'completed': Repository extraction finished successfully
+
+    When rate limited:
+    - status = 'pending' (not completed)
+    - checkpoint_data IS NOT NULL (contains cursor/nested state for resume)
+
+    Token-based deduplication ensures idempotent processing across job restarts.
+    """
+
+    __tablename__ = 'etl_jobs_github_checkpoints'
+
+    # Primary key
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+
+    # Job tracking
+    job_id = Column(Integer, ForeignKey('etl_jobs.id', ondelete='CASCADE'), nullable=False, quote=False, name="job_id")
+    token = Column(String(255), nullable=False, index=True, quote=False, name="token")  # Job execution token for deduplication
+
+    # Repository identification (for queuing PR extraction on resume)
+    owner = Column(String(255), nullable=False, quote=False, name="owner")
+    repo_name = Column(String(255), nullable=False, quote=False, name="repo_name")
+    full_name = Column(String(512), nullable=False, quote=False, name="full_name")
+    repository_external_id = Column(String(255), nullable=True, quote=False, name="repository_external_id")
+
+    # Status & Checkpoint
+    status = Column(String(50), nullable=False, default='pending', quote=False, name="status")  # 'pending' or 'completed'
+    checkpoint_data = Column(JSONB, nullable=True, quote=False, name="checkpoint_data")  # NULL = no checkpoint, NOT NULL = has checkpoint (rate limited)
+
+    # Relationships
+    job = relationship("EtlJob", foreign_keys=[job_id])
 
 
 class WorkItemPrLink(Base, IntegrationBaseEntity):
@@ -1446,3 +1500,377 @@ class RawExtractionData(Base, IntegrationBaseEntity):
     # Relationships
     tenant = relationship("Tenant", back_populates="raw_extraction_data")
     integration = relationship("Integration", back_populates="raw_extraction_data")
+
+
+# ============================================================================
+# PORTFOLIO MANAGEMENT MODELS
+# ============================================================================
+
+class Portfolio(Base, BaseEntity):
+    """Portfolios table - strategic planning level (annual)"""
+    __tablename__ = 'portfolios'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+
+    # Portfolio details
+    name = Column(String(255), nullable=False, quote=False, name="name")
+    description = Column(Text, quote=False, name="description")
+    state = Column(String(50), nullable=False, default='PLANNING', quote=False, name="state")  # PLANNING, ACTIVE, CLOSED
+
+    # Financial tracking
+    budget = Column(Numeric(15, 2), quote=False, name="budget")
+
+    # Health metrics
+    health_score = Column(Integer, quote=False, name="health_score")  # 0-100
+
+    # Dates
+    start_date = Column(DateTime, quote=False, name="start_date")
+    end_date = Column(DateTime, quote=False, name="end_date")
+
+    # Relationships
+    tenant = relationship("Tenant", back_populates="portfolios")
+    programs = relationship("Program", back_populates="portfolio")
+    objectives = relationship("Objective", back_populates="portfolio")
+    risk_portfolios = relationship("RiskPortfolio", back_populates="portfolio")
+
+
+class Program(Base, BaseEntity):
+    """Programs table - tactical planning level (quarterly)"""
+    __tablename__ = 'programs'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+
+    # Program details
+    name = Column(String(255), nullable=False, quote=False, name="name")
+    description = Column(Text, quote=False, name="description")
+    state = Column(String(50), nullable=False, default='PLANNING', quote=False, name="state")  # PLANNING, ACTIVE, CLOSED
+
+    # Hierarchy
+    portfolio_id = Column(Integer, ForeignKey('portfolios.id'), quote=False, name="portfolio_id")
+
+    # Capacity metrics (calculated from sprints)
+    planned_capacity = Column(Float, quote=False, name="planned_capacity")
+    delivered_capacity = Column(Float, quote=False, name="delivered_capacity")
+
+    # Predictability metrics
+    predictability_score = Column(Integer, quote=False, name="predictability_score")  # 0-100
+
+    # Dates
+    start_date = Column(DateTime, quote=False, name="start_date")
+    end_date = Column(DateTime, quote=False, name="end_date")
+
+    # Relationships
+    tenant = relationship("Tenant", back_populates="programs")
+    portfolio = relationship("Portfolio", back_populates="programs")
+    sprints = relationship("Sprint", back_populates="program")
+    objectives = relationship("Objective", back_populates="program")
+    risk_programs = relationship("RiskProgram", back_populates="program")
+
+
+class Sprint(Base, IntegrationBaseEntity):
+    """Sprints table - operational execution level (2-week iterations)"""
+    __tablename__ = 'sprints'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+
+    # Identifiers
+    external_id = Column(String(50), nullable=False, quote=False, name="external_id")  # Jira sprint ID
+    name = Column(String(255), nullable=False, quote=False, name="name")
+    sequence = Column(Integer, quote=False, name="sequence")  # Sprint sequence number
+
+    # Sprint details
+    state = Column(String(50), nullable=False, quote=False, name="state")  # ACTIVE, CLOSED, FUTURE
+    goal = Column(Text, quote=False, name="goal")
+
+    # Dates
+    start_date = Column(DateTime, quote=False, name="start_date")
+    end_date = Column(DateTime, quote=False, name="end_date")
+    complete_date = Column(DateTime, quote=False, name="complete_date")
+
+    # Jira-specific
+    board_id = Column(Integer, quote=False, name="board_id")  # Jira board ID (rapidViewId)
+    sprint_version = Column(Integer, quote=False, name="sprint_version")
+
+    # Hierarchy
+    program_id = Column(Integer, ForeignKey('programs.id'), quote=False, name="program_id")
+
+    # Sprint report metrics (from /rest/greenhopper/1.0/rapid/charts/sprintreport)
+    completed_estimate = Column(Float, quote=False, name="completed_estimate")  # Story points completed
+    not_completed_estimate = Column(Float, quote=False, name="not_completed_estimate")  # Story points not completed
+    punted_estimate = Column(Float, quote=False, name="punted_estimate")  # Story points removed from sprint
+    total_estimate = Column(Float, quote=False, name="total_estimate")  # Total story points committed
+    completion_percentage = Column(Float, quote=False, name="completion_percentage")  # % completed
+    velocity = Column(Float, quote=False, name="velocity")  # Actual velocity (completed points)
+
+    # Sprint health indicators
+    scope_change_count = Column(Integer, quote=False, name="scope_change_count")  # Number of scope changes
+    carry_over_count = Column(Integer, quote=False, name="carry_over_count")  # Number of items carried over
+
+    # Relationships
+    tenant = relationship("Tenant", back_populates="sprints")
+    integration = relationship("Integration")
+    program = relationship("Program", back_populates="sprints")
+    work_item_sprints = relationship("WorkItemSprint", back_populates="sprint", foreign_keys="[WorkItemSprint.sprint_id]")
+    risk_sprints = relationship("RiskSprint", back_populates="sprint")
+
+
+class WorkItemSprint(Base, BaseEntity):
+    """Work items sprints junction table - n-n relationship with sprint outcome tracking"""
+    __tablename__ = 'work_items_sprints'
+    __table_args__ = (
+        UniqueConstraint('work_item_id', 'sprint_id', name='uk_work_item_sprint'),
+        {'quote': False}
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+
+    # Junction keys
+    work_item_id = Column(Integer, ForeignKey('work_items.id'), nullable=False, quote=False, name="work_item_id")
+    sprint_id = Column(Integer, ForeignKey('sprints.id'), nullable=False, quote=False, name="sprint_id")
+
+    # Sprint assignment history
+    added_date = Column(DateTime, nullable=False, quote=False, name="added_date")
+    removed_date = Column(DateTime, quote=False, name="removed_date")
+
+    # Sprint report classification
+    sprint_outcome = Column(String(50), quote=False, name="sprint_outcome")  # completed, not_completed, punted, completed_another_sprint
+    added_during_sprint = Column(Boolean, default=False, quote=False, name="added_during_sprint")
+
+    # Commitment tracking
+    committed = Column(Boolean, default=False, quote=False, name="committed")
+
+    # Estimate snapshots
+    estimate_at_start = Column(Float, quote=False, name="estimate_at_start")
+    estimate_at_end = Column(Float, quote=False, name="estimate_at_end")
+
+    # Carry-over tracking
+    carried_over_from_sprint_id = Column(Integer, ForeignKey('sprints.id'), quote=False, name="carried_over_from_sprint_id")
+    carried_over_to_sprint_id = Column(Integer, ForeignKey('sprints.id'), quote=False, name="carried_over_to_sprint_id")
+
+    # Relationships
+    tenant = relationship("Tenant", back_populates="work_item_sprints")
+    work_item = relationship("WorkItem")
+    sprint = relationship("Sprint", back_populates="work_item_sprints", foreign_keys=[sprint_id])
+    carried_over_from_sprint = relationship("Sprint", foreign_keys=[carried_over_from_sprint_id])
+    carried_over_to_sprint = relationship("Sprint", foreign_keys=[carried_over_to_sprint_id])
+
+
+class Risk(Base, BaseEntity):
+    """Risks table - risk and opportunity management"""
+    __tablename__ = 'risks'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+
+    # Risk details
+    title = Column(String(255), nullable=False, quote=False, name="title")
+    description = Column(Text, quote=False, name="description")
+    risk_type = Column(String(50), nullable=False, default='THREAT', quote=False, name="risk_type")  # THREAT, OPPORTUNITY
+    state = Column(String(50), nullable=False, default='IDENTIFIED', quote=False, name="state")  # IDENTIFIED, MITIGATING, RESOLVED, ACCEPTED
+
+    # Risk assessment
+    probability = Column(Integer, quote=False, name="probability")  # 1-5
+    impact = Column(Integer, quote=False, name="impact")  # 1-5
+    risk_score = Column(Integer, quote=False, name="risk_score")  # probability × impact (1-25)
+
+    # Mitigation
+    mitigation_plan = Column(Text, quote=False, name="mitigation_plan")
+    contingency_plan = Column(Text, quote=False, name="contingency_plan")
+
+    # Ownership
+    owner_name = Column(String(255), quote=False, name="owner_name")  # String name, not FK
+
+    # Dates
+    identified_date = Column(DateTime, quote=False, name="identified_date")
+    target_resolution_date = Column(DateTime, quote=False, name="target_resolution_date")
+    critical_resolution_date = Column(DateTime, quote=False, name="critical_resolution_date")  # When it becomes critical
+    actual_resolution_date = Column(DateTime, quote=False, name="actual_resolution_date")
+
+    # Relationships (polymorphic via junction tables)
+    tenant = relationship("Tenant", back_populates="risks")
+    risk_programs = relationship("RiskProgram", back_populates="risk")
+    risk_portfolios = relationship("RiskPortfolio", back_populates="risk")
+    risk_sprints = relationship("RiskSprint", back_populates="risk")
+    risk_work_items = relationship("RiskWorkItem", back_populates="risk")
+
+
+class Dependency(Base, BaseEntity):
+    """Dependencies table - cross-team dependency tracking"""
+    __tablename__ = 'dependencies'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+
+    # Dependency details
+    title = Column(String(255), nullable=False, quote=False, name="title")
+    description = Column(Text, quote=False, name="description")
+    state = Column(String(50), nullable=False, default='IDENTIFIED', quote=False, name="state")  # IDENTIFIED, IN_PROGRESS, RESOLVED, BLOCKED
+    criticality = Column(String(50), quote=False, name="criticality")  # LOW, MEDIUM, HIGH, CRITICAL
+
+    # Teams involved
+    dependent_team = Column(String(255), quote=False, name="dependent_team")  # Team that is blocked
+    owner_name = Column(String(255), quote=False, name="owner_name")  # Person/team responsible for resolving
+
+    # Dates
+    signedoff_date = Column(DateTime, quote=False, name="signedoff_date")  # When dependency was agreed upon
+    target_resolution_date = Column(DateTime, quote=False, name="target_resolution_date")
+    critical_resolution_date = Column(DateTime, quote=False, name="critical_resolution_date")
+    actual_resolution_date = Column(DateTime, quote=False, name="actual_resolution_date")
+
+    # Relationships (n-n with work_items via junction table)
+    tenant = relationship("Tenant", back_populates="dependencies")
+    dependency_work_items = relationship("DependencyWorkItem", back_populates="dependency")
+
+
+class Objective(Base, BaseEntity):
+    """Objectives table - OKR framework objectives"""
+    __tablename__ = 'objectives'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+
+    # Objective details
+    title = Column(String(255), nullable=False, quote=False, name="title")
+    description = Column(Text, quote=False, name="description")
+    state = Column(String(50), nullable=False, default='DRAFT', quote=False, name="state")  # DRAFT, ACTIVE, ACHIEVED, ABANDONED
+
+    # Scope (XOR constraint - only one can be set)
+    team_name = Column(String(255), quote=False, name="team_name")  # Team-level OKR
+    program_id = Column(Integer, ForeignKey('programs.id'), quote=False, name="program_id")  # Program-level OKR (quarterly)
+    portfolio_id = Column(Integer, ForeignKey('portfolios.id'), quote=False, name="portfolio_id")  # Portfolio-level OKR (annual)
+
+    # Progress tracking
+    progress_percentage = Column(Integer, default=0, quote=False, name="progress_percentage")  # 0-100
+
+    # Dates
+    start_date = Column(DateTime, quote=False, name="start_date")
+    target_date = Column(DateTime, quote=False, name="target_date")
+    achieved_date = Column(DateTime, quote=False, name="achieved_date")
+
+    # Relationships
+    tenant = relationship("Tenant", back_populates="objectives")
+    program = relationship("Program", back_populates="objectives")
+    portfolio = relationship("Portfolio", back_populates="objectives")
+    key_results = relationship("KeyResult", back_populates="objective")
+
+
+class KeyResult(Base, BaseEntity):
+    """Key results table - OKR framework key results"""
+    __tablename__ = 'key_results'
+    __table_args__ = {'quote': False}
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+
+    # Key result details
+    objective_id = Column(Integer, ForeignKey('objectives.id'), nullable=False, quote=False, name="objective_id")
+    title = Column(String(255), nullable=False, quote=False, name="title")
+    description = Column(Text, quote=False, name="description")
+    state = Column(String(50), nullable=False, default='NOT_STARTED', quote=False, name="state")  # NOT_STARTED, IN_PROGRESS, ACHIEVED, ABANDONED
+
+    # Metric tracking
+    metric_type = Column(String(50), quote=False, name="metric_type")  # PERCENTAGE, NUMBER, CURRENCY, BOOLEAN
+    baseline_value = Column(Float, quote=False, name="baseline_value")
+    target_value = Column(Float, quote=False, name="target_value")
+    current_value = Column(Float, quote=False, name="current_value")
+    progress_percentage = Column(Integer, default=0, quote=False, name="progress_percentage")  # 0-100
+
+    # Dates
+    start_date = Column(DateTime, quote=False, name="start_date")
+    target_date = Column(DateTime, quote=False, name="target_date")
+    achieved_date = Column(DateTime, quote=False, name="achieved_date")
+
+    # Relationships
+    tenant = relationship("Tenant", back_populates="key_results")
+    objective = relationship("Objective", back_populates="key_results")
+
+
+# ============================================================================
+# JUNCTION TABLES (Polymorphic Relationships)
+# ============================================================================
+
+class RiskProgram(Base):
+    """Risks-Programs junction table"""
+    __tablename__ = 'risks_programs'
+    __table_args__ = (
+        PrimaryKeyConstraint('risk_id', 'program_id'),
+        {'quote': False}
+    )
+
+    risk_id = Column(Integer, ForeignKey('risks.id'), primary_key=True, quote=False, name="risk_id")
+    program_id = Column(Integer, ForeignKey('programs.id'), primary_key=True, quote=False, name="program_id")
+
+    # Relationships
+    risk = relationship("Risk", back_populates="risk_programs")
+    program = relationship("Program", back_populates="risk_programs")
+
+
+class RiskPortfolio(Base):
+    """Risks-Portfolios junction table"""
+    __tablename__ = 'risks_portfolios'
+    __table_args__ = (
+        PrimaryKeyConstraint('risk_id', 'portfolio_id'),
+        {'quote': False}
+    )
+
+    risk_id = Column(Integer, ForeignKey('risks.id'), primary_key=True, quote=False, name="risk_id")
+    portfolio_id = Column(Integer, ForeignKey('portfolios.id'), primary_key=True, quote=False, name="portfolio_id")
+
+    # Relationships
+    risk = relationship("Risk", back_populates="risk_portfolios")
+    portfolio = relationship("Portfolio", back_populates="risk_portfolios")
+
+
+class RiskSprint(Base):
+    """Risks-Sprints junction table"""
+    __tablename__ = 'risks_sprints'
+    __table_args__ = (
+        PrimaryKeyConstraint('risk_id', 'sprint_id'),
+        {'quote': False}
+    )
+
+    risk_id = Column(Integer, ForeignKey('risks.id'), primary_key=True, quote=False, name="risk_id")
+    sprint_id = Column(Integer, ForeignKey('sprints.id'), primary_key=True, quote=False, name="sprint_id")
+
+    # Relationships
+    risk = relationship("Risk", back_populates="risk_sprints")
+    sprint = relationship("Sprint", back_populates="risk_sprints")
+
+
+class RiskWorkItem(Base):
+    """Risks-WorkItems junction table"""
+    __tablename__ = 'risks_work_items'
+    __table_args__ = (
+        PrimaryKeyConstraint('risk_id', 'work_item_id'),
+        {'quote': False}
+    )
+
+    risk_id = Column(Integer, ForeignKey('risks.id'), primary_key=True, quote=False, name="risk_id")
+    work_item_id = Column(Integer, ForeignKey('work_items.id'), primary_key=True, quote=False, name="work_item_id")
+
+    # Relationships
+    risk = relationship("Risk", back_populates="risk_work_items")
+    work_item = relationship("WorkItem")
+
+
+class DependencyWorkItem(Base, BaseEntity):
+    """Dependencies-WorkItems junction table with role tracking"""
+    __tablename__ = 'dependencies_work_items'
+    __table_args__ = (
+        UniqueConstraint('dependency_id', 'work_item_id', 'role', name='uk_dependency_work_item'),
+        {'quote': False}
+    )
+
+    id = Column(Integer, primary_key=True, autoincrement=True, quote=False, name="id")
+    dependency_id = Column(Integer, ForeignKey('dependencies.id'), nullable=False, quote=False, name="dependency_id")
+    work_item_id = Column(Integer, ForeignKey('work_items.id'), nullable=False, quote=False, name="work_item_id")
+
+    # Role in dependency
+    role = Column(String(50), quote=False, name="role")  # 'source' (blocking), 'target' (blocked)
+
+    # Relationships
+    tenant = relationship("Tenant", back_populates="dependency_work_items")
+    dependency = relationship("Dependency", back_populates="dependency_work_items")
+    work_item = relationship("WorkItem")

@@ -301,7 +301,7 @@ class IndividualJobTimer:
                 current_status = result[0]
                 logger.info(f"🔍 [TRIGGER] Job '{self.job_name}' current status: {current_status}")
 
-                # Only trigger if job is in READY status
+                # Only trigger if job is in READY or RATE_LIMITED status
                 if current_status == 'RUNNING':
                     logger.warning(f"⚠️ Job '{self.job_name}' is already RUNNING - skipping automatic trigger")
                     return
@@ -313,8 +313,12 @@ class IndividualJobTimer:
                     await self._reschedule_with_fast_retry(session)
                     return
 
-                if current_status != 'READY':
-                    logger.warning(f"⚠️ Job '{self.job_name}' has status '{current_status}' (expected READY) - skipping automatic trigger")
+                # 🔑 Allow RATE_LIMITED jobs to auto-resume when next_run time is reached
+                if current_status == 'RATE_LIMITED':
+                    logger.info(f"✅ RATE_LIMITED AUTO-RESUME: Job '{self.job_name}' will resume from rate limit")
+
+                if current_status not in ['READY', 'RATE_LIMITED']:
+                    logger.warning(f"⚠️ Job '{self.job_name}' has status '{current_status}' (expected READY or RATE_LIMITED) - skipping automatic trigger")
                     return
 
                 # Set job to RUNNING status with proper timezone handling
@@ -583,7 +587,7 @@ class IndividualJobTimer:
 
                 update_query = text("""
                     UPDATE etl_jobs
-                    SET status = 'FAILED',
+                    SET status = jsonb_set(status, ARRAY['overall'], to_jsonb('FAILED'::text)),
                         last_updated_at = :now,
                         error_message = :error_message
                     WHERE id = :job_id AND tenant_id = :tenant_id
@@ -612,7 +616,7 @@ class IndividualJobTimer:
             bool: True if queued successfully
         """
         try:
-            from app.etl.queue.queue_manager import QueueManager
+            from app.etl.workers.queue_manager import QueueManager
 
             # Update job status to QUEUED
             database = get_database()

@@ -795,13 +795,19 @@ After job completion, the system uses a **backend-managed countdown** (not UI-ma
 1. **Job Finishes**: Embedding worker calls `complete_etl_job()`:
    - Sets `reset_deadline` = now + 30 seconds
    - Sets `reset_attempt` = 0
-   - Schedules delayed task via `job_reset_scheduler.py`
+   - Schedules delayed task via `job_reset_scheduler.py` using `threading.Timer`
 
-2. **Scheduled Check** (after 30s): Backend runs `check_and_reset_job()`:
+2. **Scheduled Check** (after 30s): Backend runs `reset_check_task()`:
    - Verifies all steps are finished
-   - Checks embedding queue for remaining messages with job token
-   - **If work remains**: Extends deadline with exponential backoff (60s, 180s, 300s)
-   - **If all complete**: Resets job to READY
+   - Checks all queues (extraction, transform, embedding) for remaining messages with job token
+   - **If work remains**:
+     - Extends deadline with exponential backoff (60s, 180s, 300s)
+     - Updates database with new `reset_deadline`
+     - Does NOT send WebSocket (workers send their own status updates)
+     - Schedules next check using `threading.Timer`
+   - **If all complete**:
+     - Resets job to READY, all steps to 'idle'
+     - Sends WebSocket update to notify UI
 
 3. **UI Countdown**: Frontend receives `reset_deadline` via WebSocket:
    ```json
@@ -822,6 +828,8 @@ After job completion, the system uses a **backend-managed countdown** (not UI-ma
 - **Multi-user sync**: All users see the same countdown
 - **Works offline**: Resets even when no users are logged in
 - **Exponential backoff**: Automatically extends if work remains
+- **Reliable execution**: Uses `threading.Timer` instead of asyncio tasks for guaranteed execution
+- **No race conditions**: Reset scheduler doesn't overwrite worker status updates
 
 ### WebSocket Status Updates
 
@@ -904,7 +912,7 @@ CREATE TABLE custom_fields (
 );
 
 -- Direct mapping configuration per tenant/integration
-CREATE TABLE custom_fields_mapping (
+CREATE TABLE custom_fields_mappings (
     id SERIAL PRIMARY KEY,
 
     -- Special field mappings (always shown first in UI)

@@ -117,9 +117,19 @@ SOURCE_TYPE_MAPPING = {
     'changelogs': 'JIRA',
     'projects': 'JIRA',
     'statuses': 'JIRA',
+    'statuses_mappings': 'JIRA',
     'workflows': 'JIRA',
     'wits': 'JIRA',
-    'wits_prs_links': 'JIRA',  # Jira agent owns cross-system links
+    'wits_hierarchies': 'JIRA',
+    'wits_mappings': 'JIRA',
+    'work_items_prs_links': 'JIRA',  # Jira agent owns cross-system links
+    'sprints': 'JIRA',
+
+    # Portfolio Management (Jira-related strategic planning)
+    'programs': 'JIRA',
+    'portfolios': 'JIRA',
+    'risks': 'JIRA',
+    'dependencies': 'JIRA',
 
     # GitHub Agent's scope
     'prs': 'GITHUB',
@@ -127,8 +137,6 @@ SOURCE_TYPE_MAPPING = {
     'prs_reviews': 'GITHUB',
     'prs_comments': 'GITHUB',
     'repositories': 'GITHUB',
-    'dora_metric_insights': 'GITHUB',
-    'dora_market_benchmarks': 'GITHUB',
 }
 ```
 
@@ -706,9 +714,9 @@ CREATE TABLE work_items (
 )
 ```
 
-#### Custom Fields Mapping Table
+#### Custom Fields Mappings Table
 ```sql
-CREATE TABLE custom_fields_mapping (
+CREATE TABLE custom_fields_mappings (
     id SERIAL PRIMARY KEY,
 
     -- Special field mappings

@@ -238,10 +238,6 @@ class GitHubGraphQLClient:
             'prCursor': pr_cursor
         }
 
-        # 🐛 DEBUG: Log the actual query being sent
-        logger.info(f"🔍 [GRAPHQL QUERY] batch_size={self.batch_size}")
-        logger.info(f"🔍 [GRAPHQL QUERY] First 200 chars of query: {query[:200]}")
-
         return self._make_graphql_request(query, variables)
 
     async def get_more_commits_for_pr(self, pr_node_id: str, commit_cursor: str = None) -> Optional[Dict[str, Any]]:

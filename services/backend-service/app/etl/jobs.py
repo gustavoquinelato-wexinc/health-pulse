@@ -155,8 +155,8 @@ class JobDetailsResponse(BaseModel):
     error_message: Optional[str]
     retry_count: int
 
-    # Checkpoint data (JSONB)
-    checkpoint_data: Optional[Dict[str, Any]]
+    # Checkpoint flag (Boolean - indicates if job has checkpoint records)
+    checkpoint_data: bool
 
 
 class JobActionResponse(BaseModel):
@@ -381,13 +381,8 @@ async def get_job_details(
         if not result:
             raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
 
-        # Parse checkpoint_data if it exists
-        checkpoint_data = result[13]
-        if checkpoint_data and isinstance(checkpoint_data, str):
-            try:
-                checkpoint_data = json.loads(checkpoint_data)
-            except:
-                checkpoint_data = None
+        # checkpoint_data is now a boolean flag
+        checkpoint_data = result[13] if result[13] is not None else False
 
         return JobDetailsResponse(
             id=result[0],
@@ -580,6 +575,10 @@ async def run_job_now(
         if current_status == 'RUNNING':
             logger.warning(f"⚠️ ALREADY RUNNING: Job '{job_name}' is already RUNNING - rejecting request")
             raise HTTPException(status_code=400, detail=f"Job {job_name} is already running")
+
+        # 🔑 Allow running jobs with RATE_LIMITED status (manual override)
+        if current_status == 'RATE_LIMITED':
+            logger.info(f"✅ RATE_LIMITED OVERRIDE: Allowing manual run of job '{job_name}' (status: RATE_LIMITED)")
 
         if current_status == 'FINISHED':
             logger.warning(f"⚠️ JOB FINISHING: Job '{job_name}' is FINISHED and resetting - rejecting request")
@@ -983,7 +982,7 @@ async def _queue_github_extraction_job(tenant_id: int, integration_id: int, job_
 
         logger.info(f"✅ Job {job_id} status updated to QUEUED")
 
-        # Check for recovery checkpoint
+        # 🔑 Check for checkpoint flag (new checkpoint system)
         database = get_database()
         with database.get_read_session_context() as db:
             job = db.query(EtlJob).filter(
@@ -991,44 +990,113 @@ async def _queue_github_extraction_job(tenant_id: int, integration_id: int, job_
                 EtlJob.tenant_id == tenant_id
             ).first()
 
-            if job and job.has_recovery_checkpoints():
-                # 🔑 checkpoint_data is already a dict (SQLAlchemy deserializes JSONB)
-                # Don't call json.loads() on it
-                checkpoint = job.checkpoint_data if isinstance(job.checkpoint_data, dict) else json.loads(job.checkpoint_data)
+            if job and job.checkpoint_data:  # Boolean flag check
+                logger.info(f"� Job {job_id} has checkpoint data - resuming from checkpoints")
 
-                if checkpoint.get('rate_limit_hit'):
-                    logger.info(f"🔄 Resuming job {job_id} from rate limit checkpoint")
-                    node_type = checkpoint['rate_limit_node_type']
+                # Get job token from status JSON
+                status = job.status if isinstance(job.status, dict) else json.loads(job.status)
+                job_token = status.get('token')
 
-                    if node_type == 'repositories':
-                        # Resume repository extraction from last repo's pushed date
-                        logger.info(f"📥 Resuming repository extraction from pushed date: {checkpoint.get('last_repo_pushed_date')}")
-                        return await _queue_github_repositories_extraction(
-                            tenant_id=tenant_id,
-                            integration_id=integration_id,
-                            job_id=job_id,
-                            resume_from_pushed_date=checkpoint.get('last_repo_pushed_date')
-                        )
-                    elif node_type == 'prs':
-                        # Resume PR extraction from saved cursor
-                        logger.info(f"📥 Resuming PR extraction with cursor: {checkpoint.get('last_pr_cursor')}")
-                        return await _queue_github_prs_extraction(
-                            tenant_id=tenant_id,
-                            integration_id=integration_id,
-                            job_id=job_id,
-                            pr_cursor=checkpoint.get('last_pr_cursor')
-                        )
-                    else:
-                        # Resume nested extraction from saved state
-                        logger.info(f"📥 Resuming nested extraction for PR {checkpoint.get('current_pr_id')}")
-                        return await _queue_github_nested_extraction(
-                            tenant_id=tenant_id,
-                            integration_id=integration_id,
-                            job_id=job_id,
-                            pr_id=checkpoint.get('current_pr_id'),
-                            pr_node_id=checkpoint.get('current_pr_node_id'),
-                            nested_nodes_status=checkpoint.get('nested_nodes_status')
-                        )
+                if not job_token:
+                    logger.error(f"No token found in job status for checkpoint recovery")
+                    return False
+
+                # Query checkpoints with data
+                from app.etl.github.github_extraction_worker import query_checkpoints_with_data
+                checkpoints = query_checkpoints_with_data(
+                    job_id=job_id,
+                    tenant_id=tenant_id,
+                    token=job_token
+                )
+
+                if not checkpoints:
+                    logger.warning(f"No checkpoints with data found for job {job_id}, starting fresh")
+                    # Clear the flag and start fresh
+                    with database.get_write_session_context() as write_db:
+                        update_query = text("""
+                            UPDATE etl_jobs
+                            SET checkpoint_data = FALSE
+                            WHERE id = :job_id AND tenant_id = :tenant_id
+                        """)
+                        write_db.execute(update_query, {'job_id': job_id, 'tenant_id': tenant_id})
+                else:
+                    logger.info(f"� Found {len(checkpoints)} checkpoints to resume")
+
+                    # Queue PR extraction for each checkpoint with data
+                    queue_manager = QueueManager()
+
+                    for i, checkpoint in enumerate(checkpoints):
+                        is_first = (i == 0)
+                        is_last = (i == len(checkpoints) - 1)
+
+                        checkpoint_data = checkpoint['checkpoint_data']
+                        owner = checkpoint['owner']
+                        repo_name = checkpoint['repo_name']
+                        full_name = checkpoint['full_name']
+
+                        # Extract checkpoint details
+                        node_type = checkpoint_data.get('node_type')
+
+                        if node_type == 'prs':
+                            # Resume PR extraction
+                            pr_cursor = checkpoint_data.get('last_pr_cursor')
+                            logger.info(f"📥 Resuming PR extraction for {full_name} with cursor: {pr_cursor}")
+
+                            message = {
+                                'tenant_id': tenant_id,
+                                'integration_id': integration_id,
+                                'job_id': job_id,
+                                'type': 'github_prs_commits_reviews_comments',
+                                'provider': 'github',
+                                'owner': owner,
+                                'repo_name': repo_name,
+                                'full_name': full_name,
+                                'pr_cursor': pr_cursor,
+                                'first_item': is_first,
+                                'last_item': False,
+                                'last_job_item': False,
+                                'last_repo': is_last,
+                                'token': job_token,
+                                'old_last_sync_date': job.last_sync_date.strftime('%Y-%m-%d %H:%M:%S') if job.last_sync_date else None
+                            }
+
+                            tier = queue_manager._get_tenant_tier(tenant_id)
+                            tier_queue = queue_manager.get_tier_queue_name(tier, 'extraction')
+                            queue_manager._publish_message(tier_queue, message)
+
+                        elif node_type in ['commits', 'reviews', 'comments', 'review_threads']:
+                            # Resume nested extraction
+                            pr_node_id = checkpoint_data.get('current_pr_node_id')
+                            nested_cursor = checkpoint_data.get('nested_cursor')
+                            logger.info(f"📥 Resuming {node_type} extraction for {full_name}, PR {pr_node_id}")
+
+                            message = {
+                                'tenant_id': tenant_id,
+                                'integration_id': integration_id,
+                                'job_id': job_id,
+                                'type': 'github_prs_commits_reviews_comments',
+                                'provider': 'github',
+                                'owner': owner,
+                                'repo_name': repo_name,
+                                'full_name': full_name,
+                                'pr_node_id': pr_node_id,
+                                'nested_type': node_type,
+                                'nested_cursor': nested_cursor,
+                                'first_item': is_first,
+                                'last_item': False,
+                                'last_job_item': False,
+                                'last_repo': is_last,
+                                'last_pr_last_nested': is_last,  # Assume last nested for simplicity
+                                'token': job_token,
+                                'old_last_sync_date': job.last_sync_date.strftime('%Y-%m-%d %H:%M:%S') if job.last_sync_date else None
+                            }
+
+                            tier = queue_manager._get_tenant_tier(tenant_id)
+                            tier_queue = queue_manager.get_tier_queue_name(tier, 'extraction')
+                            queue_manager._publish_message(tier_queue, message)
+
+                    logger.info(f"✅ Queued {len(checkpoints)} checkpoint recovery messages")
+                    return True
 
         # Normal start (no recovery checkpoint)
         logger.info(f"🚀 Starting fresh GitHub extraction for job {job_id}")
