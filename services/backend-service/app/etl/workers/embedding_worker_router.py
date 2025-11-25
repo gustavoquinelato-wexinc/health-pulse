@@ -42,6 +42,13 @@ SOURCE_TYPE_MAPPING = {
     'wits_hierarchies': 'JIRA',
     'wits_mappings': 'JIRA',
     'work_items_prs_links': 'JIRA',  # Jira agent owns the links
+    'sprints': 'JIRA',  # Sprint data from Jira
+
+    # Portfolio Management (Jira-related strategic planning)
+    'programs': 'JIRA',
+    'portfolios': 'JIRA',
+    'risks': 'JIRA',
+    'dependencies': 'JIRA',
 
     # GitHub Agent's scope (all GitHub-related data + DORA metrics)
     'prs': 'GITHUB',
@@ -109,9 +116,6 @@ class EmbeddingWorker(BaseWorker):
             table_name = message.get('table_name')
             external_id = message.get('external_id')
             first_item = message.get('first_item', False)
-            last_item = message.get('last_item', False)
-            last_job_item = message.get('last_job_item', False)
-            new_last_sync_date = message.get('new_last_sync_date')
 
             logger.debug(f"📋 [EMBEDDING] Received message: tenant={tenant_id}, job={job_id}, step={step_type}, table={table_name}, external_id={external_id}")
 
@@ -125,75 +129,46 @@ class EmbeddingWorker(BaseWorker):
                 except Exception as ws_error:
                     logger.error(f"❌ [EMBEDDING] Error sending WebSocket status: {ws_error}")
 
-            # Handle job completion messages first (external_id=None and last_job_item=True)
-            if table_name and external_id is None and last_job_item:
-                logger.info(f"🎯 [JOB COMPLETION] Completing ETL job {job_id} from completion message (table={table_name})")
-                await self.status_manager.complete_etl_job(job_id, tenant_id, new_last_sync_date)
-                result = True
-            else:
-                # Route to appropriate embedding worker based on table_name or step_type
-                # Determine provider from table_name or step_type
-                provider = self._determine_provider(table_name, step_type)
+            # Route to appropriate embedding worker based on table_name or step_type
+            # Determine provider from table_name or step_type
+            provider = self._determine_provider(table_name, step_type)
 
-                if not provider:
-                    logger.warning(f"⚠️ [EMBEDDING] Could not determine provider for table={table_name}, step={step_type}")
-                    return False
+            if not provider:
+                logger.warning(f"⚠️ [EMBEDDING] Could not determine provider for table={table_name}, step={step_type}")
+                return False
 
-                logger.debug(f"📋 [EMBEDDING] Routing to {provider} embedding worker")
+            logger.debug(f"📋 [EMBEDDING] Routing to {provider} embedding worker")
 
-                # Route to provider-specific worker
-                # IMPORTANT: Must cleanup worker after processing to close database sessions
-                worker = None
-                try:
-                    if provider == 'jira':
-                        from app.etl.jira.jira_embedding_worker import JiraEmbeddingWorker
-                        worker = JiraEmbeddingWorker(
-                            status_manager=self.status_manager,
-                            queue_manager=self.queue_manager
-                        )
-                        result = await worker.process_jira_embedding(message)
-                    elif provider == 'github':
-                        from app.etl.github.github_embedding_worker import GitHubEmbeddingWorker
-                        worker = GitHubEmbeddingWorker(
-                            status_manager=self.status_manager,
-                            queue_manager=self.queue_manager
-                        )
-                        result = await worker.process_github_embedding(message)
-                    else:
-                        logger.warning(f"❓ [EMBEDDING] Unknown provider: {provider}")
-                        result = False
-                finally:
-                    # Cleanup worker to close database session and async clients
-                    if worker and hasattr(worker, 'cleanup'):
-                        try:
-                            await worker.cleanup()
-                            logger.debug(f"✅ [EMBEDDING] Worker cleanup completed for {provider}")
-                        except Exception as cleanup_error:
-                            logger.debug(f"Error during worker cleanup (suppressed): {cleanup_error}")
-
-            # 🔔 Send WebSocket status update when last_item=true (embedding worker finished)
-            # This applies to ALL messages (ETL step or individual entity)
-            should_send_finished = last_item
-
-            if job_id and should_send_finished:
-                logger.info(f"🏁 [EMBEDDING] Sending 'finished' status for {step_type or table_name}")
-                try:
-                    await self._send_worker_status("embedding", tenant_id, job_id, "finished", step_type)
-                    logger.debug(f"✅ [EMBEDDING] WebSocket 'finished' status sent")
-                except Exception as ws_error:
-                    logger.error(f"❌ [EMBEDDING] Error sending WebSocket status: {ws_error}")
-
-            # 🎯 Complete job if last_job_item=True (only for non-completion messages)
-            # Completion messages are handled above
-            should_complete_job = last_job_item and external_id is not None
-
-            if job_id and should_complete_job:
-                logger.info(f"🏁 [EMBEDDING] Processing last job item - completing ETL job {job_id}")
-                if result:
-                    await self.status_manager.complete_etl_job(job_id, tenant_id, new_last_sync_date)
-                    logger.info(f"✅ [EMBEDDING] ETL job {job_id} marked as FINISHED")
+            # Route to provider-specific worker
+            # IMPORTANT: Must cleanup worker after processing to close database sessions
+            # NOTE: Individual workers now handle finished status and job completion internally
+            worker = None
+            try:
+                if provider == 'jira':
+                    from app.etl.jira.jira_embedding_worker import JiraEmbeddingWorker
+                    worker = JiraEmbeddingWorker(
+                        status_manager=self.status_manager,
+                        queue_manager=self.queue_manager
+                    )
+                    result = await worker.process_jira_embedding(message)
+                elif provider == 'github':
+                    from app.etl.github.github_embedding_worker import GitHubEmbeddingWorker
+                    worker = GitHubEmbeddingWorker(
+                        status_manager=self.status_manager,
+                        queue_manager=self.queue_manager
+                    )
+                    result = await worker.process_github_embedding(message)
                 else:
-                    logger.error(f"❌ [EMBEDDING] ETL job {job_id} failed during embedding")
+                    logger.warning(f"❓ [EMBEDDING] Unknown provider: {provider}")
+                    result = False
+            finally:
+                # Cleanup worker to close database session and async clients
+                if worker and hasattr(worker, 'cleanup'):
+                    try:
+                        await worker.cleanup()
+                        logger.debug(f"✅ [EMBEDDING] Worker cleanup completed for {provider}")
+                    except Exception as cleanup_error:
+                        logger.debug(f"Error during worker cleanup (suppressed): {cleanup_error}")
 
             return result
 

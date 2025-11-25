@@ -173,12 +173,12 @@ export const customFieldsApi = {
     return await etlApi.get(`/custom-fields/list/${integrationId}`)
   },
 
-  // Get custom field mappings from custom_fields_mapping table
+  // Get custom field mappings from custom_fields_mappings table
   getMappingsTable: async (integrationId: number) => {
     return await etlApi.get(`/custom-fields/mappings-table/${integrationId}`)
   },
 
-  // Save custom field mappings to custom_fields_mapping table
+  // Save custom field mappings to custom_fields_mappings table
   saveMappingsTable: async (integrationId: number, mappings: Record<string, number | null>) => {
     return await etlApi.put(`/custom-fields/mappings-table/${integrationId}`, {
       mappings

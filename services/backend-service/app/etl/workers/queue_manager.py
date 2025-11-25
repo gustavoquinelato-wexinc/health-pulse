@@ -200,7 +200,8 @@ class QueueManager:
         last_job_item: bool = False,
         last_repo: bool = False,
         last_pr_last_nested: bool = False,  # 🔑 For nested extraction: true ONLY for last nested type of last PR
-        token: str = None  # 🔑 Job execution token
+        token: str = None,  # 🔑 Job execution token
+        rate_limited: bool = False  # 🔑 True if rate limit was hit
 
     ) -> bool:
         """
@@ -221,6 +222,7 @@ class QueueManager:
             last_repo: True if this is the last repository (GitHub only)
             last_pr_last_nested: For nested extraction only - true ONLY for last nested type of last PR (GitHub only)
             token: Job execution token for tracking messages through pipeline
+            rate_limited: True if rate limit was hit (signals RATE_LIMITED status instead of FINISHED)
 
         Returns:
             bool: True if published successfully
@@ -238,6 +240,7 @@ class QueueManager:
             'new_last_sync_date': new_last_sync_date,  # 🔑 Used for job completion (extraction end date)
             'last_job_item': last_job_item,
             'token': token,  # 🔑 Job execution token for tracking
+            'rate_limited': rate_limited,  # 🔑 Rate limit flag
             # Extraction → Transform specific fields
             'raw_data_id': raw_data_id,
             # GitHub-specific boundary flags
@@ -336,7 +339,8 @@ class QueueManager:
         last_item: bool = False,
         last_job_item: bool = False,
         step_type: str = None,
-        token: str = None  # 🔑 Job execution token
+        token: str = None,  # 🔑 Job execution token
+        rate_limited: bool = False  # 🔑 True if rate limit was hit
     ) -> bool:
         """
         Publish an individual entity embedding job to the tier-based embedding queue.
@@ -355,6 +359,7 @@ class QueueManager:
             last_job_item: True if this is the final item that completes the entire job
             step_type: ETL step type for status tracking
             token: Job execution token for tracking messages through pipeline
+            rate_limited: True if rate limit was hit (signals RATE_LIMITED status instead of FINISHED)
 
         Returns:
             bool: True if published successfully
@@ -372,6 +377,7 @@ class QueueManager:
             'new_last_sync_date': new_last_sync_date,  # 🔑 Used for job completion (extraction end date)
             'last_job_item': last_job_item,
             'token': token,  # 🔑 Job execution token for tracking
+            'rate_limited': rate_limited,  # 🔑 Rate limit flag
             # Transform → Embedding specific fields
             'table_name': table_name,
             'external_id': external_id

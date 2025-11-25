@@ -18,7 +18,7 @@ Architecture:
 import asyncio
 import time
 import uuid
-from typing import Dict, Any, Optional, List
+from typing import Dict, Any, Optional, List, TYPE_CHECKING
 from sqlalchemy import text
 
 from app.core.logging_config import get_logger
@@ -26,6 +26,10 @@ from app.core.database import get_database
 from app.core.utils import DateTimeHelper
 from app.models.unified_models import Pr, PrCommit, PrReview, PrComment, Repository, QdrantVector
 from app.etl.workers.embedding_worker_router import SOURCE_TYPE_MAPPING
+
+if TYPE_CHECKING:
+    from app.etl.workers.worker_status_manager import WorkerStatusManager
+    from app.etl.workers.queue_manager import QueueManager
 
 logger = get_logger(__name__)
 
@@ -41,7 +45,8 @@ class GitHubEmbeddingWorker:
     - Updating qdrant_vectors bridge table
     """
 
-    def __init__(self, status_manager=None, queue_manager=None):
+    def __init__(self, status_manager: Optional['WorkerStatusManager'] = None,
+                 queue_manager: Optional['QueueManager'] = None):
         """
         Initialize GitHub embedding worker.
 
@@ -89,6 +94,29 @@ class GitHubEmbeddingWorker:
         except Exception as e:
             logger.debug(f"Error during GitHub embedding worker cleanup (suppressed): {e}")
 
+    async def _send_worker_status(self, step: str, tenant_id: int, job_id: int,
+                                   status: str, step_type: str = None):
+        """
+        Send worker status update using injected status manager.
+
+        Args:
+            step: ETL step name (e.g., 'extraction', 'transform', 'embedding')
+            tenant_id: Tenant ID
+            job_id: Job ID
+            status: Status to send (e.g., 'running', 'finished', 'failed')
+            step_type: Optional step type for logging (e.g., 'github_repositories')
+        """
+        if self.status_manager:
+            await self.status_manager.send_worker_status(
+                step=step,
+                tenant_id=tenant_id,
+                job_id=job_id,
+                status=status,
+                step_type=step_type
+            )
+        else:
+            logger.warning(f"Status manager not available - cannot send {status} status for {step_type}")
+
     async def process_github_embedding(self, message: Dict[str, Any]) -> bool:
         """
         Process GitHub embedding message.
@@ -101,15 +129,76 @@ class GitHubEmbeddingWorker:
         """
         try:
             tenant_id = message.get('tenant_id')
+            job_id = message.get('job_id')
             step_type = message.get('type')
             table_name = message.get('table_name')
             external_id = message.get('external_id')
+            last_item = message.get('last_item', False)
+            last_job_item = message.get('last_job_item', False)
+            new_last_sync_date = message.get('new_last_sync_date')
+            rate_limited = message.get('rate_limited', False)  # 🔑 Rate limit flag from transform
 
-            logger.debug(f"🔍 [GITHUB EMBEDDING] Processing: table={table_name}, external_id={external_id}, step={step_type}")
+            logger.debug(f"🔍 [GITHUB EMBEDDING] Processing: table={table_name}, external_id={external_id}, step={step_type}, rate_limited={rate_limited}")
 
             # Handle completion messages - external_id=None signals completion
             if table_name and external_id is None:
-                logger.info(f"🎯 [GITHUB EMBEDDING] Received completion message for {table_name}")
+                logger.info(f"🎯 [GITHUB EMBEDDING] Received completion message for {table_name} (rate_limited={rate_limited})")
+
+                # 🔑 Send embedding worker "finished" status when last_item=True
+                if last_item and job_id:
+                    await self._send_worker_status("embedding", tenant_id, job_id, "finished", step_type)
+                    logger.debug(f"✅ [GITHUB EMBEDDING] Embedding step marked as finished for {table_name} (completion message)")
+
+                # 🔑 Complete ETL job when last_job_item=True
+                if last_job_item and job_id:
+                    if rate_limited:
+                        logger.info(f"🏁 [GITHUB EMBEDDING] Completing ETL job {job_id} with RATE_LIMITED status")
+                    else:
+                        logger.info(f"🏁 [GITHUB EMBEDDING] Completing ETL job {job_id} with FINISHED status")
+
+                        # 🔑 CLEANUP: Delete checkpoint records and clear flag when job completes successfully
+                        token = message.get('token')
+                        if token:
+                            logger.info(f"🧹 [GITHUB EMBEDDING] Cleaning up checkpoints for job {job_id}, token {token}")
+                            try:
+                                from app.etl.github.github_extraction_worker import delete_checkpoints_by_token
+                                from app.core.database import get_database
+                                from sqlalchemy import text
+
+                                # Delete checkpoint records
+                                delete_checkpoints_by_token(
+                                    job_id=job_id,
+                                    tenant_id=tenant_id,
+                                    token=token
+                                )
+                                logger.info(f"✅ [GITHUB EMBEDDING] Deleted checkpoint records for token {token}")
+
+                                # Clear checkpoint flag in etl_jobs
+                                database = get_database()
+                                with database.get_write_session_context() as db:
+                                    update_query = text("""
+                                        UPDATE etl_jobs
+                                        SET checkpoint_data = FALSE
+                                        WHERE id = :job_id AND tenant_id = :tenant_id
+                                    """)
+                                    db.execute(update_query, {'job_id': job_id, 'tenant_id': tenant_id})
+                                logger.info(f"✅ [GITHUB EMBEDDING] Cleared checkpoint flag for job {job_id}")
+
+                            except Exception as cleanup_error:
+                                logger.error(f"❌ [GITHUB EMBEDDING] Failed to cleanup checkpoints: {cleanup_error}")
+
+                    await self.status_manager.complete_etl_job(
+                        job_id=job_id,
+                        tenant_id=tenant_id,
+                        last_sync_date=new_last_sync_date,
+                        rate_limited=rate_limited  # 🔑 Forward rate_limited flag
+                    )
+
+                    if rate_limited:
+                        logger.info(f"✅ [GITHUB EMBEDDING] ETL job {job_id} marked as RATE_LIMITED")
+                    else:
+                        logger.info(f"✅ [GITHUB EMBEDDING] ETL job {job_id} marked as FINISHED")
+
                 return True
 
             # Handle individual entity messages
@@ -119,7 +208,58 @@ class GitHubEmbeddingWorker:
                     return False
 
                 logger.info(f"🔍 [GITHUB EMBEDDING] Fetching entity data for {table_name} ID {external_id}")
-                return await self._process_entity(tenant_id, table_name, external_id, message)
+                result = await self._process_entity(tenant_id, table_name, external_id, message)
+
+                # 🔑 Send embedding worker "finished" status when last_item=True
+                if last_item and job_id:
+                    await self._send_worker_status("embedding", tenant_id, job_id, "finished", step_type)
+                    logger.debug(f"✅ [GITHUB EMBEDDING] Embedding step marked as finished for {table_name}")
+
+                # 🔑 Complete ETL job when last_job_item=True (only for successful processing)
+                if last_job_item and job_id and result:
+                    logger.info(f"🏁 [GITHUB EMBEDDING] Processing last job item - completing ETL job {job_id}")
+
+                    # 🔑 CLEANUP: Delete checkpoint records and clear flag when job completes successfully
+                    if not rate_limited:
+                        token = message.get('token')
+                        if token:
+                            logger.info(f"🧹 [GITHUB EMBEDDING] Cleaning up checkpoints for job {job_id}, token {token}")
+                            try:
+                                from app.etl.github.github_extraction_worker import delete_checkpoints_by_token
+                                from app.core.database import get_database
+                                from sqlalchemy import text
+
+                                # Delete checkpoint records
+                                delete_checkpoints_by_token(
+                                    job_id=job_id,
+                                    tenant_id=tenant_id,
+                                    token=token
+                                )
+                                logger.info(f"✅ [GITHUB EMBEDDING] Deleted checkpoint records for token {token}")
+
+                                # Clear checkpoint flag in etl_jobs
+                                database = get_database()
+                                with database.get_write_session_context() as db:
+                                    update_query = text("""
+                                        UPDATE etl_jobs
+                                        SET checkpoint_data = FALSE
+                                        WHERE id = :job_id AND tenant_id = :tenant_id
+                                    """)
+                                    db.execute(update_query, {'job_id': job_id, 'tenant_id': tenant_id})
+                                logger.info(f"✅ [GITHUB EMBEDDING] Cleared checkpoint flag for job {job_id}")
+
+                            except Exception as cleanup_error:
+                                logger.error(f"❌ [GITHUB EMBEDDING] Failed to cleanup checkpoints: {cleanup_error}")
+
+                    await self.status_manager.complete_etl_job(
+                        job_id=job_id,
+                        tenant_id=tenant_id,
+                        last_sync_date=new_last_sync_date,
+                        rate_limited=rate_limited  # 🔑 Forward rate_limited flag
+                    )
+                    logger.info(f"✅ [GITHUB EMBEDDING] ETL job {job_id} marked as FINISHED")
+
+                return result
 
             logger.warning(f"⚠️ [GITHUB EMBEDDING] Unknown message format")
             return False

@@ -173,10 +173,11 @@ class GitHubTransformHandler:
         integration_id = message.get('integration_id')
         token = message.get('token')
         last_item = message.get('last_item', False)
+        rate_limited = message.get('rate_limited', False)  # 🔑 Rate limit flag from extraction
 
         # Handle different completion message types
         if message_type == 'github_repositories':
-            logger.debug(f"🎯 [COMPLETION] Processing github_repositories completion message")
+            logger.debug(f"🎯 [COMPLETION] Processing github_repositories completion message (rate_limited={rate_limited})")
             self.queue_manager.publish_embedding_job(
                 tenant_id=tenant_id,
                 table_name='repositories',
@@ -190,7 +191,8 @@ class GitHubTransformHandler:
                 first_item=message.get('first_item', False),
                 last_item=last_item,
                 last_job_item=message.get('last_job_item', False),
-                token=token
+                token=token,
+                rate_limited=rate_limited  # 🔑 Forward rate_limited flag to embedding
             )
             logger.debug(f"🎯 [COMPLETION] github_repositories completion message forwarded to embedding")
 
@@ -202,7 +204,7 @@ class GitHubTransformHandler:
             return True
 
         elif message_type in ('github_prs', 'github_prs_nested', 'github_prs_commits_reviews_comments'):
-            logger.debug(f"🎯 [COMPLETION] Processing {message_type} completion message")
+            logger.debug(f"🎯 [COMPLETION] Processing {message_type} completion message (rate_limited={rate_limited})")
             self.queue_manager.publish_embedding_job(
                 tenant_id=tenant_id,
                 table_name='prs',
@@ -216,7 +218,8 @@ class GitHubTransformHandler:
                 first_item=message.get('first_item', False),
                 last_item=last_item,
                 last_job_item=message.get('last_job_item', False),
-                token=token
+                token=token,
+                rate_limited=rate_limited  # 🔑 Forward rate_limited flag to embedding
             )
             logger.debug(f"🎯 [COMPLETION] {message_type} completion message forwarded to embedding")
 
@@ -472,13 +475,13 @@ class GitHubTransformHandler:
             # 🔑 Send transform worker "finished" status when last_item=True
             if last_item and job_id:
                 await self._send_worker_status("transform", tenant_id, job_id, "finished", "github_repositories")
-                logger.debug(f"✅ [GITHUB] Transform step marked as finished for github_repositories")
+                logger.info(f"✅ [GITHUB] Transform step marked as finished for github_repositories")
 
             # 🔑 NOTE: Step 2 extraction queuing is handled by Extraction worker (Step 1)
             # Transform worker only processes and inserts data, does NOT queue next extraction steps
             # This maintains unidirectional flow: Extract → Transform → Embed
 
-            logger.debug(f"✅ [GITHUB] Processed {len(repositories)} repositories and queued for embedding")
+            logger.info(f"✅ [GITHUB] Processed {len(repositories)} repositories and queued for embedding")
             return True
 
         except Exception as e:

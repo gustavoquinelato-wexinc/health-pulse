@@ -25,12 +25,297 @@ from sqlalchemy import text
 
 from app.core.logging_config import get_logger
 from app.core.utils import DateTimeHelper
-from app.models.unified_models import Integration
+from app.models.unified_models import Integration, EtlJobsGithubCheckpoint
 from app.core.config import AppConfig
-from app.etl.github.github_graphql_client import GitHubGraphQLClient, GitHubRateLimitException
-from app.etl.github.github_rest_client import GitHubRestClient
+from app.core.database import get_database
+from app.etl.github.github_graphql_client import GitHubGraphQLClient, GitHubRateLimitException as GraphQLRateLimitException
+from app.etl.github.github_rest_client import GitHubRestClient, GitHubRateLimitException
 
 logger = get_logger(__name__)
+
+
+# ============================================================================
+# Checkpoint Helper Functions
+# ============================================================================
+
+def create_checkpoint(
+    job_id: int,
+    tenant_id: int,
+    integration_id: int,
+    token: str,
+    owner: str,
+    repo_name: str,
+    full_name: str,
+    repository_external_id: Optional[str] = None
+) -> int:
+    """
+    Create a new checkpoint record for a repository.
+
+    Args:
+        job_id: ETL job ID
+        tenant_id: Tenant ID
+        integration_id: Integration ID
+        token: Job execution token for deduplication
+        owner: Repository owner
+        repo_name: Repository name
+        full_name: Full repository name (owner/repo)
+        repository_external_id: Repository external ID (node_id)
+
+    Returns:
+        int: Created checkpoint ID
+    """
+    database = get_database()
+    now = DateTimeHelper.now_default()
+
+    with database.get_write_session_context() as db:
+        insert_query = text("""
+            INSERT INTO etl_jobs_github_checkpoints (
+                job_id, tenant_id, integration_id, token,
+                owner, repo_name, full_name, repository_external_id,
+                status, checkpoint_data,
+                active, created_at, last_updated_at
+            ) VALUES (
+                :job_id, :tenant_id, :integration_id, :token,
+                :owner, :repo_name, :full_name, :repository_external_id,
+                'pending', NULL,
+                TRUE, :created_at, :last_updated_at
+            ) RETURNING id
+        """)
+
+        result = db.execute(insert_query, {
+            'job_id': job_id,
+            'tenant_id': tenant_id,
+            'integration_id': integration_id,
+            'token': token,
+            'owner': owner,
+            'repo_name': repo_name,
+            'full_name': full_name,
+            'repository_external_id': repository_external_id,
+            'created_at': now,
+            'last_updated_at': now
+        })
+
+        checkpoint_id = result.scalar()
+        logger.debug(f"Created checkpoint {checkpoint_id} for repo {full_name}")
+        return checkpoint_id
+
+
+def update_checkpoint_status(
+    job_id: int,
+    tenant_id: int,
+    token: str,
+    full_name: str,
+    status: str
+):
+    """
+    Update checkpoint status to 'completed' and clear checkpoint_data.
+
+    Args:
+        job_id: ETL job ID
+        tenant_id: Tenant ID
+        token: Job execution token
+        full_name: Full repository name (owner/repo)
+        status: New status ('pending' or 'completed')
+    """
+    database = get_database()
+    now = DateTimeHelper.now_default()
+
+    with database.get_write_session_context() as db:
+        update_query = text("""
+            UPDATE etl_jobs_github_checkpoints
+            SET status = :status,
+                checkpoint_data = NULL,
+                last_updated_at = :last_updated_at
+            WHERE job_id = :job_id
+              AND tenant_id = :tenant_id
+              AND token = :token
+              AND full_name = :full_name
+        """)
+
+        db.execute(update_query, {
+            'status': status,
+            'last_updated_at': now,
+            'job_id': job_id,
+            'tenant_id': tenant_id,
+            'token': token,
+            'full_name': full_name
+        })
+
+        logger.debug(f"Updated checkpoint for repo {full_name} to status '{status}'")
+
+
+def update_checkpoint_data(
+    job_id: int,
+    tenant_id: int,
+    token: str,
+    full_name: str,
+    checkpoint_data: Dict[str, Any]
+):
+    """
+    Save checkpoint_data when rate limit hits.
+
+    Args:
+        job_id: ETL job ID
+        tenant_id: Tenant ID
+        token: Job execution token
+        full_name: Full repository name (owner/repo)
+        checkpoint_data: Checkpoint data (cursor, nested status, etc.)
+    """
+    database = get_database()
+    now = DateTimeHelper.now_default()
+
+    with database.get_write_session_context() as db:
+        update_query = text("""
+            UPDATE etl_jobs_github_checkpoints
+            SET checkpoint_data = CAST(:checkpoint_data AS jsonb),
+                status = 'pending',
+                last_updated_at = :last_updated_at
+            WHERE job_id = :job_id
+              AND tenant_id = :tenant_id
+              AND token = :token
+              AND full_name = :full_name
+        """)
+
+        db.execute(update_query, {
+            'checkpoint_data': json.dumps(checkpoint_data),
+            'last_updated_at': now,
+            'job_id': job_id,
+            'tenant_id': tenant_id,
+            'token': token,
+            'full_name': full_name
+        })
+
+        # Also set the boolean flag in etl_jobs table
+        job_update_query = text("""
+            UPDATE etl_jobs
+            SET checkpoint_data = TRUE
+            WHERE id = :job_id AND tenant_id = :tenant_id
+        """)
+
+        db.execute(job_update_query, {
+            'job_id': job_id,
+            'tenant_id': tenant_id
+        })
+
+        logger.info(f"Saved checkpoint data for repo {full_name} (rate limit)")
+
+
+def query_checkpoints_with_data(
+    job_id: int,
+    tenant_id: int,
+    token: str
+) -> List[Dict[str, Any]]:
+    """
+    Query all checkpoints that have checkpoint_data (need resume).
+
+    Args:
+        job_id: ETL job ID
+        tenant_id: Tenant ID
+        token: Job execution token
+
+    Returns:
+        List of checkpoint records with data
+    """
+    database = get_database()
+
+    with database.get_read_session_context() as db:
+        query = text("""
+            SELECT id, owner, repo_name, full_name, repository_external_id, checkpoint_data
+            FROM etl_jobs_github_checkpoints
+            WHERE job_id = :job_id
+              AND tenant_id = :tenant_id
+              AND token = :token
+              AND checkpoint_data IS NOT NULL
+            ORDER BY id
+        """)
+
+        result = db.execute(query, {
+            'job_id': job_id,
+            'tenant_id': tenant_id,
+            'token': token
+        })
+
+        checkpoints = []
+        for row in result:
+            checkpoints.append({
+                'id': row[0],
+                'owner': row[1],
+                'repo_name': row[2],
+                'full_name': row[3],
+                'repository_external_id': row[4],
+                'checkpoint_data': row[5]  # Already parsed as dict by JSONB
+            })
+
+        logger.info(f"Found {len(checkpoints)} checkpoints with data for job {job_id}")
+        return checkpoints
+
+
+def delete_checkpoints_by_token(
+    job_id: int,
+    tenant_id: int,
+    token: str
+):
+    """
+    Delete all checkpoint records for a job execution token.
+
+    Args:
+        job_id: ETL job ID
+        tenant_id: Tenant ID
+        token: Job execution token
+    """
+    database = get_database()
+
+    with database.get_write_session_context() as db:
+        delete_query = text("""
+            DELETE FROM etl_jobs_github_checkpoints
+            WHERE job_id = :job_id
+              AND tenant_id = :tenant_id
+              AND token = :token
+        """)
+
+        result = db.execute(delete_query, {
+            'job_id': job_id,
+            'tenant_id': tenant_id,
+            'token': token
+        })
+
+        deleted_count = result.rowcount
+        logger.info(f"Deleted {deleted_count} checkpoint records for job {job_id}, token {token}")
+
+
+def check_job_has_checkpoint(
+    job_id: int,
+    tenant_id: int
+) -> bool:
+    """
+    Check if job has checkpoint_data flag set to true.
+
+    Args:
+        job_id: ETL job ID
+        tenant_id: Tenant ID
+
+    Returns:
+        bool: True if job has checkpoint data
+    """
+    database = get_database()
+
+    with database.get_read_session_context() as db:
+        query = text("""
+            SELECT checkpoint_data
+            FROM etl_jobs
+            WHERE id = :job_id AND tenant_id = :tenant_id
+        """)
+
+        result = db.execute(query, {
+            'job_id': job_id,
+            'tenant_id': tenant_id
+        })
+
+        row = result.fetchone()
+        has_checkpoint = row[0] if row else False
+
+        logger.debug(f"Job {job_id} has_checkpoint: {has_checkpoint}")
+        return has_checkpoint
 
 
 class GitHubExtractionWorker:
@@ -135,7 +420,7 @@ class GitHubExtractionWorker:
             token = message.get('token')
             old_last_sync_date = message.get('old_last_sync_date')  # 🔑 Get from message (already fetched in jobs.py)
 
-            logger.debug(f"🚀 [GITHUB] Starting repositories extraction for tenant {tenant_id}, integration {integration_id}")
+            logger.info(f"🚀 [GITHUB] Starting repositories extraction for tenant {tenant_id}, integration {integration_id}")
 
             if old_last_sync_date:
                 logger.debug(f"📅 [GITHUB] Using old_last_sync_date from message: {old_last_sync_date}")
@@ -158,10 +443,10 @@ class GitHubExtractionWorker:
                 # 🔑 Send "finished" status for extraction worker
                 # This is needed because the incoming message has last_item=False,
                 # but we know we're done after processing all repositories
-                logger.debug(f"🏁 [GITHUB] Sending extraction worker finished status for github_repositories")
+                logger.info(f"🏁 [GITHUB] Sending extraction worker finished status for github_repositories")
                 try:
                     await self._send_worker_status("extraction", tenant_id, job_id, "finished", "github_repositories")
-                    logger.debug(f"✅ [GITHUB] Extraction worker finished status sent for github_repositories")
+                    logger.info(f"✅ [GITHUB] Extraction worker finished status sent for github_repositories")
                 except Exception as ws_error:
                     logger.error(f"❌ [GITHUB] Error sending extraction finished status: {ws_error}")
 
@@ -457,6 +742,8 @@ class GitHubExtractionWorker:
 
             # Get all repositories as a complete list using REST client
             rest_client = GitHubRestClient(integration_data['github_token'])
+
+            # TODO: Future enhancement - add rate limit handling for repository search (REST API)
             all_repositories = rest_client.search_repositories(
                 org=integration_data['org'],
                 start_date=integration_data['start_date'],
@@ -548,6 +835,34 @@ class GitHubExtractionWorker:
                             logger.info(f"Queued {i+1}/{len(all_repositories)} repositories to transform")
 
                 logger.info(f"✅ [LOOP 1 COMPLETE] All {len(all_repositories)} repositories queued to transform")
+
+                # 🔑 CREATE CHECKPOINT RECORDS: Create baseline checkpoint for each repository
+                logger.info(f"📋 Creating checkpoint records for {len(all_repositories)} repositories")
+                for i, repo in enumerate(all_repositories):
+                    owner = repo.get('owner', {}).get('login') if isinstance(repo.get('owner'), dict) else repo.get('owner')
+                    repo_name = repo.get('name')
+                    full_name = repo.get('full_name')
+                    repository_external_id = repo.get('node_id')
+
+                    try:
+                        create_checkpoint(
+                            job_id=job_id,
+                            tenant_id=tenant_id,
+                            integration_id=integration_id,
+                            token=token,
+                            owner=owner,
+                            repo_name=repo_name,
+                            full_name=full_name,
+                            repository_external_id=repository_external_id
+                        )
+
+                        # Log progress every 100 repos
+                        if (i + 1) % 100 == 0 or (i + 1) == len(all_repositories):
+                            logger.info(f"Created {i+1}/{len(all_repositories)} checkpoint records")
+                    except Exception as e:
+                        logger.error(f"Failed to create checkpoint for repo {full_name}: {e}")
+
+                logger.info(f"✅ All {len(all_repositories)} checkpoint records created")
 
                 # 🔑 LOOP 2: Queue each repository to Step 2 extraction (NO database query)
                 logger.info(f"📤 [LOOP 2] Queuing {len(all_repositories)} repositories to Step 2 extraction")
@@ -872,6 +1187,11 @@ class GitHubExtractionWorker:
         logger.debug(f"🔍 GUSTAVO - INICIO")
         logger.debug(f"🚀 [FUNCTION ENTRY] extract_github_prs_commits_reviews_comments called with pr_cursor={pr_cursor}, last_repo={last_repo}")
         try:
+            # 🔑 CHECKPOINT FLAG CHECK: Skip if job has checkpoint data (rate limited)
+            if check_job_has_checkpoint(job_id, tenant_id):
+                logger.info(f"⏭️ Skipping PR extraction for {owner}/{repo_name} - job has checkpoint data (rate limited)")
+                return {'success': True, 'skipped': True, 'reason': 'checkpoint_data_exists'}
+
             is_fresh = (pr_cursor is None)
             logger.debug(f"🚀 Starting GitHub PR extraction - {'Fresh' if is_fresh else 'Next'} page for {owner}/{repo_name}")
 
@@ -926,41 +1246,54 @@ class GitHubExtractionWorker:
                     owner, repo_name, pr_cursor
                 )
 
-            except GitHubRateLimitException as e:
+            except GraphQLRateLimitException as e:
                 logger.warning(f"⚠️ Rate limit hit during PR extraction: {e}")
-                self._save_rate_limit_checkpoint(
-                    job_id=job_id,
-                    tenant_id=tenant_id,
-                    rate_limit_node_type='prs',
-                    last_pr_cursor=pr_cursor,
-                    rate_limit_reset_at=github_client.rate_limit_reset
-                )
 
-                # 🔑 Send completion message to transform queue to signal job completion
-                # This allows the job to finish gracefully even though we hit rate limit
-                # NOTE: There may already be items queued to transform/embedding, so we need
-                # to let them process and use the completion message to close the job
-                logger.debug(f"📤 Sending completion message to transform queue due to rate limit")
-                queue_manager.publish_transform_job(
+                # 🔑 Save checkpoint_data for this repository
+                checkpoint_data = {
+                    'node_type': 'prs',
+                    'last_pr_cursor': pr_cursor,
+                    'rate_limit_reset_at': github_client.rate_limit_reset.isoformat() if github_client.rate_limit_reset else None
+                }
+
+                logger.info(f"💾 Saving checkpoint data for repo {owner}/{repo_name}")
+                try:
+                    update_checkpoint_data(
+                        job_id=job_id,
+                        tenant_id=tenant_id,
+                        token=token,
+                        full_name=f"{owner}/{repo_name}",
+                        checkpoint_data=checkpoint_data
+                    )
+                    logger.info(f"✅ Checkpoint data saved for repo {owner}/{repo_name}")
+                except Exception as checkpoint_error:
+                    logger.error(f"Failed to save checkpoint data: {checkpoint_error}")
+
+                # 🔑 Send completion message to transform with rate_limited=True
+                # Transform will forward to embedding, which will complete the job with RATE_LIMITED status
+                logger.info(f"⚠️ Sending rate limit completion message for job {job_id} (PR extraction)")
+
+                # Send completion message to transform queue
+                self.queue_manager.publish_transform_job(
                     tenant_id=tenant_id,
-                    integration_id=integration.id,
-                    raw_data_id=None,  # 🔑 Completion message marker
-                    data_type='github_prs_commits_reviews_comments',
                     job_id=job_id,
-                    provider='github',
-                    old_last_sync_date=old_last_sync_date,  # 🔑 Forward old_last_sync_date
-                    new_last_sync_date=new_last_sync_date,  # 🔑 Forward new_last_sync_date for job completion
+                    message_type='github_prs_commits_reviews_comments',
+                    raw_data_id=None,  # Completion message marker
                     first_item=False,
                     last_item=True,
-                    last_job_item=True,  # 🔑 Signal job completion
-                    token=token  # 🔑 Include token in message
+                    last_job_item=True,
+                    old_last_sync_date=old_last_sync_date,
+                    new_last_sync_date=extraction_end_date,
+                    token=token,
+                    rate_limited=True  # 🔑 Signal rate limit to downstream workers
                 )
 
                 return {
                     'success': False,
                     'error': 'Rate limit exceeded',
                     'is_rate_limit': True,
-                    'rate_limit_reset_at': github_client.rate_limit_reset
+                    'rate_limit_reset_at': github_client.rate_limit_reset,
+                    'status': 'RATE_LIMITED'
                 }
 
             if not pr_page or 'data' not in pr_page:
@@ -970,6 +1303,11 @@ class GitHubExtractionWorker:
             prs = pr_page['data']['repository']['pullRequests']['nodes']
             if not prs:
                 logger.warning(f"No PRs found in page for {owner}/{repo_name}")
+
+                # 🔑 If this is the first repository (first_item=true), send transform status to "running"
+                if first_item:
+                    logger.info(f"No PRs found but this is first_item - sending transform status 'running'")
+                    await self._send_worker_status("transform", tenant_id, job_id, "running", "github_prs_commits_reviews_comments")
 
                 # 🔑 If this is the last repository (last_repo=true), mark all steps as finished
                 if last_repo:
@@ -1259,6 +1597,21 @@ class GitHubExtractionWorker:
                 # 🔑 No more pages AND no early termination = FINAL PAGE!
                 logger.debug(f"✅ FINAL PR PAGE - last_repo={last_repo}")
 
+                # 🔑 Update checkpoint status to 'completed' when repo finishes (no more PR pages, no nested pagination)
+                if not has_nested_pagination:
+                    logger.debug(f"📋 Updating checkpoint status to 'completed' for repo {owner}/{repo_name}")
+                    try:
+                        update_checkpoint_status(
+                            job_id=job_id,
+                            tenant_id=tenant_id,
+                            token=token,
+                            full_name=f"{owner}/{repo_name}",
+                            status='completed'
+                        )
+                        logger.info(f"✅ Checkpoint marked as completed for repo {owner}/{repo_name}")
+                    except Exception as e:
+                        logger.error(f"Failed to update checkpoint status: {e}")
+
                 # 🔑 ONLY send completion message if this is the LAST repository
                 if last_repo:
                     # 🔑 Send "finished" status for extraction worker
@@ -1287,13 +1640,6 @@ class GitHubExtractionWorker:
                     )
                 else:
                     logger.debug(f"✅ FINAL PR PAGE but NOT last repo - no completion message sent")
-
-            # STEP 6: Save checkpoint for recovery
-            self._save_checkpoint(
-                job_id, tenant_id,
-                last_pr_cursor=next_pr_cursor,
-                prs_processed=len(filtered_prs)
-            )
 
             # 🔑 NOTE: Completion message is ONLY sent when there are NO PRs to extract
             # (see early return above when not prs). This ensures we only send one completion
@@ -1425,42 +1771,58 @@ class GitHubExtractionWorker:
                 else:
                     logger.error(f"Unknown nested_type: {nested_type}")
                     return {'success': False, 'error': f'Unknown nested_type: {nested_type}'}
-            except GitHubRateLimitException as e:
+            except GraphQLRateLimitException as e:
                 logger.warning(f"⚠️ Rate limit hit during {nested_type} extraction: {e}")
-                self._save_rate_limit_checkpoint(
-                    job_id=job_id,
-                    tenant_id=tenant_id,
-                    rate_limit_node_type=nested_type,
-                    current_pr_id=pr_node_id,
-                    current_pr_node_id=pr_node_id,
-                    rate_limit_reset_at=github_client.rate_limit_reset
-                )
 
-                # 🔑 Send completion message to transform queue to signal job completion
-                # This allows the job to finish gracefully even though we hit rate limit
-                # NOTE: There may already be items queued to transform/embedding, so we need
-                # to let them process and use the completion message to close the job
-                logger.debug(f"📤 Sending completion message to transform queue due to rate limit in {nested_type}")
-                queue_manager.publish_transform_job(
+                # 🔑 Save checkpoint_data for this repository
+                checkpoint_data = {
+                    'node_type': nested_type,
+                    'current_pr_node_id': pr_node_id,
+                    'nested_cursor': nested_cursor,
+                    'rate_limit_reset_at': github_client.rate_limit_reset.isoformat() if github_client.rate_limit_reset else None
+                }
+
+                logger.info(f"💾 Saving checkpoint data for repo {owner}/{repo_name} (nested: {nested_type})")
+                try:
+                    update_checkpoint_data(
+                        job_id=job_id,
+                        tenant_id=tenant_id,
+                        token=token,
+                        full_name=full_name or f"{owner}/{repo_name}",
+                        checkpoint_data=checkpoint_data
+                    )
+                    logger.info(f"✅ Checkpoint data saved for repo {owner}/{repo_name} (nested: {nested_type})")
+                except Exception as checkpoint_error:
+                    logger.error(f"Failed to save checkpoint data: {checkpoint_error}")
+
+                # 🔑 Send completion message to transform with rate_limited=True
+                # Transform will forward to embedding, which will complete the job with RATE_LIMITED status
+                logger.info(f"⚠️ Sending rate limit completion message for job {job_id} (nested type: {nested_type})")
+
+                # 🔑 IMPORTANT: Capture extraction_end_date here (not defined in this scope)
+                extraction_end_date = DateTimeHelper.now_default().strftime('%Y-%m-%d')
+
+                # Send completion message to transform queue
+                self.queue_manager.publish_transform_job(
                     tenant_id=tenant_id,
-                    integration_id=integration.id,
-                    raw_data_id=None,  # 🔑 Completion message marker
-                    data_type='github_prs_commits_reviews_comments',
                     job_id=job_id,
-                    provider='github',
-                    old_last_sync_date=old_last_sync_date,  # 🔑 Forward old_last_sync_date
-                    new_last_sync_date=new_last_sync_date,  # 🔑 Forward new_last_sync_date for job completion
+                    message_type='github_prs_commits_reviews_comments',
+                    raw_data_id=None,  # Completion message marker
                     first_item=False,
                     last_item=True,
-                    last_job_item=True,  # 🔑 Signal job completion
-                    token=token  # 🔑 Include token in message
+                    last_job_item=True,
+                    old_last_sync_date=old_last_sync_date,
+                    new_last_sync_date=extraction_end_date,
+                    token=token,
+                    rate_limited=True  # 🔑 Signal rate limit to downstream workers
                 )
 
                 return {
                     'success': False,
                     'error': 'Rate limit exceeded',
                     'is_rate_limit': True,
-                    'rate_limit_reset_at': github_client.rate_limit_reset
+                    'rate_limit_reset_at': github_client.rate_limit_reset,
+                    'status': 'RATE_LIMITED'
                 }
 
             if not nested_data:
@@ -1560,6 +1922,22 @@ class GitHubExtractionWorker:
                     token=token  # 🔑 CRITICAL: Forward token to nested extraction
                 )
                 logger.debug(f"📤 Queued next {nested_type} page to extraction queue with last_repo={last_repo}, last_pr_last_nested={last_pr_last_nested}")
+            else:
+                # 🔑 Update checkpoint status to 'completed' when nested extraction completes
+                if last_pr_last_nested:
+                    logger.debug(f"📋 Updating checkpoint status to 'completed' for repo {owner}/{repo_name} (nested complete)")
+                    try:
+                        update_checkpoint_status(
+                            job_id=job_id,
+                            tenant_id=tenant_id,
+                            token=token,
+                            full_name=full_name or f"{owner}/{repo_name}",
+                            status='completed'
+                        )
+                        logger.info(f"✅ Checkpoint marked as completed for repo {owner}/{repo_name} (nested complete)")
+                    except Exception as e:
+                        logger.error(f"Failed to update checkpoint status: {e}")
+
             # 🔑 NOTE: Do NOT send completion message here!
             # Completion message is only sent from main PR extraction when no more PR pages exist.
             # Nested pagination extraction doesn't know about other PRs or PR pages.
@@ -1750,126 +2128,6 @@ class GitHubExtractionWorker:
         raw_data_id = result.scalar()
         logger.debug(f"Stored raw_extraction_data with ID {raw_data_id}")
         return raw_data_id
-
-
-    def _save_checkpoint(self, 
-        job_id: int,
-        tenant_id: int,
-        last_pr_cursor: Optional[str] = None,
-        prs_processed: int = 0
-    ):
-        """
-        Save checkpoint data for recovery in case of failure.
-
-        Stores PR cursor and other state in etl_jobs.checkpoint_data JSON field
-        for recovery on restart.
-
-        Args:
-            job_id: ETL job ID
-            tenant_id: Tenant ID
-            last_pr_cursor: Cursor for next PR page (None if no more pages)
-            prs_processed: Number of PRs processed in this batch
-        """
-        try:
-            from app.core.database import get_database
-            from app.core.utils import DateTimeHelper
-
-            database = get_database()
-
-            checkpoint_data = {
-                'last_pr_cursor': last_pr_cursor,
-                'prs_processed': prs_processed,
-                'checkpoint_timestamp': DateTimeHelper.now_default().isoformat()
-            }
-
-            from app.core.utils import DateTimeHelper
-            now = DateTimeHelper.now_default()
-
-            with database.get_write_session_context() as db:
-                update_query = text("""
-                    UPDATE etl_jobs
-                    SET checkpoint_data = :checkpoint_data,
-                        last_updated_at = :now
-                    WHERE id = :job_id AND tenant_id = :tenant_id
-                """)
-                db.execute(update_query, {
-                    'job_id': job_id,
-                    'tenant_id': tenant_id,
-                    'checkpoint_data': json.dumps(checkpoint_data),
-                    'now': now
-                })
-                logger.debug(f"✅ Saved checkpoint: {checkpoint_data}")
-        except Exception as e:
-            logger.error(f"Error saving checkpoint: {e}")
-
-
-    def _save_rate_limit_checkpoint(self, 
-        job_id: int,
-        tenant_id: int,
-        rate_limit_node_type: str,
-        current_pr_id: Optional[str] = None,
-        current_pr_node_id: Optional[str] = None,
-        last_pr_cursor: Optional[str] = None,
-        nested_nodes_status: Optional[Dict[str, Any]] = None,
-        rate_limit_reset_at: Optional[str] = None,
-        last_repo_pushed_date: Optional[str] = None
-    ):
-        """
-        Save checkpoint when rate limit is hit.
-
-        Stores complete state information for recovery:
-        - WHERE rate limit occurred (node_type)
-        - WHAT was already fetched (nested_nodes_status)
-        - WHEN to retry (rate_limit_reset_at)
-        - For repositories: last_repo_pushed_date for resume query
-
-        Args:
-            job_id: ETL job ID
-            tenant_id: Tenant ID
-            rate_limit_node_type: 'repositories', 'prs', 'commits', 'reviews', 'comments', 'review_threads'
-            current_pr_id: PR ID if rate limit hit during nested extraction
-            current_pr_node_id: PR node ID for GraphQL queries
-            last_pr_cursor: Cursor for PR pagination (if PR-level rate limit)
-            nested_nodes_status: Dict tracking which nested nodes were fetched
-            rate_limit_reset_at: When rate limit resets (ISO format)
-            last_repo_pushed_date: Last repo's pushed date (YYYY-MM-DD) for repository extraction resume
-        """
-        try:
-            from app.core.database import get_database
-            from app.core.utils import DateTimeHelper
-
-            database = get_database()
-
-            checkpoint_data = {
-                'rate_limit_hit': True,
-                'rate_limit_node_type': rate_limit_node_type,
-                'rate_limit_reset_at': rate_limit_reset_at or (DateTimeHelper.now_default() + timedelta(minutes=1)).isoformat(),
-                'current_pr_id': current_pr_id,
-                'current_pr_node_id': current_pr_node_id,
-                'last_pr_cursor': last_pr_cursor,
-                'nested_nodes_status': nested_nodes_status or {},
-                'last_repo_pushed_date': last_repo_pushed_date
-            }
-
-            from app.core.utils import DateTimeHelper
-            now = DateTimeHelper.now_default()
-
-            with database.get_write_session_context() as db:
-                update_query = text("""
-                    UPDATE etl_jobs
-                    SET checkpoint_data = :checkpoint_data,
-                        last_updated_at = :now
-                    WHERE id = :job_id AND tenant_id = :tenant_id
-                """)
-                db.execute(update_query, {
-                    'job_id': job_id,
-                    'tenant_id': tenant_id,
-                    'checkpoint_data': json.dumps(checkpoint_data),
-                    'now': now
-                })
-                logger.debug(f"✅ Saved rate limit checkpoint: node_type={rate_limit_node_type}, reset_at={checkpoint_data['rate_limit_reset_at']}")
-        except Exception as e:
-            logger.error(f"Error saving rate limit checkpoint: {e}")
 
 
     def _set_job_start_time(self, job_id: int, tenant_id: int):

@@ -153,6 +153,8 @@ class JiraTransformHandler:
                 return await self._process_jira_single_issue_changelog(raw_data_id, tenant_id, integration_id, job_id, message)
             elif message_type == 'jira_dev_status':
                 return await self._process_jira_dev_status(raw_data_id, tenant_id, integration_id, job_id, message)
+            elif message_type == 'jira_sprint_reports':
+                return await self._process_jira_sprint_reports(raw_data_id, tenant_id, integration_id, job_id, message)
             else:
                 logger.warning(f"Unknown Jira message type: {message_type}")
                 return False
@@ -218,6 +220,25 @@ class JiraTransformHandler:
                 entities=[],  # Empty list - signals completion
                 job_id=job_id,
                 message_type='jira_issues_with_changelogs',
+                integration_id=integration_id,
+                provider=message.get('provider', 'jira'),
+                last_sync_date=message.get('last_sync_date'),
+                first_item=message.get('first_item', False),
+                last_item=message.get('last_item', False),
+                last_job_item=message.get('last_job_item', False),
+                token=token
+            )
+            logger.debug(f"🎯 [COMPLETION] jira_issues_with_changelogs completion message forwarded to embedding")
+            return True
+
+        elif message_type == 'jira_sprint_reports':
+            logger.debug(f"🎯 [COMPLETION] Processing jira_sprint_reports completion message")
+            self._queue_entities_for_embedding(
+                tenant_id=tenant_id,
+                table_name='sprints',
+                entities=[],  # Empty list - signals completion
+                job_id=job_id,
+                message_type='jira_sprint_reports',
                 integration_id=integration_id,
                 provider=message.get('provider', 'jira'),
                 last_sync_date=message.get('last_sync_date'),
@@ -334,40 +355,117 @@ class JiraTransformHandler:
                 logger.debug(f"✅ Committed projects and issue types to database")
 
             # Queue entities for embedding (after commit)
-            # Queue projects - loop and queue individual projects
+            # 🚀 PERFORMANCE: Use shared channel to queue projects and WITs individually (same pattern as extraction worker)
             has_projects = bool(projects_to_insert or projects_to_update)
             has_wits = bool(wits_to_insert or wits_to_update)
 
-            if has_projects:
-                all_projects = projects_to_insert + projects_to_update
-                self._queue_entities_for_embedding(
-                    tenant_id, 'projects', all_projects, job_id,
-                    message_type='jira_projects_and_issue_types',
-                    integration_id=integration_id,
-                    provider=provider,
-                    old_last_sync_date=old_last_sync_date,  # 🔑 Forward old_last_sync_date
-                    new_last_sync_date=new_last_sync_date,
-                    first_item=first_item,  # First project gets first_item=True
-                    last_item=False if has_wits else last_item,  # Only last if no WITs to follow
-                    last_job_item=False if has_wits else last_job_item,  # Only last_job_item if no WITs
-                    token=token
-                )
+            import pika
+            import json
 
-            # Queue WITs - loop and queue individual WITs, last WIT gets last_item=True
-            if has_wits:
-                all_wits = wits_to_insert + wits_to_update
-                self._queue_entities_for_embedding(
-                    tenant_id, 'wits', all_wits, job_id,
-                    message_type='jira_projects_and_issue_types',
-                    integration_id=integration_id,
-                    provider=provider,
-                    old_last_sync_date=old_last_sync_date,  # 🔑 Forward old_last_sync_date
-                    new_last_sync_date=new_last_sync_date,
-                    first_item=first_item if not has_projects else False,  # First WIT gets first_item=True only if no projects
-                    last_item=last_item,  # 🔑 Last WIT gets last_item=True
-                    last_job_item=last_job_item,  # 🔑 Forward last_job_item flag
-                    token=token
-                )
+            # 🔧 FIX: Check for entities that need embedding but weren't inserted/updated
+            # This handles the case where entities exist in DB but not in qdrant_vectors (first run scenario)
+            all_projects = projects_to_insert + projects_to_update if has_projects else []
+            all_wits = wits_to_insert + wits_to_update if has_wits else []
+
+            # Add existing entities that don't have vectors yet
+            unembedded_projects = self._get_unembedded_entities(tenant_id, integration_id, 'projects')
+            unembedded_wits = self._get_unembedded_entities(tenant_id, integration_id, 'wits')
+
+            # Merge with existing lists, avoiding duplicates
+            all_projects = self._merge_entity_lists(all_projects, unembedded_projects)
+            all_wits = self._merge_entity_lists(all_wits, unembedded_wits)
+
+            # Queue projects and WITs using shared channel (same pattern as extraction worker for issues)
+            if all_projects or all_wits:
+                total_entities = len(all_projects) + len(all_wits)
+                logger.info(f"🔄 [PROJECTS/WITS] Queuing {len(all_projects)} projects + {len(all_wits)} WITs = {total_entities} entities to embedding using shared channel")
+
+                with self.queue_manager.get_channel() as channel:
+                    entity_index = 0
+
+                    # Queue projects first
+                    for i, project in enumerate(all_projects):
+                        is_first = (entity_index == 0)
+
+                        # Build embedding message
+                        message = {
+                            'tenant_id': tenant_id,
+                            'integration_id': integration_id,
+                            'job_id': job_id,
+                            'type': 'jira_projects_and_issue_types',
+                            'provider': provider,
+                            'first_item': is_first,
+                            'last_item': False,
+                            'old_last_sync_date': old_last_sync_date,
+                            'new_last_sync_date': new_last_sync_date,
+                            'last_job_item': False,
+                            'token': token,
+                            'rate_limited': False,
+                            'table_name': 'projects',
+                            'external_id': str(project.get('external_id'))
+                        }
+
+                        # Publish using shared channel
+                        tier = self.queue_manager._get_tenant_tier(tenant_id)
+                        tier_queue = self.queue_manager.get_tier_queue_name(tier, 'embedding')
+
+                        channel.basic_publish(
+                            exchange='',
+                            routing_key=tier_queue,
+                            body=json.dumps(message),
+                            properties=pika.BasicProperties(
+                                delivery_mode=2,
+                                content_type='application/json'
+                            )
+                        )
+
+                        if i == 0:
+                            logger.info(f"📤 [PROJECTS] Queued project {i+1}/{len(all_projects)}: external_id={project.get('external_id')}, first={is_first}")
+
+                        entity_index += 1
+
+                    # Queue WITs second
+                    for i, wit in enumerate(all_wits):
+                        is_last = (entity_index == total_entities - 1)
+
+                        # Build embedding message
+                        message = {
+                            'tenant_id': tenant_id,
+                            'integration_id': integration_id,
+                            'job_id': job_id,
+                            'type': 'jira_projects_and_issue_types',
+                            'provider': provider,
+                            'first_item': False,
+                            'last_item': is_last,
+                            'old_last_sync_date': old_last_sync_date,
+                            'new_last_sync_date': new_last_sync_date,
+                            'last_job_item': False,
+                            'token': token,
+                            'rate_limited': False,
+                            'table_name': 'wits',
+                            'external_id': str(wit.get('external_id'))
+                        }
+
+                        # Publish using shared channel
+                        tier = self.queue_manager._get_tenant_tier(tenant_id)
+                        tier_queue = self.queue_manager.get_tier_queue_name(tier, 'embedding')
+
+                        channel.basic_publish(
+                            exchange='',
+                            routing_key=tier_queue,
+                            body=json.dumps(message),
+                            properties=pika.BasicProperties(
+                                delivery_mode=2,
+                                content_type='application/json'
+                            )
+                        )
+
+                        if i == len(all_wits) - 1:
+                            logger.info(f"📤 [WITS] Queued WIT {i+1}/{len(all_wits)}: external_id={wit.get('external_id')}, last={is_last}")
+
+                        entity_index += 1
+
+                logger.info(f"✅ [PROJECTS/WITS] Queued {total_entities} entities to embedding using shared channel")
 
             # 🎯 HANDLE NO UPDATES: If no projects and no WITs, mark both transform and embedding as finished
             if not has_projects and not has_wits and last_item:
@@ -587,8 +685,17 @@ class JiraTransformHandler:
                     )
                     logger.debug(f"Created {relationships_created} project-wit relationships")
 
-                # 6. Auto-map development field if it exists
-                self._auto_map_development_field(session, tenant_id, integration_id)
+                # 6. Auto-map special fields if they exist
+                import os
+                team_field_id = os.getenv('JIRA_TEAM_FIELD_ID', 'customfield_10001')
+                development_field_id = os.getenv('JIRA_DEVELOPMENT_FIELD_ID', 'customfield_10000')
+                sprints_field_id = os.getenv('JIRA_SPRINTS_FIELD_ID', 'customfield_10021')
+                story_points_field_id = os.getenv('JIRA_STORY_POINTS_FIELD_ID', 'customfield_10024')
+
+                self._auto_map_special_field(session, tenant_id, integration_id, team_field_id, 'team_field_id')
+                self._auto_map_special_field(session, tenant_id, integration_id, development_field_id, 'development_field_id')
+                self._auto_map_special_field(session, tenant_id, integration_id, sprints_field_id, 'sprints_field_id')
+                self._auto_map_special_field(session, tenant_id, integration_id, story_points_field_id, 'story_points_field_id')
 
                 # 7. Update raw data status
                 self._update_raw_data_status(session, raw_data_id, 'completed')
@@ -720,11 +827,21 @@ class JiraTransformHandler:
                         'last_updated_at': now
                     })
 
-                # 5. Auto-map development field if this is the development field
+                # 5. Auto-map special fields if this is a special field
                 import os
+                team_field_id = os.getenv('JIRA_TEAM_FIELD_ID', 'customfield_10001')
                 development_field_id = os.getenv('JIRA_DEVELOPMENT_FIELD_ID', 'customfield_10000')
-                if field_id == development_field_id:
-                    self._auto_map_development_field(session, tenant_id, integration_id)
+                sprints_field_id = os.getenv('JIRA_SPRINTS_FIELD_ID', 'customfield_10021')
+                story_points_field_id = os.getenv('JIRA_STORY_POINTS_FIELD_ID', 'customfield_10024')
+
+                if field_id == team_field_id:
+                    self._auto_map_special_field(session, tenant_id, integration_id, field_id, 'team_field_id')
+                elif field_id == development_field_id:
+                    self._auto_map_special_field(session, tenant_id, integration_id, field_id, 'development_field_id')
+                elif field_id == sprints_field_id:
+                    self._auto_map_special_field(session, tenant_id, integration_id, field_id, 'sprints_field_id')
+                elif field_id == story_points_field_id:
+                    self._auto_map_special_field(session, tenant_id, integration_id, field_id, 'story_points_field_id')
 
                 # 6. Update raw data status
                 self._update_raw_data_status(session, raw_data_id, 'completed')
@@ -768,20 +885,25 @@ class JiraTransformHandler:
             logger.error(f"Error updating raw data status: {e}")
             raise
 
-    def _auto_map_development_field(self, session, tenant_id: int, integration_id: int):
+    def _auto_map_special_field(self, session, tenant_id: int, integration_id: int,
+                                 field_external_id: str, mapping_column: str):
         """
-        Auto-map development field to development_field_id if it exists in custom_fields.
-        This is called after custom fields are synced from Jira.
-        Uses JIRA_DEVELOPMENT_FIELD_ID from .env to identify the development field.
+        Auto-map special field to custom_fields_mappings table.
+        This is called after a special field is saved to custom_fields table.
+
+        Args:
+            session: Database session
+            tenant_id: Tenant ID
+            integration_id: Integration ID
+            field_external_id: External ID of the field (e.g., 'customfield_10000')
+            mapping_column: Column name in custom_fields_mappings (e.g., 'development_field_id', 'sprints_field_id')
         """
         try:
-            import os
             from app.core.utils import DateTimeHelper
 
-            development_field_id = os.getenv('JIRA_DEVELOPMENT_FIELD_ID', 'customfield_10000')
             now = DateTimeHelper.now_default()
 
-            # Check if development field exists in custom_fields
+            # Check if special field exists in custom_fields
             check_query = text("""
                 SELECT id FROM custom_fields
                 WHERE external_id = :external_id
@@ -790,21 +912,21 @@ class JiraTransformHandler:
                 AND active = true
             """)
             result = session.execute(check_query, {
-                'external_id': development_field_id,
+                'external_id': field_external_id,
                 'tenant_id': tenant_id,
                 'integration_id': integration_id
             }).fetchone()
 
             if not result:
-                logger.debug(f"Development field {development_field_id} not found, skipping auto-mapping")
+                logger.debug(f"Special field {field_external_id} not found, skipping auto-mapping")
                 return
 
             custom_field_db_id = result[0]
-            logger.debug(f"Found development field {development_field_id} with ID {custom_field_db_id}")
+            logger.debug(f"Found special field {field_external_id} with ID {custom_field_db_id}")
 
-            # Check if custom_fields_mapping record exists
+            # Check if custom_fields_mappings record exists
             mapping_check_query = text("""
-                SELECT id FROM custom_fields_mapping
+                SELECT id FROM custom_fields_mappings
                 WHERE tenant_id = :tenant_id
                 AND integration_id = :integration_id
             """)
@@ -815,9 +937,9 @@ class JiraTransformHandler:
 
             if mapping_result:
                 # Update existing mapping
-                update_query = text("""
-                    UPDATE custom_fields_mapping
-                    SET development_field_id = :field_id,
+                update_query = text(f"""
+                    UPDATE custom_fields_mappings
+                    SET {mapping_column} = :field_id,
                         last_updated_at = :now
                     WHERE tenant_id = :tenant_id
                     AND integration_id = :integration_id
@@ -828,12 +950,12 @@ class JiraTransformHandler:
                     'integration_id': integration_id,
                     'now': now
                 })
-                logger.debug(f"Auto-mapped development field {development_field_id} to development_field_id")
+                logger.debug(f"Auto-mapped special field {field_external_id} to {mapping_column}")
             else:
                 # Create new mapping record
-                insert_query = text("""
-                    INSERT INTO custom_fields_mapping (
-                        tenant_id, integration_id, development_field_id,
+                insert_query = text(f"""
+                    INSERT INTO custom_fields_mappings (
+                        tenant_id, integration_id, {mapping_column},
                         active, created_at, last_updated_at
                     ) VALUES (
                         :tenant_id, :integration_id, :field_id,
@@ -847,10 +969,10 @@ class JiraTransformHandler:
                     'created_at': now,
                     'last_updated_at': now
                 })
-                logger.debug(f"Created custom_fields_mapping and auto-mapped development field {development_field_id}")
+                logger.debug(f"Created custom_fields_mappings and auto-mapped special field {field_external_id} to {mapping_column}")
 
         except Exception as e:
-            logger.error(f"Error auto-mapping development field: {e}")
+            logger.error(f"Error auto-mapping special field {field_external_id}: {e}")
             # Don't raise - this is a nice-to-have feature, not critical
 
     def _get_existing_projects(self, session, tenant_id: int, integration_id: int) -> Dict[str, Project]:
@@ -1030,28 +1152,88 @@ class JiraTransformHandler:
             if project_external_id in existing_projects:
                 # Check if project needs update
                 existing_project = existing_projects[project_external_id]
-                if (existing_project.key != project_key or
-                    existing_project.name != project_name):
-                    result['projects_to_update'].append({
+
+                # Check if this is from custom fields extraction (has custom_fields dict)
+                # vs regular job extraction (no custom_fields dict)
+                is_custom_fields_extraction = bool(existing_custom_fields)
+
+                if is_custom_fields_extraction:
+                    # Custom fields extraction: minimal update (only key if changed)
+                    # This ensures regular job will detect name/type changes and trigger embedding
+                    if existing_project.key != project_key:
+                        result['projects_to_update'].append({
+                            'id': existing_project.id,
+                            'external_id': project_external_id,  # Include for consistency
+                            'key': project_key,
+                            'last_updated_at': DateTimeHelper.now_default()
+                        })
+                else:
+                    # Regular job extraction: full update check
+                    # Check if project was created by custom fields extraction (has incomplete data)
+                    # OR if key/name changed
+                    project_type_from_api = project_data.get('projectTypeKey')
+                    needs_update = False
+                    update_data = {
                         'id': existing_project.id,
-                        'key': project_key,
-                        'name': project_name,
+                        'external_id': project_external_id,  # Include for embedding queue
                         'last_updated_at': DateTimeHelper.now_default()
-                    })
+                    }
+
+                    # Check if project has incomplete data (created by custom fields extraction)
+                    if existing_project.project_type is None and project_type_from_api:
+                        needs_update = True
+                        update_data['project_type'] = project_type_from_api
+                        logger.debug(f"Project {project_key} needs update: missing project_type")
+
+                    # Check if key changed
+                    if existing_project.key != project_key:
+                        needs_update = True
+                        update_data['key'] = project_key
+                        logger.debug(f"Project {project_key} needs update: key changed")
+
+                    # Check if name changed
+                    if existing_project.name != project_name:
+                        needs_update = True
+                        update_data['name'] = project_name
+                        logger.debug(f"Project {project_key} needs update: name changed")
+
+                    if needs_update:
+                        result['projects_to_update'].append(update_data)
+                        logger.debug(f"✅ Project {project_key} will be updated and queued for embedding")
+
                 project_id = existing_project.id
             else:
                 # New project
-                project_insert_data = {
-                    'external_id': project_external_id,
-                    'key': project_key,
-                    'name': project_name,
-                    'project_type': None,  # Project type not available in createmeta, fetch separately later
-                    'tenant_id': tenant_id,
-                    'integration_id': integration_id,
-                    'active': True,
-                    'created_at': DateTimeHelper.now_default(),
-                    'last_updated_at': DateTimeHelper.now_default()
-                }
+                # Check if this is from custom fields extraction vs regular job
+                is_custom_fields_extraction = bool(existing_custom_fields)
+
+                if is_custom_fields_extraction:
+                    # Custom fields extraction: minimal insert (id, external_id, key only)
+                    # This ensures regular job will detect missing name/type and trigger update+embedding
+                    project_insert_data = {
+                        'external_id': project_external_id,
+                        'key': project_key,
+                        'name': project_name or 'Pending',  # Placeholder to satisfy NOT NULL constraint
+                        'project_type': None,
+                        'tenant_id': tenant_id,
+                        'integration_id': integration_id,
+                        'active': True,
+                        'created_at': DateTimeHelper.now_default(),
+                        'last_updated_at': DateTimeHelper.now_default()
+                    }
+                else:
+                    # Regular job extraction: full insert with all available fields
+                    project_insert_data = {
+                        'external_id': project_external_id,
+                        'key': project_key,
+                        'name': project_name,
+                        'project_type': project_data.get('projectTypeKey'),  # Available in project search API
+                        'tenant_id': tenant_id,
+                        'integration_id': integration_id,
+                        'active': True,
+                        'created_at': DateTimeHelper.now_default(),
+                        'last_updated_at': DateTimeHelper.now_default()
+                    }
                 result['projects_to_insert'].append(project_insert_data)
                 project_id = None  # Will be set after insert
 
@@ -1229,6 +1411,97 @@ class JiraTransformHandler:
             logger.warning(f"Error looking up wit mapping for '{wit_name}': {e}")
             return None
 
+    def _get_unembedded_entities(self, tenant_id: int, integration_id: int, table_name: str) -> List[Dict[str, Any]]:
+        """
+        Get entities that exist in the database but don't have vectors in qdrant_vectors table.
+
+        This handles the first run scenario where entities were created during custom fields extraction
+        but never embedded because they didn't need updates during regular job execution.
+
+        Args:
+            tenant_id: Tenant ID
+            integration_id: Integration ID
+            table_name: Table name ('projects' or 'wits')
+
+        Returns:
+            List of entity dictionaries with 'id' and 'external_id' fields
+        """
+        try:
+            with self.get_db_session() as session:
+                from app.models.unified_models import QdrantVector
+
+                # Query entities that don't have vectors
+                if table_name == 'projects':
+                    from app.models.unified_models import Project
+                    query = text("""
+                        SELECT p.id, p.external_id
+                        FROM projects p
+                        LEFT JOIN qdrant_vectors qv ON qv.table_name = 'projects'
+                            AND qv.record_id = p.id
+                            AND qv.tenant_id = p.tenant_id
+                            AND qv.active = true
+                        WHERE p.tenant_id = :tenant_id
+                            AND p.integration_id = :integration_id
+                            AND p.active = true
+                            AND qv.id IS NULL
+                    """)
+                elif table_name == 'wits':
+                    from app.models.unified_models import Wit
+                    query = text("""
+                        SELECT w.id, w.external_id
+                        FROM wits w
+                        LEFT JOIN qdrant_vectors qv ON qv.table_name = 'wits'
+                            AND qv.record_id = w.id
+                            AND qv.tenant_id = w.tenant_id
+                            AND qv.active = true
+                        WHERE w.tenant_id = :tenant_id
+                            AND w.integration_id = :integration_id
+                            AND w.active = true
+                            AND qv.id IS NULL
+                    """)
+                else:
+                    logger.warning(f"Unsupported table name for unembedded entities check: {table_name}")
+                    return []
+
+                result = session.execute(query, {
+                    'tenant_id': tenant_id,
+                    'integration_id': integration_id
+                }).fetchall()
+
+                unembedded = [{'id': row[0], 'external_id': str(row[1])} for row in result]
+
+                if unembedded:
+                    logger.info(f"🔍 [UNEMBEDDED] Found {len(unembedded)} {table_name} without vectors")
+
+                return unembedded
+
+        except Exception as e:
+            logger.error(f"Error getting unembedded entities for {table_name}: {e}")
+            return []
+
+    def _merge_entity_lists(self, existing_list: List[Dict], new_list: List[Dict]) -> List[Dict]:
+        """
+        Merge two entity lists, avoiding duplicates based on external_id.
+
+        Args:
+            existing_list: List of entities already marked for embedding (from insert/update)
+            new_list: List of unembedded entities to add
+
+        Returns:
+            Merged list without duplicates
+        """
+        # Create a set of external_ids from existing list
+        existing_external_ids = {entity.get('external_id') for entity in existing_list if entity.get('external_id')}
+
+        # Add entities from new_list that aren't already in existing_list
+        for entity in new_list:
+            external_id = entity.get('external_id')
+            if external_id and external_id not in existing_external_ids:
+                existing_list.append(entity)
+                existing_external_ids.add(external_id)
+
+        return existing_list
+
     def _process_custom_field_data(
         self,
         field_key: str,
@@ -1327,8 +1600,17 @@ class JiraTransformHandler:
 
             # 5. Bulk insert custom fields (global, no project relationship)
             if custom_fields_to_insert:
-                BulkOperations.bulk_insert(session, 'custom_fields', custom_fields_to_insert)
-                logger.debug(f"Inserted {len(custom_fields_to_insert)} custom fields")
+                # Deduplicate by external_id to avoid unique constraint violations
+                unique_custom_fields = {}
+                for cf in custom_fields_to_insert:
+                    external_id = cf.get('external_id')
+                    if external_id and external_id not in unique_custom_fields:
+                        unique_custom_fields[external_id] = cf
+
+                deduplicated_custom_fields = list(unique_custom_fields.values())
+                if deduplicated_custom_fields:
+                    BulkOperations.bulk_insert(session, 'custom_fields', deduplicated_custom_fields)
+                    logger.debug(f"Inserted {len(deduplicated_custom_fields)} custom fields (deduplicated from {len(custom_fields_to_insert)})")
                 # Note: Custom fields are not vectorized (they're metadata)
 
             # 6. Bulk update custom fields
@@ -1469,43 +1751,41 @@ class JiraTransformHandler:
                     first_item_flag = message.get('first_item', False)
                     token = message.get('token')  # 🔑 Extract token from message
 
-                    # 🎯 Query statuses updated AFTER new_last_sync_date
-                    # This ensures we only queue statuses that were actually updated during this extraction
-                    if new_last_sync_date:
-                        logger.debug(f"🎯 [STATUSES] Querying statuses updated after {new_last_sync_date}")
-                        statuses_query = text("""
-                            SELECT DISTINCT external_id
-                            FROM statuses
-                            WHERE tenant_id = :tenant_id
-                              AND integration_id = :integration_id
-                              AND last_updated_at > :new_last_sync_date
-                            ORDER BY external_id
-                        """)
+                    # 🎯 Query statuses that need embedding
+                    # Since new_last_sync_date is set BEFORE extraction starts, all statuses
+                    # inserted/updated during this run will have last_updated_at >= new_last_sync_date
+                    # - First run: all statuses inserted → all have last_updated_at >= new_last_sync_date
+                    # - Incremental run: only changed statuses updated → only those have last_updated_at >= new_last_sync_date
 
-                        with self.get_db_session() as db_read:
-                            status_rows = db_read.execute(statuses_query, {
-                                'tenant_id': tenant_id,
-                                'integration_id': integration_id,
-                                'new_last_sync_date': new_last_sync_date
-                            }).fetchall()
-                    else:
-                        # Fallback: If no new_last_sync_date, query all statuses (first run scenario)
-                        logger.debug(f"🎯 [STATUSES] No new_last_sync_date - querying all statuses (first run)")
-                        statuses_query = text("""
-                            SELECT DISTINCT external_id
-                            FROM statuses
-                            WHERE tenant_id = :tenant_id AND integration_id = :integration_id
-                            ORDER BY external_id
-                        """)
+                    # 🔑 Convert new_last_sync_date string to datetime object for proper comparison
+                    # This ensures PostgreSQL interprets the timezone correctly
+                    from datetime import datetime
+                    new_last_sync_dt = datetime.strptime(new_last_sync_date, '%Y-%m-%d %H:%M:%S')
 
-                        with self.get_db_session() as db_read:
-                            status_rows = db_read.execute(statuses_query, {
-                                'tenant_id': tenant_id,
-                                'integration_id': integration_id
-                            }).fetchall()
+                    # 🔍 DEBUG: Check what values we're comparing
+                    logger.info(f"🔍 [DEBUG] new_last_sync_date = {new_last_sync_date} (New York time)")
+                    logger.info(f"🔍 [DEBUG] new_last_sync_dt = {new_last_sync_dt} (datetime object)")
+
+                    logger.debug(f"🎯 [STATUSES] Querying statuses updated since {new_last_sync_date}")
+                    statuses_query = text("""
+                        SELECT DISTINCT external_id
+                        FROM statuses
+                        WHERE tenant_id = :tenant_id
+                            AND integration_id = :integration_id
+                            AND active = true
+                            AND last_updated_at >= :new_last_sync_date
+                        ORDER BY external_id
+                    """)
+
+                    with self.get_db_session() as db_read:
+                        status_rows = db_read.execute(statuses_query, {
+                            'tenant_id': tenant_id,
+                            'integration_id': integration_id,
+                            'new_last_sync_date': new_last_sync_dt  # Pass datetime object, not string
+                        }).fetchall()
 
                     status_external_ids = [row[0] for row in status_rows]
-                    logger.debug(f"🎯 [STATUSES] Found {len(status_external_ids)} statuses updated after {new_last_sync_date}")
+                    logger.info(f"🎯 [STATUSES] Found {len(status_external_ids)} statuses that need embedding")
 
                     # 🎯 HANDLE NO UPDATED STATUSES: If no statuses were updated, mark both transform and embedding as finished
                     if not status_external_ids:
@@ -1587,6 +1867,9 @@ class JiraTransformHandler:
             statuses_to_update = []
             now = DateTimeHelper.now_default()
 
+            # 🔍 DEBUG: Check what timezone is actually being used
+            logger.info(f"🔍 [DEBUG] now = {now} (should be New York time)")
+
             # Get existing statuses
             existing_query = text("""
                 SELECT external_id, id, original_name, category, description, status_mapping_id
@@ -1655,12 +1938,17 @@ class JiraTransformHandler:
                         'tenant_id': tenant_id
                     })
 
-            # Bulk insert new statuses
+            # Bulk insert new statuses with ON CONFLICT DO NOTHING to avoid deadlocks
+            # When multiple workers process the same statuses, DO NOTHING prevents lock conflicts
             if statuses_to_insert:
                 # Add timestamps to each record
                 for status in statuses_to_insert:
                     status['created_at'] = now
                     status['last_updated_at'] = now
+
+                # CRITICAL: Sort by external_id to prevent deadlocks
+                # Multiple workers must acquire locks in the same order
+                statuses_to_insert.sort(key=lambda x: x['external_id'])
 
                 insert_query = text("""
                     INSERT INTO statuses (
@@ -1670,15 +1958,20 @@ class JiraTransformHandler:
                         :external_id, :original_name, :category, :description, :status_mapping_id,
                         :integration_id, :tenant_id, TRUE, :created_at, :last_updated_at
                     )
+                    ON CONFLICT (external_id, tenant_id, integration_id) DO NOTHING
                 """)
                 db.execute(insert_query, statuses_to_insert)
-                logger.debug(f"Inserted {len(statuses_to_insert)} new statuses with mapping links")
+                logger.info(f"✅ Inserted {len(statuses_to_insert)} new statuses (skipped existing)")
 
             # Bulk update existing statuses
             if statuses_to_update:
                 # Add timestamp to each record
                 for status in statuses_to_update:
                     status['last_updated_at'] = now
+
+                # CRITICAL: Sort by id to prevent deadlocks
+                # Multiple workers must acquire locks in the same order
+                statuses_to_update.sort(key=lambda x: x['id'])
 
                 update_query = text("""
                     UPDATE statuses
@@ -1688,7 +1981,7 @@ class JiraTransformHandler:
                     WHERE id = :id
                 """)
                 db.execute(update_query, statuses_to_update)
-                logger.debug(f"Updated {len(statuses_to_update)} existing statuses with mapping links")
+                logger.info(f"✅ Updated {len(statuses_to_update)} existing statuses with last_updated_at={now}")
 
             # Return entities for vectorization (to be queued AFTER commit)
             return {
@@ -1837,12 +2130,23 @@ class JiraTransformHandler:
         """
         Queue entities for embedding by publishing messages to embedding queue.
 
+        This method is used for ALL entity types (projects, WITs, statuses, issues, changelogs, etc.).
+        It loops through the entities list and publishes one message per entity to the embedding queue.
+
         Args:
             tenant_id: Tenant ID
-            table_name: Name of the table (projects, wits, statuses, etc.)
+            table_name: Name of the table (projects, wits, statuses, work_items, etc.)
             entities: List of entity dictionaries with external_id or key
+            job_id: ETL job ID
+            last_item: Whether this is the last batch in the step
+            provider: Provider name (jira, github, etc.)
             old_last_sync_date: Old last sync date used for filtering
             new_last_sync_date: New last sync date to update on completion (extraction end date)
+            message_type: ETL step type for status tracking
+            integration_id: Integration ID
+            first_item: Whether this is the first batch in the step
+            last_job_item: Whether this is the final batch in the entire job
+            token: Job execution token for tracking messages through pipeline
         """
         # 🎯 HANDLE COMPLETION MESSAGE: Empty entities with last_job_item=True
         if not entities and last_job_item:
@@ -1918,335 +2222,77 @@ class JiraTransformHandler:
                 # Don't update overall status here - let embedding worker handle completion
                 logger.debug(f"Transform completed, queuing {table_name} for embedding")
 
-            for entity in entities:
-                # Get external ID - work_items_prs_links uses internal ID, all others use external_id
-                if table_name == 'work_items_prs_links':
-                    external_id = str(entity.get('id'))
-                else:
-                    external_id = entity.get('external_id')
+            # 🚀 PERFORMANCE: Use shared channel for batch publishing (same pattern as extraction worker)
+            import pika
+            import json
 
-                if not external_id:
-                    logger.warning(f"No external_id found for {table_name} entity: {entity}")
-                    continue
+            with self.queue_manager.get_channel() as channel:
+                for idx, entity in enumerate(entities):
+                    # Get external ID - work_items_prs_links uses internal ID, all others use external_id
+                    if table_name == 'work_items_prs_links':
+                        external_id = str(entity.get('id'))
+                    else:
+                        external_id = entity.get('external_id')
 
-                # Calculate flags for this entity
-                entity_first_item = first_item and (queued_count == 0)
-                entity_last_item = last_item and (queued_count == len(entities) - 1)
+                    if not external_id:
+                        logger.warning(f"No external_id found for {table_name} entity: {entity}")
+                        continue
 
-                # 🎯 DEBUG: Log flags for first entity
-                if queued_count == 0:
-                    logger.info(f"🎯 [EMBEDDING-QUEUE] First entity: table={table_name}, external_id={external_id}, first_item={entity_first_item}, last_item={entity_last_item}, incoming_first={first_item}, incoming_last={last_item}")
+                    # Calculate flags for this entity using enumerate index (not queued_count)
+                    entity_first_item = first_item and (idx == 0)
+                    entity_last_item = last_item and (idx == len(entities) - 1)
 
-                # Publish embedding message with standardized structure
-                success = self.queue_manager.publish_embedding_job(
-                    tenant_id=tenant_id,
-                    table_name=table_name,
-                    external_id=str(external_id),
-                    job_id=job_id,
-                    integration_id=integration_id,
-                    provider=provider,
-                    old_last_sync_date=old_last_sync_date,  # 🔑 Old last sync date (for filtering)
-                    new_last_sync_date=new_last_sync_date,  # 🔑 New last sync date (for job completion)
-                    first_item=entity_first_item,  # True only for first entity when incoming first_item=True
-                    last_item=entity_last_item,  # True only for last entity when incoming last_item=True
-                    last_job_item=last_job_item,  # Forward last_job_item flag from incoming message
-                    step_type=message_type,  # Pass the step type (e.g., 'jira_projects_and_issue_types')
-                    token=token  # 🔑 Include token in message
-                )
+                    # 🎯 DEBUG: Log flags for first and last entities
+                    if idx == 0 or idx == len(entities) - 1:
+                        logger.info(f"🎯 [EMBEDDING-QUEUE] Entity {idx+1}/{len(entities)}: table={table_name}, external_id={external_id}, first_item={entity_first_item}, last_item={entity_last_item}, incoming_first={first_item}, incoming_last={last_item}")
 
-                if success:
+                    # Build embedding message
+                    message = {
+                        'tenant_id': tenant_id,
+                        'integration_id': integration_id,
+                        'job_id': job_id,
+                        'type': message_type,  # ETL step name for status tracking
+                        'provider': provider,
+                        'first_item': entity_first_item,
+                        'last_item': entity_last_item,
+                        'old_last_sync_date': old_last_sync_date,
+                        'new_last_sync_date': new_last_sync_date,
+                        'last_job_item': last_job_item,
+                        'token': token,
+                        'rate_limited': False,
+                        # Transform → Embedding specific fields
+                        'table_name': table_name,
+                        'external_id': str(external_id)
+                    }
+
+                    # Publish using shared channel
+                    tier = self.queue_manager._get_tenant_tier(tenant_id)
+                    tier_queue = self.queue_manager.get_tier_queue_name(tier, 'embedding')
+
+                    channel.basic_publish(
+                        exchange='',
+                        routing_key=tier_queue,
+                        body=json.dumps(message),
+                        properties=pika.BasicProperties(
+                            delivery_mode=2,
+                            content_type='application/json'
+                        )
+                    )
+
                     queued_count += 1
 
             if queued_count > 0:
-                logger.debug(f"Queued {queued_count} {table_name} entities for embedding")
+                logger.debug(f"Queued {queued_count} {table_name} entities for embedding using shared channel")
 
         except Exception as e:
             logger.error(f"Error queuing entities for embedding: {e}")
             # Don't raise - embedding is async and shouldn't block transform
 
-    def _queue_all_entities_for_embedding(
-        self,
-        session,
-        tenant_id: int,
-        integration_id: int,
-        job_id: int,
-        message_type: str,
-        provider: str,
-        old_last_sync_date: str,  # 🔑 Old last sync date (for filtering)
-        new_last_sync_date: str,  # 🔑 New last sync date (for job completion)
-        last_job_item: bool,
-        token: str = None  # 🔑 Job execution token
-    ):
-        """
-        Queue ALL active projects and wits for embedding (not just changed ones).
+    # REMOVED: _queue_all_entities_for_embedding - leftover/dead code, never called
+    # We now queue entities individually using shared channel pattern in _process_jira_project_search
 
-        This ensures complete vectorization of all entities, regardless of what was
-        inserted/updated in the current batch.
-
-        Args:
-            session: Database session
-            tenant_id: Tenant ID
-            integration_id: Integration ID
-            job_id: ETL job ID
-            message_type: ETL step type
-            provider: Provider name (jira, github, etc.)
-            old_last_sync_date: Old last sync date (for filtering)
-            new_last_sync_date: New last sync date (for job completion)
-            last_job_item: Whether this is the final job item
-        """
-        try:
-            # Get ALL active projects for this tenant/integration
-            all_projects = session.query(Project.external_id).filter(
-                Project.tenant_id == tenant_id,
-                Project.integration_id == integration_id,
-                Project.active == True
-            ).all()
-
-            # Get ALL active wits for this tenant/integration
-            all_wits = session.query(Wit.external_id).filter(
-                Wit.tenant_id == tenant_id,
-                Wit.integration_id == integration_id,
-                Wit.active == True
-            ).all()
-
-            total_entities = len(all_projects) + len(all_wits)
-            logger.debug(f"🔄 Queueing ALL entities for embedding: {len(all_projects)} projects + {len(all_wits)} wits = {total_entities} total")
-
-            if total_entities == 0:
-                logger.warning(f"No active projects or wits found for tenant {tenant_id}, integration {integration_id}")
-                return
-
-            # Queue ALL projects (not just changed ones)
-            for i, project in enumerate(all_projects):
-                is_first = (i == 0)
-                is_last = (i == len(all_projects) - 1) and len(all_wits) == 0
-
-                self._queue_entities_for_embedding(
-                    tenant_id=tenant_id,
-                    table_name='projects',
-                    entities=[{'external_id': project.external_id}],
-                    job_id=job_id,
-                    message_type=message_type,
-                    integration_id=integration_id,
-                    provider=provider,
-                    old_last_sync_date=old_last_sync_date,  # 🔑 Forward old_last_sync_date
-                    new_last_sync_date=new_last_sync_date,
-                    first_item=is_first,
-                    last_item=is_last,
-                    last_job_item=last_job_item,
-                    token=token  # 🔑 Include token in message
-                )
-
-            # Queue ALL wits (not just changed ones)
-            for i, wit in enumerate(all_wits):
-                is_first = (i == 0) and len(all_projects) == 0
-                is_last = (i == len(all_wits) - 1)
-
-                self._queue_entities_for_embedding(
-                    tenant_id=tenant_id,
-                    table_name='wits',
-                    entities=[{'external_id': wit.external_id}],
-                    job_id=job_id,
-                    message_type=message_type,
-                    integration_id=integration_id,
-                    provider=provider,
-                    old_last_sync_date=old_last_sync_date,  # 🔑 Forward old_last_sync_date
-                    new_last_sync_date=new_last_sync_date,
-                    first_item=is_first,
-                    last_item=is_last,
-                    last_job_item=last_job_item,
-                    token=token  # 🔑 Include token in message
-                )
-
-            logger.debug(f"✅ Successfully queued {total_entities} entities for embedding")
-
-        except Exception as e:
-            logger.error(f"Error queuing all entities for embedding: {e}")
-            # Don't raise - embedding is async and shouldn't block transform
-
-    def _process_jira_issues_changelogs(self, raw_data_id: int, tenant_id: int, integration_id: int, job_id: int = None, message: Dict[str, Any] = None) -> bool:
-        """
-        Process Jira issues and changelogs from raw_extraction_data.
-
-        Flow:
-        1. Load raw data from raw_extraction_data table
-        2. Transform issues data and bulk insert/update work_items table
-        3. Transform changelogs data and bulk insert changelogs table
-        4. Queue work_items and changelogs for vectorization
-        """
-        try:
-            logger.debug(f"Processing jira_issues_changelogs for raw_data_id={raw_data_id}")
-
-            with self.get_db_session() as db:
-                # Load raw data
-                raw_data = self._get_raw_data(db, raw_data_id)
-                if not raw_data:
-                    logger.error(f"Raw data {raw_data_id} not found")
-                    return False
-
-                issues_data = raw_data.get('issues', [])
-                if not issues_data:
-                    logger.warning(f"No issues data found in raw_data_id={raw_data_id}")
-                    return True
-
-                logger.debug(f"Processing {len(issues_data)} issues")
-
-                # Get reference data for mapping
-                projects_map, wits_map, statuses_map = self._get_reference_data_maps(db, integration_id, tenant_id)
-
-                # Get custom field mappings from integration
-                custom_field_mappings = self._get_custom_field_mappings(db, integration_id, tenant_id)
-                logger.debug(f"Loaded {len(custom_field_mappings)} custom field mappings")
-
-                # Process issues
-                issues_processed = self._process_issues_data(
-                    db, issues_data, integration_id, tenant_id, projects_map, wits_map, statuses_map, custom_field_mappings, job_id, message
-                )
-
-                # Process changelogs
-                changelogs_processed = self._process_changelogs_data(
-                    db, issues_data, integration_id, tenant_id, statuses_map, job_id, message
-                )
-
-                # Update raw data status to completed
-                from app.core.utils import DateTimeHelper
-                now = DateTimeHelper.now_default()
-
-                update_query = text("""
-                    UPDATE raw_extraction_data
-                    SET status = 'completed',
-                        last_updated_at = :now,
-                        error_details = NULL
-                    WHERE id = :raw_data_id
-                """)
-                db.execute(update_query, {'raw_data_id': raw_data_id, 'now': now})
-                db.commit()
-
-                logger.debug(f"Processed {issues_processed} issues and {changelogs_processed} changelogs - marked raw_data_id={raw_data_id} as completed")
-                return True
-
-        except Exception as e:
-            logger.error(f"Error processing jira_issues_changelogs: {e}")
-            import traceback
-            logger.error(f"Full traceback: {traceback.format_exc()}")
-
-            # Mark raw data as failed
-            try:
-                from app.core.utils import DateTimeHelper
-                now = DateTimeHelper.now_default()
-
-                with self.get_db_session() as db:
-                    error_query = text("""
-                        UPDATE raw_extraction_data
-                        SET status = 'failed',
-                            error_details = CAST(:error_details AS jsonb),
-                            last_updated_at = :now
-                        WHERE id = :raw_data_id
-                    """)
-                    db.execute(error_query, {
-                        'raw_data_id': raw_data_id,
-                        'error_details': json.dumps({'error': str(e)[:500]}),  # Proper JSON format
-                        'now': now
-                    })
-                    db.commit()
-            except Exception as update_error:
-                logger.error(f"Failed to update raw_data status to failed: {update_error}")
-
-            return False
-
-    def _process_jira_single_issue(self, raw_data_id: int, tenant_id: int, integration_id: int, job_id: int = None, message: Dict[str, Any] = None) -> bool:
-        """
-        Process a single Jira issue from raw_extraction_data.
-
-        This is the optimized version that processes individual issues instead of batches.
-
-        Flow:
-        1. Load single issue raw data from raw_extraction_data table
-        2. Transform issue data and insert/update work_items table
-        3. Transform changelog data and insert changelogs table
-        4. Queue work_item and changelogs for vectorization
-        """
-        try:
-            logger.debug(f"Processing single jira_issue for raw_data_id={raw_data_id}")
-
-            with self.get_db_session() as db:
-                # Load raw data (single issue)
-                raw_data = self._get_raw_data(db, raw_data_id)
-                if not raw_data:
-                    logger.error(f"Raw data {raw_data_id} not found")
-                    return False
-
-                # Raw data is a single issue object (not wrapped in 'issues' array)
-                issue = raw_data
-
-                # Validate issue has required fields
-                if not issue.get('key'):
-                    logger.error(f"Issue missing 'key' field in raw_data_id={raw_data_id}")
-                    return False
-
-                # Get reference data for mapping
-                projects_map, wits_map, statuses_map = self._get_reference_data_maps(db, integration_id, tenant_id)
-
-                # Get custom field mappings from integration
-                custom_field_mappings = self._get_custom_field_mappings(db, integration_id, tenant_id)
-
-                # Process single issue (wrap in array for compatibility with existing method)
-                issues_processed = self._process_issues_data(
-                    db, [issue], integration_id, tenant_id, projects_map, wits_map, statuses_map, custom_field_mappings, job_id
-                )
-
-                # Process changelogs for this issue
-                changelogs_processed = self._process_changelogs_data(
-                    db, [issue], integration_id, tenant_id, statuses_map, job_id
-                )
-
-                # Note: dev_status extraction is now handled by extraction worker, not transform worker
-
-                # Update raw data status to completed
-                from app.core.utils import DateTimeHelper
-                now = DateTimeHelper.now_default()
-
-                update_query = text("""
-                    UPDATE raw_extraction_data
-                    SET status = 'completed',
-                        last_updated_at = :now,
-                        error_details = NULL
-                    WHERE id = :raw_data_id
-                """)
-                db.execute(update_query, {'raw_data_id': raw_data_id, 'now': now})
-                db.commit()
-
-                logger.debug(f"Processed issue {issue.get('key')} with {changelogs_processed} changelogs - marked raw_data_id={raw_data_id} as completed")
-                return True
-
-        except Exception as e:
-            logger.error(f"Error processing single jira_issue (raw_data_id={raw_data_id}): {e}")
-            import traceback
-            logger.error(f"Full traceback: {traceback.format_exc()}")
-
-            # Mark raw data as failed
-            try:
-                from app.core.utils import DateTimeHelper
-                now = DateTimeHelper.now_default()
-
-                with self.get_db_session() as db:
-                    error_query = text("""
-                        UPDATE raw_extraction_data
-                        SET status = 'failed',
-                            error_details = CAST(:error_details AS jsonb),
-                            last_updated_at = :now
-                        WHERE id = :raw_data_id
-                    """)
-                    db.execute(error_query, {
-                        'raw_data_id': raw_data_id,
-                        'error_details': json.dumps({'error': str(e)[:500]}),
-                        'now': now
-                    })
-                    db.commit()
-            except Exception as update_error:
-                logger.error(f"Failed to update raw_data status to failed: {update_error}")
-
-            return False
+    # REMOVED: _process_jira_issues_changelogs and _process_jira_single_issue
+    # These were leftover/dead code - never called. The actual method used is _process_jira_single_issue_changelog below.
 
     async def _process_jira_single_issue_changelog(self, raw_data_id: int, tenant_id: int, integration_id: int, job_id: int = None, message: Dict[str, Any] = None) -> bool:
         """
@@ -2319,6 +2365,11 @@ class JiraTransformHandler:
                 # Process single issue (wrap in array for compatibility with existing method)
                 issues_processed = self._process_issues_data(
                     db, [issue], integration_id, tenant_id, projects_map, wits_map, statuses_map, custom_field_mappings, job_id, message
+                )
+
+                # Process sprint associations
+                sprint_associations_processed = self._process_sprint_associations(
+                    db, [issue], integration_id, tenant_id, custom_field_mappings
                 )
 
                 # Process changelogs for this issue
@@ -2424,7 +2475,7 @@ class JiraTransformHandler:
 
     def _get_custom_field_mappings(self, db, integration_id: int, tenant_id: int) -> Dict[str, str]:
         """
-        Get custom field mappings from custom_fields_mapping table.
+        Get custom field mappings from custom_fields_mappings table.
 
         Returns:
             Dict mapping Jira field IDs (e.g., 'customfield_10024') to work_items column names or special fields
@@ -2434,16 +2485,18 @@ class JiraTransformHandler:
             {
                 'customfield_10001': 'team',  # Special field
                 'customfield_10000': 'development',  # Special field
+                'customfield_10021': 'sprints',  # Special field
                 'customfield_10024': 'story_points',  # Special field
                 'customfield_10128': 'custom_field_01',  # Regular custom field
                 'customfield_10222': 'custom_field_02',  # Regular custom field
             }
         """
         try:
-            # Get custom field mappings from custom_fields_mapping table
+            # Get custom field mappings from custom_fields_mappings table
             query = text("""
                 SELECT
                     cfm.team_field_id,
+                    cfm.sprints_field_id,
                     cfm.development_field_id,
                     cfm.story_points_field_id,
                     cfm.custom_field_01_id, cfm.custom_field_02_id, cfm.custom_field_03_id,
@@ -2453,7 +2506,7 @@ class JiraTransformHandler:
                     cfm.custom_field_13_id, cfm.custom_field_14_id, cfm.custom_field_15_id,
                     cfm.custom_field_16_id, cfm.custom_field_17_id, cfm.custom_field_18_id,
                     cfm.custom_field_19_id, cfm.custom_field_20_id
-                FROM custom_fields_mapping cfm
+                FROM custom_fields_mappings cfm
                 WHERE cfm.integration_id = :integration_id AND cfm.tenant_id = :tenant_id
             """)
             result = db.execute(query, {
@@ -2488,25 +2541,30 @@ class JiraTransformHandler:
             # Build mappings dict
             mappings = {}
 
-            # Special fields (indices 0, 1, 2)
+            # Special fields (indices 0, 1, 2, 3)
             if result[0]:  # team_field_id
                 external_id = field_id_to_external_id.get(result[0])
                 if external_id:
                     mappings[external_id] = 'team'
 
-            if result[1]:  # development_field_id
+            if result[1]:  # sprints_field_id
                 external_id = field_id_to_external_id.get(result[1])
+                if external_id:
+                    mappings[external_id] = 'sprints'  # Used by _process_sprint_associations to find sprint data in issue JSON
+
+            if result[2]:  # development_field_id
+                external_id = field_id_to_external_id.get(result[2])
                 if external_id:
                     mappings[external_id] = 'development'
 
-            if result[2]:  # story_points_field_id
-                external_id = field_id_to_external_id.get(result[2])
+            if result[3]:  # story_points_field_id
+                external_id = field_id_to_external_id.get(result[3])
                 if external_id:
                     mappings[external_id] = 'story_points'
 
-            # Regular custom fields (indices 3-22 for custom_field_01 to custom_field_20)
+            # Regular custom fields (indices 4-23 for custom_field_01 to custom_field_20)
             for i in range(20):
-                field_id = result[3 + i]  # Start from index 3
+                field_id = result[4 + i]  # Start from index 4
                 if field_id:
                     external_id = field_id_to_external_id.get(field_id)
                     if external_id:
@@ -2609,6 +2667,13 @@ class JiraTransformHandler:
                             story_points = None
                     result[column_name] = story_points
 
+                elif column_name == 'sprints':
+                    # Sprints field - DO NOT extract as column value
+                    # Sprint data is handled separately by _process_sprint_associations
+                    # which populates the sprints and work_items_sprints tables
+                    # Skip this field to avoid trying to insert into non-existent work_items.sprints column
+                    pass
+
                 else:
                     # Regular custom field - handle different field types
                     if value is None:
@@ -2700,6 +2765,7 @@ class JiraTransformHandler:
 
                 # Extract special fields from the result
                 team = all_fields_data.pop('team', None)
+                # Sprints removed - now using sprints table and work_items_sprints junction table
                 development = all_fields_data.pop('development', False)
                 story_points = all_fields_data.pop('story_points', None)
 
@@ -2718,6 +2784,7 @@ class JiraTransformHandler:
                         'project_id': project_id,
                         'wit_id': wit_id,
                         'status_id': status_id,
+                        'story_points': story_points,
                         'priority': priority,
                         'resolution': resolution,
                         'assignee': assignee,
@@ -2726,7 +2793,6 @@ class JiraTransformHandler:
                         'updated': updated,
                         'parent_external_id': parent_external_id,
                         'development': development,
-                        'story_points': story_points,
                         'last_updated_at': current_time
                     }
                     # Add custom fields to update dict
@@ -2744,6 +2810,7 @@ class JiraTransformHandler:
                         'project_id': project_id,
                         'wit_id': wit_id,
                         'status_id': status_id,
+                        'story_points': story_points,
                         'priority': priority,
                         'resolution': resolution,
                         'assignee': assignee,
@@ -2753,7 +2820,6 @@ class JiraTransformHandler:
                         'updated': updated,
                         'parent_external_id': parent_external_id,
                         'development': development,
-                        'story_points': story_points,
                         'active': True,
                         'created_at': current_time,
                         'last_updated_at': current_time
@@ -2807,6 +2873,314 @@ class JiraTransformHandler:
                                              token=token)  # 🔑 Include token in message
 
         return len(issues_to_insert) + len(issues_to_update)
+
+    def _process_sprint_associations(
+        self, db, issues_data: List[Dict], integration_id: int, tenant_id: int, custom_field_mappings: Dict[str, str]
+    ) -> int:
+        """
+        Process sprint associations from issues and populate work_items_sprints junction table.
+
+        This extracts sprint data from the sprints field in each issue, creates placeholder
+        sprint records if needed, and creates the many-to-many relationship between work items and sprints.
+
+        Args:
+            db: Database session
+            issues_data: List of issue dictionaries from Jira API
+            integration_id: Integration ID
+            tenant_id: Tenant ID
+            custom_field_mappings: Dict mapping Jira field IDs to column names (includes 'sprints' mapping)
+
+        Returns:
+            Number of sprint associations processed
+        """
+        from app.core.utils import DateTimeHelper
+
+        try:
+            logger.debug(f"🔍 [SPRINT-DEBUG] Starting sprint associations processing for {len(issues_data)} issues")
+
+            # Find the sprint field ID and story points field ID from custom_field_mappings
+            sprint_field_id = None
+            story_points_field_id = None
+            for field_id, field_name in custom_field_mappings.items():
+                if field_name == 'sprints':
+                    sprint_field_id = field_id
+                elif field_name == 'story_points':
+                    story_points_field_id = field_id
+
+            if not sprint_field_id:
+                logger.warning(f"No sprint field mapping found in custom_field_mappings - skipping sprint associations")
+                return 0
+
+            logger.debug(f"Using sprint field: {sprint_field_id}, story points field: {story_points_field_id}")
+
+            # Collect issue external_ids from payload
+            issue_external_ids = [issue.get('id') for issue in issues_data if issue.get('id')]
+            if not issue_external_ids:
+                logger.debug("No valid issue external_ids found in payload")
+                return 0
+
+            # Query ONLY the work_items for the issues in this payload
+            work_items_query = text("""
+                SELECT external_id, id
+                FROM work_items
+                WHERE integration_id = :integration_id
+                AND tenant_id = :tenant_id
+                AND external_id = ANY(:external_ids)
+            """)
+            work_items_result = db.execute(work_items_query, {
+                'integration_id': integration_id,
+                'tenant_id': tenant_id,
+                'external_ids': issue_external_ids
+            }).fetchall()
+            work_items_map = {row[0]: row[1] for row in work_items_result}
+
+            # Collect all unique sprints and their associations
+            sprints_to_create = {}  # {external_id: sprint_data}
+            sprint_associations = []  # [{work_item_external_id, sprint_external_id, ...}]
+            current_time = DateTimeHelper.now_default()
+
+            for issue in issues_data:
+                try:
+                    issue_external_id = issue.get('id')
+                    if not issue_external_id:
+                        continue
+
+                    # Get sprints field from issue using the mapped field ID
+                    fields = issue.get('fields', {})
+                    sprints_field = fields.get(sprint_field_id)
+
+                    logger.debug(f"🔍 [SPRINT-DEBUG] Issue {issue.get('key')}: sprints_field type={type(sprints_field)}, value={sprints_field}")
+
+                    if not sprints_field or not isinstance(sprints_field, list):
+                        continue
+
+                    # Extract sprint sequence from changelog (for carry-over tracking)
+                    sprint_sequence = self._extract_sprint_sequence_from_changelog(issue, sprint_field_id)
+
+                    # Create a map of sprint_id -> position in sequence for carry-over tracking
+                    sprint_sequence_map = {sprint_id: idx for idx, sprint_id in enumerate(sprint_sequence)}
+
+                    # Extract sprint data from sprints array
+                    for sprint in sprints_field:
+                        if isinstance(sprint, dict):
+                            sprint_external_id = str(sprint.get('id'))  # Sprint ID
+                            board_id = sprint.get('boardId')
+                            sprint_name = sprint.get('name')
+                            sprint_state = sprint.get('state')  # future, active, closed
+                            sprint_goal = sprint.get('goal')
+                            start_date = sprint.get('startDate')
+                            end_date = sprint.get('endDate')
+                            complete_date = sprint.get('completeDate')
+
+                            if sprint_external_id:
+                                # Collect unique sprint data
+                                if sprint_external_id not in sprints_to_create:
+                                    sprints_to_create[sprint_external_id] = {
+                                        'external_id': sprint_external_id,
+                                        'board_id': board_id,
+                                        'name': sprint_name,
+                                        'state': sprint_state,
+                                        'goal': sprint_goal,
+                                        'start_date': start_date,
+                                        'end_date': end_date,
+                                        'complete_date': complete_date
+                                    }
+
+                                # Calculate changelog-based added_date and removed_date
+                                added_date, removed_date = self._calculate_sprint_dates_from_issue_changelog(
+                                    issue, sprint_external_id, sprint_field_id
+                                )
+
+                                # Calculate estimate_at_start using sprint start date
+                                estimate_at_start = None
+                                if start_date and story_points_field_id:
+                                    estimate_at_start = self._calculate_estimate_at_start(
+                                        issue, start_date, story_points_field_id
+                                    )
+
+                                # Fallback for added_date: use sprint start_date if no changelog found
+                                if not added_date and start_date:
+                                    added_date = self._parse_datetime(start_date)
+
+                                # Fallback for added_date: use current_time if still None
+                                if not added_date:
+                                    added_date = current_time
+
+                                # Determine carry-over sprints based on sequence
+                                carried_over_from_sprint_id = None
+                                carried_over_to_sprint_id = None
+
+                                if sprint_sequence and sprint_external_id in sprint_sequence_map:
+                                    idx = sprint_sequence_map[sprint_external_id]
+                                    # Previous sprint in sequence
+                                    if idx > 0:
+                                        carried_over_from_sprint_id = sprint_sequence[idx - 1]
+                                    # Next sprint in sequence
+                                    if idx < len(sprint_sequence) - 1:
+                                        carried_over_to_sprint_id = sprint_sequence[idx + 1]
+
+                                # Collect association with calculated dates, estimate, and carry-over tracking
+                                sprint_associations.append({
+                                    'work_item_external_id': issue_external_id,
+                                    'sprint_external_id': sprint_external_id,
+                                    'tenant_id': tenant_id,
+                                    'added_date': added_date,
+                                    'removed_date': removed_date,
+                                    'estimate_at_start': estimate_at_start,
+                                    'carried_over_from_sprint_external_id': carried_over_from_sprint_id,
+                                    'carried_over_to_sprint_external_id': carried_over_to_sprint_id
+                                })
+
+                except Exception as e:
+                    logger.error(f"Error processing sprint associations for issue {issue.get('key', 'unknown')}: {e}")
+                    continue
+
+            if not sprint_associations:
+                logger.info(f"📊 No sprint associations found in {len(issues_data)} issues")
+                return 0
+
+            logger.info(f"📊 Found {len(sprint_associations)} sprint associations from {len(issues_data)} issues")
+            logger.info(f"📊 Found {len(sprints_to_create)} unique sprints to create/update")
+
+            # Step 1: Get existing sprints
+            existing_sprints_query = text("""
+                SELECT external_id, id
+                FROM sprints
+                WHERE tenant_id = :tenant_id
+                AND external_id = ANY(:external_ids)
+            """)
+            existing_sprints_result = db.execute(existing_sprints_query, {
+                'tenant_id': tenant_id,
+                'external_ids': list(sprints_to_create.keys())
+            }).fetchall()
+            existing_sprints_map = {row[0]: row[1] for row in existing_sprints_result}
+
+            # Step 2: Upsert sprint records (insert new + update existing)
+            # Use PostgreSQL ON CONFLICT to handle concurrent inserts gracefully
+            sprints_to_upsert = []
+            for sprint_external_id, sprint_data in sprints_to_create.items():
+                sprints_to_upsert.append({
+                    'tenant_id': tenant_id,
+                    'integration_id': integration_id,
+                    'external_id': sprint_external_id,
+                    'board_id': sprint_data['board_id'],
+                    'name': sprint_data['name'],
+                    'state': sprint_data['state'],
+                    'goal': sprint_data.get('goal'),
+                    'start_date': sprint_data.get('start_date'),
+                    'end_date': sprint_data.get('end_date'),
+                    'complete_date': sprint_data.get('complete_date'),
+                    'active': True,
+                    'created_at': current_time,
+                    'last_updated_at': current_time
+                })
+
+            if sprints_to_upsert:
+                # Use ON CONFLICT DO UPDATE to handle race conditions between concurrent workers
+                upsert_query = text("""
+                    INSERT INTO sprints (tenant_id, integration_id, external_id, board_id, name, state, goal, start_date, end_date, complete_date, active, created_at, last_updated_at)
+                    VALUES (:tenant_id, :integration_id, :external_id, :board_id, :name, :state, :goal, :start_date, :end_date, :complete_date, :active, :created_at, :last_updated_at)
+                    ON CONFLICT (tenant_id, integration_id, external_id)
+                    DO UPDATE SET
+                        board_id = EXCLUDED.board_id,
+                        name = EXCLUDED.name,
+                        state = EXCLUDED.state,
+                        goal = EXCLUDED.goal,
+                        start_date = EXCLUDED.start_date,
+                        end_date = EXCLUDED.end_date,
+                        complete_date = EXCLUDED.complete_date,
+                        last_updated_at = EXCLUDED.last_updated_at
+                """)
+
+                for sprint in sprints_to_upsert:
+                    db.execute(upsert_query, sprint)
+
+                logger.info(f"✅ Upserted {len(sprints_to_upsert)} sprint records")
+
+            # Refresh sprints map after upsert
+            existing_sprints_result = db.execute(existing_sprints_query, {
+                'tenant_id': tenant_id,
+                'external_ids': list(sprints_to_create.keys())
+            }).fetchall()
+            existing_sprints_map = {row[0]: row[1] for row in existing_sprints_result}
+
+            # Step 3: Create work_items_sprints associations with changelog-based dates, estimate_at_start, and carry-over tracking
+            # Map work_item external_ids to internal_ids
+            associations_to_insert = []
+            for assoc in sprint_associations:
+                work_item_external_id = assoc['work_item_external_id']
+                sprint_external_id = assoc['sprint_external_id']
+
+                work_item_id = work_items_map.get(work_item_external_id)
+                sprint_id = existing_sprints_map.get(sprint_external_id)
+
+                if work_item_id and sprint_id:
+                    # Map carry-over sprint external IDs to internal IDs
+                    carried_over_from_sprint_id = None
+                    carried_over_to_sprint_id = None
+
+                    if assoc.get('carried_over_from_sprint_external_id'):
+                        carried_over_from_sprint_id = existing_sprints_map.get(
+                            assoc['carried_over_from_sprint_external_id']
+                        )
+
+                    if assoc.get('carried_over_to_sprint_external_id'):
+                        carried_over_to_sprint_id = existing_sprints_map.get(
+                            assoc['carried_over_to_sprint_external_id']
+                        )
+
+                    associations_to_insert.append({
+                        'work_item_id': work_item_id,
+                        'sprint_id': sprint_id,
+                        'added_date': assoc['added_date'],  # Changelog-based or fallback
+                        'removed_date': assoc.get('removed_date'),  # Changelog-based or None
+                        'estimate_at_start': assoc.get('estimate_at_start'),  # Calculated from changelog
+                        'carried_over_from_sprint_id': carried_over_from_sprint_id,  # Previous sprint in sequence
+                        'carried_over_to_sprint_id': carried_over_to_sprint_id,  # Next sprint in sequence
+                        'tenant_id': assoc['tenant_id'],
+                        'active': True,
+                        'created_at': current_time,
+                        'last_updated_at': current_time
+                    })
+
+            if associations_to_insert:
+                # Use ON CONFLICT DO NOTHING to handle race conditions between concurrent workers
+                # The unique constraint is on (work_item_id, sprint_id, added_date)
+                upsert_assoc_query = text("""
+                    INSERT INTO work_items_sprints
+                        (work_item_id, sprint_id, added_date, removed_date, estimate_at_start,
+                         carried_over_from_sprint_id, carried_over_to_sprint_id,
+                         tenant_id, active, created_at, last_updated_at)
+                    VALUES
+                        (:work_item_id, :sprint_id, :added_date, :removed_date, :estimate_at_start,
+                         :carried_over_from_sprint_id, :carried_over_to_sprint_id,
+                         :tenant_id, :active, :created_at, :last_updated_at)
+                    ON CONFLICT (work_item_id, sprint_id, added_date)
+                    DO NOTHING
+                """)
+
+                inserted_count = 0
+                for assoc in associations_to_insert:
+                    result = db.execute(upsert_assoc_query, assoc)
+                    # rowcount will be 1 if inserted, 0 if conflict (already exists)
+                    inserted_count += result.rowcount
+
+                if inserted_count > 0:
+                    logger.info(f"✅ Created {inserted_count} new work_items_sprints associations with changelog-based dates and estimates (skipped {len(associations_to_insert) - inserted_count} duplicates)")
+                else:
+                    logger.debug(f"All {len(associations_to_insert)} sprint associations already exist")
+
+            # NOTE: We do NOT queue sprints for embedding here in Step 3
+            # Sprints will be queued for embedding in Step 5 (sprint_reports) after metrics are added
+            # This avoids embedding incomplete sprint data and prevents duplicate embeddings
+
+            return len(sprint_associations)
+
+        except Exception as e:
+            logger.error(f"Error processing sprint associations: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
+            return 0
 
     def _process_changelogs_data(
         self, db, issues_data: List[Dict], integration_id: int, tenant_id: int,
@@ -3297,6 +3671,449 @@ class JiraTransformHandler:
             # NOTE: "failed" status would be sent by TransformWorker router if needed
             # For now, just return False to indicate failure
 
+            return False
+
+    def _extract_sprint_sequence_from_changelog(
+        self, issue: Dict, sprint_field_id: str
+    ) -> List[str]:
+        """
+        Extract the complete sprint sequence from the FIRST (newest) changelog entry.
+
+        The first changelog entry for the Sprint field contains the complete history
+        in the 'to' value (e.g., "101, 102, 103, 104").
+
+        Args:
+            issue: Full issue dict from Jira API (contains changelog.histories)
+            sprint_field_id: Sprint field ID from custom_field_mappings (e.g., 'customfield_10021')
+
+        Returns:
+            List of sprint IDs in chronological order (oldest to newest)
+        """
+        try:
+            changelog = issue.get('changelog', {})
+            histories = changelog.get('histories', [])
+
+            if not histories:
+                return []
+
+            # Find the FIRST (newest) changelog entry for Sprint field
+            for history in histories:
+                items = history.get('items', [])
+                for item in items:
+                    if item.get('field') == 'Sprint' and item.get('fieldId') == sprint_field_id:
+                        to_value = item.get('to', '')
+                        if to_value:
+                            # Parse sprint IDs from comma-separated string
+                            sprint_ids = [sid.strip() for sid in to_value.split(',') if sid.strip()]
+                            return sprint_ids
+
+            return []
+
+        except Exception as e:
+            logger.error(f"Error extracting sprint sequence from changelog: {e}")
+            return []
+
+    def _calculate_sprint_dates_from_issue_changelog(
+        self, issue: Dict, sprint_id: str, sprint_field_id: str
+    ) -> tuple[Optional[str], Optional[str]]:
+        """
+        Calculate precise added_date and removed_date for a sprint from issue's changelog JSON.
+
+        Algorithm (Simple Approach - Last Added / Last Removed):
+        1. Parse changelog histories from issue JSON
+        2. Find all ADD events: sprint_id appears in 'to' but not in 'from'
+        3. Find all REMOVE events: sprint_id appears in 'from' but not in 'to'
+        4. Use LAST add event as added_date
+        5. Use LAST remove event (only if after last add) as removed_date
+
+        Args:
+            issue: Full issue dict from Jira API (contains changelog.histories)
+            sprint_id: Sprint external_id to track (as string)
+            sprint_field_id: Sprint field ID from custom_field_mappings (e.g., 'customfield_10021')
+
+        Returns:
+            tuple: (added_date, removed_date) - both can be None if not found in changelog
+        """
+        try:
+            changelog = issue.get('changelog', {})
+            histories = changelog.get('histories', [])
+
+            if not histories:
+                return (None, None)
+
+            add_events = []
+            remove_events = []
+
+            # Process each changelog history entry
+            for history in histories:
+                created = history.get('created')
+                if not created:
+                    continue
+
+                items = history.get('items', [])
+                for item in items:
+                    # Only process Sprint field changes
+                    if item.get('field') == 'Sprint' and item.get('fieldId') == sprint_field_id:
+                        from_value = item.get('from', '')
+                        to_value = item.get('to', '')
+
+                        # Parse sprint IDs from comma-separated strings
+                        from_sprints = set(from_value.split(', ')) if from_value else set()
+                        to_sprints = set(to_value.split(', ')) if to_value else set()
+
+                        # Detect ADD event: sprint_id in 'to' but not in 'from'
+                        if sprint_id in to_sprints and sprint_id not in from_sprints:
+                            add_events.append(self._parse_datetime(created))
+
+                        # Detect REMOVE event: sprint_id in 'from' but not in 'to'
+                        if sprint_id in from_sprints and sprint_id not in to_sprints:
+                            remove_events.append(self._parse_datetime(created))
+
+            # Use LAST add event
+            added_date = add_events[-1] if add_events else None
+
+            # Use LAST remove event (only if it's AFTER the last add)
+            removed_date = None
+            if added_date and remove_events:
+                removes_after_add = [r for r in remove_events if r > added_date]
+                removed_date = removes_after_add[-1] if removes_after_add else None
+
+            return (added_date, removed_date)
+
+        except Exception as e:
+            logger.warning(f"Error calculating sprint dates from issue changelog for sprint {sprint_id}: {e}")
+            return (None, None)
+
+    def _calculate_estimate_at_start(
+        self, issue: Dict, sprint_start_date: str, story_points_field_id: str
+    ) -> Optional[float]:
+        """
+        Calculate estimate_at_start by finding Story Points value at sprint start date.
+
+        Algorithm (Option B - Estimate at sprint START DATE):
+        1. Parse changelog histories from issue JSON
+        2. Find all Story Points changes BEFORE or AT sprint start date
+        3. Return the LAST (most recent) Story Points value <= sprint start date
+        4. If no changelog found, use current Story Points value from fields
+
+        Args:
+            issue: Full issue dict from Jira API (contains changelog.histories and fields)
+            sprint_start_date: Sprint startDate from sprint metadata (ISO format string)
+            story_points_field_id: Story Points field ID from custom_field_mappings (e.g., 'customfield_10024')
+
+        Returns:
+            float: Story Points estimate at sprint start, or None if not found
+        """
+        try:
+            # Parse sprint start date
+            sprint_start = self._parse_datetime(sprint_start_date)
+            if not sprint_start:
+                return None
+
+            changelog = issue.get('changelog', {})
+            histories = changelog.get('histories', [])
+
+            # Track Story Points changes before/at sprint start
+            estimate_changes = []  # List of (timestamp, value) tuples
+
+            # Process changelog to find Story Points changes
+            for history in histories:
+                created = history.get('created')
+                if not created:
+                    continue
+
+                created_dt = self._parse_datetime(created)
+                if not created_dt or created_dt > sprint_start:
+                    continue  # Skip changes after sprint started
+
+                items = history.get('items', [])
+                for item in items:
+                    # Check both 'fieldId' and 'field' for Story Points
+                    field_id = item.get('fieldId')
+                    field_name = item.get('field')
+
+                    # Only process Story Points field changes
+                    if field_id == story_points_field_id or field_name == 'Story Points':
+                        to_value = item.get('to')
+                        if to_value:
+                            try:
+                                estimate_value = float(to_value)
+                                estimate_changes.append((created_dt, estimate_value))
+                            except (ValueError, TypeError):
+                                continue
+
+            # Use the LAST (most recent) estimate change before/at sprint start
+            if estimate_changes:
+                estimate_changes.sort(key=lambda x: x[0])  # Sort by timestamp
+                final_estimate = estimate_changes[-1][1]
+                return final_estimate
+
+            # Fallback: No changelog found, use current Story Points value from fields
+            fields = issue.get('fields', {})
+            current_estimate = fields.get(story_points_field_id)
+            if current_estimate is not None:
+                try:
+                    return float(current_estimate)
+                except (ValueError, TypeError):
+                    return None
+
+            return None
+
+        except Exception as e:
+            logger.warning(f"Error calculating estimate_at_start for issue {issue.get('key', 'unknown')}, sprint start {sprint_start_date}: {e}")
+            return None
+
+    async def _process_jira_sprint_reports(
+        self, raw_data_id: Optional[int], tenant_id: int, integration_id: int, job_id: int, message: Dict[str, Any]
+    ) -> bool:
+        """
+        Process sprint report data from raw_extraction_data and update sprints and work_items_sprints tables.
+
+        Flow:
+        1. Load sprint report raw data from raw_extraction_data table
+        2. Extract sprint metrics from API response
+        3. Update sprints table with sprint report metrics (completed_estimate, not_completed_estimate, etc.)
+        4. Update work_items_sprints table with sprint outcome classification
+        5. Queue sprint entity for vectorization using external_id
+
+        Args:
+            raw_data_id: ID of raw data in raw_extraction_data table (None for completion message)
+            tenant_id: Tenant ID
+            integration_id: Integration ID
+            job_id: Job ID
+            message: Full message dict with flags
+
+        Returns:
+            bool: True if processing succeeded, False otherwise
+        """
+        try:
+            # 🎯 HANDLE COMPLETION MESSAGE: raw_data_id=None signals job completion
+            if raw_data_id is None and message and message.get('last_job_item'):
+                logger.debug(f"[COMPLETION] Received completion message for jira_sprint_reports (no data to process)")
+                return await self._handle_completion_message('jira_sprint_reports', message)
+
+            logger.debug(f"Processing sprint report from raw_data_id={raw_data_id}")
+
+            # Get database session
+            db = self.database.get_write_session()
+            try:
+                # Load raw data
+                raw_data_query = text("""
+                    SELECT raw_data
+                    FROM raw_extraction_data
+                    WHERE id = :raw_data_id
+                """)
+                result = db.execute(raw_data_query, {'raw_data_id': raw_data_id})
+                row = result.fetchone()
+
+                if not row:
+                    logger.error(f"No raw data found for raw_data_id={raw_data_id}")
+                    return False
+
+                payload = row[0]
+                board_id = payload.get('board_id')
+                sprint_id = payload.get('sprint_id')
+                sprint_report = payload.get('sprint_report', {})
+
+                logger.debug(f"Processing sprint report for board_id={board_id}, sprint_id={sprint_id}")
+
+                # Extract sprint metadata from API response
+                sprint_metadata = sprint_report.get('sprint', {})
+                sprint_start_date = sprint_metadata.get('startDate')
+                sprint_complete_date = sprint_metadata.get('completeDate')
+
+                # Extract sprint metrics from API response
+                contents = sprint_report.get('contents', {})
+
+                # Extract estimate sums
+                completed_estimate = contents.get('completedIssuesEstimateSum', {}).get('value')
+                not_completed_estimate = contents.get('issuesNotCompletedEstimateSum', {}).get('value')
+                punted_estimate = contents.get('puntedIssuesEstimateSum', {}).get('value')
+                total_estimate = contents.get('allIssuesEstimateSum', {}).get('value')
+
+                # Calculate completion percentage
+                completion_percentage = None
+                if total_estimate and total_estimate > 0:
+                    completion_percentage = (completed_estimate / total_estimate) * 100 if completed_estimate else 0
+
+                # Extract scope change metrics
+                completed_issues = contents.get('completedIssues', [])
+                not_completed_issues = contents.get('issuesNotCompletedInCurrentSprint', [])
+                punted_issues = contents.get('puntedIssues', [])
+                issues_added_during_sprint = contents.get('issueKeysAddedDuringSprint', {})
+
+                scope_change_count = len(issues_added_during_sprint)
+                carry_over_count = len(not_completed_issues)
+
+                # Update sprints table with sprint report metrics
+                from app.core.utils import DateTimeHelper
+                now = DateTimeHelper.now_default()
+
+                update_sprint_query = text("""
+                    UPDATE sprints
+                    SET completed_estimate = :completed_estimate,
+                        not_completed_estimate = :not_completed_estimate,
+                        punted_estimate = :punted_estimate,
+                        total_estimate = :total_estimate,
+                        completion_percentage = :completion_percentage,
+                        velocity = :velocity,
+                        scope_change_count = :scope_change_count,
+                        carry_over_count = :carry_over_count,
+                        last_updated_at = :now
+                    WHERE tenant_id = :tenant_id
+                      AND integration_id = :integration_id
+                      AND external_id = :sprint_id
+                      AND board_id = :board_id
+                    RETURNING id, external_id
+                """)
+
+                sprint_result = db.execute(update_sprint_query, {
+                    'completed_estimate': completed_estimate,
+                    'not_completed_estimate': not_completed_estimate,
+                    'punted_estimate': punted_estimate,
+                    'total_estimate': total_estimate,
+                    'completion_percentage': completion_percentage,
+                    'velocity': completed_estimate,  # Velocity = completed estimate
+                    'scope_change_count': scope_change_count,
+                    'carry_over_count': carry_over_count,
+                    'now': now,
+                    'tenant_id': tenant_id,
+                    'integration_id': integration_id,
+                    'sprint_id': str(sprint_id),
+                    'board_id': board_id
+                })
+
+                sprint_row = sprint_result.fetchone()
+                if not sprint_row:
+                    logger.warning(f"Sprint not found for board_id={board_id}, sprint_id={sprint_id} - skipping work_items_sprints update")
+                    db.commit()
+                    return True
+
+                sprint_db_id = sprint_row[0]
+                sprint_external_id = sprint_row[1]
+
+                logger.debug(f"Updated sprint {sprint_external_id} (id={sprint_db_id}) with report metrics")
+
+                # Update work_items_sprints table with sprint outcome classification
+                # Map issue keys to outcomes
+                issue_outcomes = {}
+
+                for issue in completed_issues:
+                    issue_key = issue.get('key')
+                    if issue_key:
+                        issue_outcomes[issue_key] = 'completed'
+
+                for issue in not_completed_issues:
+                    issue_key = issue.get('key')
+                    if issue_key:
+                        issue_outcomes[issue_key] = 'not_completed'
+
+                for issue in punted_issues:
+                    issue_key = issue.get('key')
+                    if issue_key:
+                        issue_outcomes[issue_key] = 'punted'
+
+                # Update work_items_sprints records with sprint outcome classification and metrics
+                if issue_outcomes:
+                    # Build a map of issue keys to their estimate_at_end values
+                    issue_estimates = {}
+                    for issue in completed_issues + not_completed_issues + punted_issues:
+                        issue_key = issue.get('key')
+                        if issue_key:
+                            # Extract estimate from issue.estimateStatistic.statFieldValue.value
+                            estimate_stat = issue.get('estimateStatistic', {})
+                            stat_field_value = estimate_stat.get('statFieldValue', {})
+                            estimate_value = stat_field_value.get('value')
+                            issue_estimates[issue_key] = estimate_value
+
+                    for issue_key, outcome in issue_outcomes.items():
+                        # Check if issue was added during sprint
+                        added_during_sprint = issue_key in issues_added_during_sprint
+
+                        # Calculate committed: NOT added_during_sprint AND outcome != 'punted'
+                        committed = not added_during_sprint and outcome != 'punted'
+
+                        # Get estimate_at_end for this issue
+                        estimate_at_end = issue_estimates.get(issue_key)
+
+                        # NOTE: added_date, removed_date, and estimate_at_start are now calculated
+                        # in Step 3 (_process_sprint_associations) using changelog from issue JSON.
+                        # Step 5 (sprint reports) only updates sprint outcome metrics, not dates.
+
+                        update_work_items_sprints_query = text("""
+                            UPDATE work_items_sprints wis
+                            SET sprint_outcome = :outcome,
+                                added_during_sprint = :added_during_sprint,
+                                committed = :committed,
+                                estimate_at_end = :estimate_at_end,
+                                last_updated_at = :now
+                            FROM work_items wi
+                            WHERE wis.work_item_id = wi.id
+                              AND wis.sprint_id = :sprint_id
+                              AND wi.key = :issue_key
+                              AND wis.tenant_id = :tenant_id
+                        """)
+
+                        db.execute(update_work_items_sprints_query, {
+                            'outcome': outcome,
+                            'added_during_sprint': added_during_sprint,
+                            'committed': committed,
+                            'estimate_at_end': estimate_at_end,
+                            'now': now,
+                            'sprint_id': sprint_db_id,
+                            'issue_key': issue_key,
+                            'tenant_id': tenant_id
+                        })
+
+                    logger.debug(f"Updated {len(issue_outcomes)} work_items_sprints records with sprint outcomes, commitment, and estimates")
+
+                # Update raw data status to completed
+                update_query = text("""
+                    UPDATE raw_extraction_data
+                    SET status = 'completed',
+                        last_updated_at = :now,
+                        error_details = NULL
+                    WHERE id = :raw_data_id
+                """)
+                db.execute(update_query, {'raw_data_id': raw_data_id, 'now': now})
+                db.commit()
+
+                logger.debug(f"Processed sprint report for sprint {sprint_external_id} - marked raw_data_id={raw_data_id} as completed")
+
+                # Queue sprint entity for embedding
+                sprint_entity = {'external_id': sprint_external_id}
+
+                self._queue_entities_for_embedding(
+                    tenant_id=tenant_id,
+                    table_name='sprints',
+                    entities=[sprint_entity],
+                    job_id=job_id,
+                    message_type='jira_sprint_reports',
+                    integration_id=integration_id,
+                    provider=message.get('provider', 'jira'),
+                    old_last_sync_date=message.get('old_last_sync_date'),
+                    new_last_sync_date=message.get('new_last_sync_date'),
+                    first_item=message.get('first_item', False),
+                    last_item=message.get('last_item', False),
+                    last_job_item=message.get('last_job_item', False),
+                    token=message.get('token')
+                )
+
+                logger.info(f"✅ Sprint report processed and queued for embedding: {sprint_external_id}")
+
+                # Send finished status on last item
+                if message.get('last_item'):
+                    await self._send_worker_status("transform", tenant_id, job_id, "finished", "jira_sprint_reports")
+
+                return True
+
+            finally:
+                db.close()
+
+        except Exception as e:
+            logger.error(f"Error processing sprint report: {e}")
+            import traceback
+            logger.error(f"Full traceback: {traceback.format_exc()}")
             return False
 
     async def _process_dev_status_data(

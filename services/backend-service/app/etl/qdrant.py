@@ -15,7 +15,8 @@ from app.models.unified_models import (
     User, WorkItem, Changelog, Project, Status, Wit,
     WitHierarchy, WitMapping, StatusMapping, Workflow,
     Pr, PrComment, PrReview, PrCommit, Repository,
-    WorkItemPrLink, QdrantVector
+    WorkItemPrLink, QdrantVector,
+    Sprint, Program, Portfolio, Risk, Dependency
 )
 from app.ai.qdrant_client import PulseQdrantClient
 
@@ -225,6 +226,7 @@ async def get_qdrant_dashboard(
                 get_entity_stats(WorkItemPrLink, "Work Item PR Links", "work_items_prs_links"),
                 get_entity_stats(StatusMapping, "Status Mappings", "statuses_mappings"),
                 get_entity_stats(Workflow, "Workflows", "workflows"),
+                get_entity_stats(Sprint, "Sprints", "sprints"),
             ]
 
             # GitHub entities
@@ -234,6 +236,14 @@ async def get_qdrant_dashboard(
                 get_entity_stats(PrReview, "PR Reviews", "prs_reviews"),
                 get_entity_stats(PrCommit, "PR Commits", "prs_commits"),
                 get_entity_stats(Repository, "Repositories", "repositories"),
+            ]
+
+            # Portfolio Management entities (not yet implemented in ETL)
+            portfolio_entities = [
+                get_entity_stats(Program, "Programs (Not Implemented)", "programs"),
+                get_entity_stats(Portfolio, "Portfolios (Not Implemented)", "portfolios"),
+                get_entity_stats(Risk, "Risks (Not Implemented)", "risks"),
+                get_entity_stats(Dependency, "Dependencies (Not Implemented)", "dependencies"),
             ]
 
             # Create integration groups
@@ -247,6 +257,11 @@ async def get_qdrant_dashboard(
                     title="GitHub",
                     logo_filename="github.svg",
                     entities=github_entities
+                ),
+                IntegrationGroup(
+                    title="Portfolio Management",
+                    logo_filename="jira.svg",  # Use Jira logo for now since these are Jira-related
+                    entities=portfolio_entities
                 )
             ]
 

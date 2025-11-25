@@ -89,26 +89,27 @@ class WorkerStatusManager:
         except Exception as e:
             logger.error(f"Error sending WebSocket status: {e}")
 
-    async def complete_etl_job(self, job_id: int, tenant_id: int, last_sync_date: str = None):
+    async def complete_etl_job(self, job_id: int, tenant_id: int, last_sync_date: str = None, rate_limited: bool = False):
         """
-        Complete the ETL job by updating its status to FINISHED and sending WebSocket notification.
+        Complete the ETL job by updating its status to FINISHED or RATE_LIMITED and sending WebSocket notification.
 
         This is a generic method that can be called by any worker (extraction, transform, embedding)
         when they need to mark the entire job as complete.
 
         Steps:
-        1. Set overall status to FINISHED
+        1. Set overall status to FINISHED (or RATE_LIMITED if rate_limited=True)
         2. Update last_run_finished_at
-        3. Update last_sync_date if provided
+        3. Update last_sync_date if provided (ONLY if not rate_limited)
         4. Calculate and set next_run
         5. Clear error_message and reset retry_count
         6. Send WebSocket notification with complete job status
-        7. UI will automatically reset to READY after a few seconds
+        7. UI will automatically reset to READY after a few seconds (FINISHED only)
 
         Args:
             job_id: ETL job ID
             tenant_id: Tenant ID
-            last_sync_date: Last sync date to update (optional)
+            last_sync_date: Last sync date to update (optional, ignored if rate_limited=True)
+            rate_limited: If True, set status to RATE_LIMITED instead of FINISHED and don't update last_sync_date
         """
         try:
             from datetime import timedelta
@@ -132,24 +133,52 @@ class WorkerStatusManager:
 
                 schedule_interval_minutes = job_result[0]
 
-                # Calculate next_run: use schedule_interval_minutes for normal completion
+                # Calculate next_run
                 now = DateTimeHelper.now_default()
-                if schedule_interval_minutes and schedule_interval_minutes > 0:
-                    next_run = now + timedelta(minutes=schedule_interval_minutes)
+
+                if rate_limited:
+                    # 🔑 For rate limited jobs, use fast retry interval (15 minutes)
+                    next_run = now + timedelta(minutes=15)
+                    overall_status = 'RATE_LIMITED'
+                    reset_deadline_iso = None  # No reset deadline for rate limited jobs
                 else:
-                    # Default to 1 hour if not set
-                    next_run = now + timedelta(hours=1)
+                    # Normal completion: use schedule_interval_minutes
+                    if schedule_interval_minutes and schedule_interval_minutes > 0:
+                        next_run = now + timedelta(minutes=schedule_interval_minutes)
+                    else:
+                        # Default to 1 hour if not set
+                        next_run = now + timedelta(hours=1)
+                    overall_status = 'FINISHED'
 
-                # 🔑 Calculate reset_deadline (30 seconds from now for initial countdown)
-                # Use timezone-aware datetime for proper frontend calculation
-                now_with_tz = DateTimeHelper.now_default_with_tz()
-                reset_deadline_with_tz = now_with_tz + timedelta(seconds=30)
-                reset_deadline_iso = reset_deadline_with_tz.isoformat()
+                    # 🔑 Calculate reset_deadline (30 seconds from now for initial countdown)
+                    # Use timezone-aware datetime for proper frontend calculation
+                    now_with_tz = DateTimeHelper.now_default_with_tz()
+                    reset_deadline_with_tz = now_with_tz + timedelta(seconds=30)
+                    reset_deadline_iso = reset_deadline_with_tz.isoformat()
 
-                # 🔑 Set status to FINISHED with reset_deadline and reset_attempt
-                # The reset scheduler will automatically check and reset the job
-                # Build SQL with all values embedded to avoid parameter binding issues
-                if last_sync_date:
+                # 🔑 Build SQL based on rate_limited flag
+                # RATE_LIMITED: Don't update last_sync_date, no reset_deadline
+                # FINISHED: Update last_sync_date if provided, set reset_deadline
+                if rate_limited:
+                    # Rate limited: no last_sync_date update, no reset_deadline
+                    sql = f"""
+                        UPDATE etl_jobs
+                        SET status = jsonb_set(
+                              jsonb_set(
+                                jsonb_set(status, ARRAY['overall'], '"RATE_LIMITED"'::jsonb),
+                                ARRAY['reset_deadline'], 'null'::jsonb
+                              ),
+                              ARRAY['reset_attempt'], to_jsonb(0)
+                            ),
+                            last_run_finished_at = '{now.isoformat()}'::timestamp,
+                            last_updated_at = '{now.isoformat()}'::timestamp,
+                            next_run = '{next_run.isoformat()}'::timestamp,
+                            error_message = NULL,
+                            retry_count = 0
+                        WHERE id = {job_id} AND tenant_id = {tenant_id}
+                    """
+                elif last_sync_date:
+                    # Normal completion with last_sync_date
                     sql = f"""
                         UPDATE etl_jobs
                         SET status = jsonb_set(
@@ -168,6 +197,7 @@ class WorkerStatusManager:
                         WHERE id = {job_id} AND tenant_id = {tenant_id}
                     """
                 else:
+                    # Normal completion without last_sync_date
                     sql = f"""
                         UPDATE etl_jobs
                         SET status = jsonb_set(
@@ -188,12 +218,16 @@ class WorkerStatusManager:
                 session.execute(text(sql))
                 session.commit()
 
-                logger.info(f"🎯 [JOB COMPLETION] ETL job {job_id} marked as FINISHED")
+                logger.info(f"🎯 [JOB COMPLETION] ETL job {job_id} marked as {overall_status}")
                 logger.info(f"   last_run_finished_at: {now}")
                 logger.info(f"   next_run: {next_run}")
-                logger.info(f"   reset_deadline: {reset_deadline_iso} (30s countdown)")
-                if last_sync_date:
-                    logger.info(f"   last_sync_date: {last_sync_date}")
+                if rate_limited:
+                    logger.info(f"   No reset_deadline (rate limited)")
+                    logger.info(f"   last_sync_date NOT updated (rate limited)")
+                else:
+                    logger.info(f"   reset_deadline: {reset_deadline_iso} (30s countdown)")
+                    if last_sync_date:
+                        logger.info(f"   last_sync_date: {last_sync_date}")
 
             # Send WebSocket notification with updated job status
             with self.database.get_read_session_context() as read_session:
@@ -213,14 +247,17 @@ class WorkerStatusManager:
                         job_id=job_id,
                         status_json=job_status
                     )
-                    logger.info(f"✅ WebSocket notification sent with overall status FINISHED")
-                    logger.info(f"   Reset scheduler will check and reset job automatically")
+                    logger.info(f"✅ WebSocket notification sent with overall status {overall_status}")
+                    if not rate_limited:
+                        logger.info(f"   Reset scheduler will check and reset job automatically")
 
-            # 🔑 Schedule the reset check task (runs in 30 seconds)
+            # 🔑 Schedule the reset check task (runs in 30 seconds) - ONLY for FINISHED jobs
             # This is a system-level task that runs even if no users are logged in
-            from app.etl.workers.job_reset_scheduler import schedule_reset_check_task
-            schedule_reset_check_task(job_id, tenant_id, delay_seconds=30)
-            logger.info(f"📅 Scheduled automatic reset check for job {job_id} in 30 seconds")
+            # RATE_LIMITED jobs don't need reset scheduler - they auto-resume via job scheduler
+            if not rate_limited:
+                from app.etl.workers.job_reset_scheduler import schedule_reset_check_task
+                await schedule_reset_check_task(job_id, tenant_id, delay_seconds=30)
+                logger.info(f"📅 Scheduled automatic reset check for job {job_id} in 30 seconds")
 
         except Exception as e:
             logger.error(f"❌ Error completing ETL job {job_id}: {e}")

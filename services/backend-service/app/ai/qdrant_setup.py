@@ -30,7 +30,13 @@ COLLECTION_TYPES = [
     'wits_hierarchies',
     'wits_mappings',
     'statuses_mappings',
-    'workflows'
+    'workflows',
+    'sprints',
+    # Portfolio management collections (not yet implemented in ETL)
+    'programs',
+    'portfolios',
+    'risks',
+    'dependencies'
     # Note: custom_fields_mapping is NOT vectorized (it's a configuration table, not content)
 ]
 

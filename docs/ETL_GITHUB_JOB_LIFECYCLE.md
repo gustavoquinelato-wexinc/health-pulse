@@ -344,11 +344,16 @@ Used when no data was extracted, so no items are queued to workers.
 After job completion (overall status = FINISHED):
 
 1. **Backend Scheduler** (`job_reset_scheduler.py`):
-   - After 30 seconds, runs `check_and_reset_job()` task
+   - After 30 seconds, runs `reset_check_task()` via `threading.Timer`
    - Verifies all steps are finished
-   - Checks embedding queue for remaining messages with job token
-   - **If work remains**: Extends deadline (60s, 180s, 300s) and reschedules
-   - **If all complete**: Resets job to READY
+   - Checks all queues (extraction, transform, embedding) for remaining messages with job token
+   - **If work remains**:
+     - Extends deadline (60s, 180s, 300s) and updates database
+     - Does NOT send WebSocket (workers handle their own status updates)
+     - Schedules next check using `threading.Timer`
+   - **If all complete**:
+     - Resets job to READY, all steps to 'idle'
+     - Sends WebSocket update to notify UI
 
 2. **UI Countdown** (system-level, not per-session):
    - Receives `reset_deadline` via WebSocket
@@ -593,34 +598,72 @@ Current checkpoint structure doesn't identify which repository it belongs to:
 - ❌ No visibility into which repositories are pending vs completed
 - ❌ Recovery logic cannot determine where to restart
 
-### Proposed Solutions (Not Yet Implemented)
+### ✅ IMPLEMENTED SOLUTION: Per-Repository Checkpoint System
 
-**Solution 1: Add Redis Flag to Stop Workers**
-- First worker to hit rate limit sets Redis flag: `rate_limit_hit:{job_id}`
-- Other workers check flag before processing and skip if set
-- Prevents multiple workers from hitting rate limit simultaneously
+**Implementation Date:** 2025-11-17
 
-**Solution 2: Per-Repository Checkpoint Table**
-- Create `etl_pr_extraction_checkpoints` table
-- Each worker saves checkpoint for its specific repository (atomic UPSERT)
-- No race conditions - each repo has its own row
-- On recovery, query all repos that hit rate limit and resume each one
+The checkpoint system has been fully implemented using **Solution 2: Per-Repository Checkpoint Table**.
 
-**Solution 3: Don't Send Completion Message on Rate Limit**
-- NACK the message (put it back in queue) instead of sending completion
-- Mark job as RATE_LIMITED instead of FINISHED
-- Recovery scheduler waits for rate limit reset, then clears flag and resumes
+**New Architecture:**
 
-**Solution 4: Checkpoint Array Structure**
-- Store array of failed repositories in checkpoint_data
-- Use atomic array append operations (PostgreSQL JSONB functions)
-- Preserves all repositories' checkpoint information
+1. **Dedicated Checkpoint Table:** `etl_jobs_github_checkpoints`
+   - Each repository gets its own checkpoint record
+   - Atomic UPSERT operations prevent race conditions
+   - Tracks status: 'pending' or 'completed'
+   - Stores checkpoint_data (cursor, nested state) when rate limited
 
-### Current Workaround
+2. **Boolean Flag for Fast Checking:** `etl_jobs.checkpoint_data`
+   - Changed from JSONB to BOOLEAN
+   - Fast check: "Does this job have any checkpoints?"
+   - Set to `true` when ANY repo hits rate limit
+   - Workers check this flag and skip ALL repos if true (prevents wasted API calls)
 
-Until these issues are fixed:
-- Monitor jobs closely when processing large repository sets (100+ repos)
-- If rate limit hit, manually check which repositories were processed
-- May need to manually re-run job or purge queue and restart
-- Consider reducing worker count to minimize parallel rate limit hits
+3. **Checkpoint Lifecycle:**
+   ```
+   Repository Extraction (LOOP 1):
+   └─ Create checkpoint record for each repo (status='pending', checkpoint_data=NULL)
+
+   PR Extraction:
+   ├─ Check boolean flag → if true, skip ALL repos
+   ├─ Process repo normally
+   ├─ If rate limit hit:
+   │  ├─ Save checkpoint_data={node_type, last_pr_cursor, rate_limit_reset_at}
+   │  └─ Set etl_jobs.checkpoint_data=true
+   └─ If repo completes: Update status='completed', checkpoint_data=NULL
+
+   Nested Extraction:
+   ├─ If rate limit hit:
+   │  ├─ Save checkpoint_data={node_type, current_pr_node_id, nested_cursor}
+   │  └─ Set etl_jobs.checkpoint_data=true
+   └─ If nested completes: Update status='completed', checkpoint_data=NULL
+
+   Job Completion:
+   └─ Delete all checkpoint records and clear boolean flag
+   ```
+
+4. **Recovery Flow:**
+   ```
+   User clicks "Run Now" on RATE_LIMITED job:
+   ├─ Check etl_jobs.checkpoint_data boolean flag
+   ├─ Query checkpoints WHERE checkpoint_data IS NOT NULL
+   ├─ For each checkpoint with data:
+   │  ├─ If node_type='prs': Queue PR extraction with saved cursor
+   │  └─ If node_type in nested types: Queue nested extraction with saved cursor
+   └─ Resume from exact point where rate limit occurred
+   ```
+
+**Benefits:**
+- ✅ No race conditions - each repo has its own checkpoint row
+- ✅ All repositories' progress preserved (not just the last one)
+- ✅ Fine-grained recovery - resume exactly where rate limit occurred
+- ✅ Skip ALL repos when ANY hits rate limit (prevents wasted API calls)
+- ✅ Token-based deduplication for idempotent processing
+- ✅ Clean separation: boolean flag for checking, dedicated table for data
+
+**Files Modified:**
+- `scripts/migrations/0001_initial_db_schema.py` - Added checkpoint table, changed checkpoint_data to boolean
+- `app/models/unified_models.py` - Added EtlJobsGithubCheckpoint model
+- `app/etl/github/github_extraction_worker.py` - Added checkpoint helper functions and logic
+- `app/etl/github/github_embedding_worker.py` - Added checkpoint cleanup on job completion
+- `app/etl/jobs.py` - Updated recovery logic to use new checkpoint system
 
