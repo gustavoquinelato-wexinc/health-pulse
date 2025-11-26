@@ -498,8 +498,8 @@ export default function QueueManagementPage() {
                 {/* Left: Queue Info */}
                 <div className="flex items-center space-x-4 flex-1">
                   {/* Queue Icon */}
-                  <div className="w-12 h-12 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'var(--color-1)', opacity: 0.1 }}>
-                    <Inbox className="h-6 w-6" style={{ color: 'var(--color-1)' }} />
+                  <div className="w-12 h-12 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'var(--color-1)', opacity: 0.15 }}>
+                    <Inbox className="h-6 w-6" style={{ color: 'var(--color-1)', opacity: 1 }} />
                   </div>
 
                   {/* Queue Details */}
@@ -507,20 +507,14 @@ export default function QueueManagementPage() {
                     <h3 className="text-lg font-semibold text-primary">EXTRACTION QUEUE</h3>
                     <div className="flex items-center space-x-4 mt-1">
                       {/* Messages Count */}
-                      <div className="flex items-center space-x-1 text-secondary">
-                        <span className="text-sm font-medium">Messages:</span>
-                        <Badge variant="default" style={{ backgroundColor: 'var(--color-1)' }}>
-                          {workerStatus?.queue_stats?.tier_queues?.premium?.extraction?.message_count ?? 0}
-                        </Badge>
-                      </div>
+                      <span className="text-sm text-secondary">
+                        Messages: {workerStatus?.queue_stats?.tier_queues?.premium?.extraction?.message_count ?? 0}
+                      </span>
 
                       {/* Active Workers */}
-                      <div className="flex items-center space-x-1 text-secondary">
-                        <span className="text-sm font-medium">Workers:</span>
-                        <Badge variant={workerStatus?.workers && Object.keys(workerStatus.workers).some(k => k.includes('extraction')) ? "default" : "destructive"} style={{ backgroundColor: workerStatus?.workers && Object.keys(workerStatus.workers).some(k => k.includes('extraction')) ? 'var(--color-1)' : undefined }}>
-                          {workerConfig?.current_tenant_allocation?.extraction ?? 0}
-                        </Badge>
-                      </div>
+                      <span className="text-sm text-secondary">
+                        Workers: {workerConfig?.current_tenant_allocation?.extraction ?? 0}
+                      </span>
 
                       {/* Queue Name */}
                       <span className="text-xs text-secondary">
@@ -536,10 +530,7 @@ export default function QueueManagementPage() {
                     size="sm"
                     onClick={() => performWorkerAction('start', 'extraction')}
                     disabled={actionLoading === 'start_extraction'}
-                    className="px-4 py-2"
-                    style={{ backgroundColor: 'var(--color-1)', color: 'white' }}
-                    onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
-                    onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                    className="px-4 py-2 btn-crud-create"
                   >
                     <Play className="h-4 w-4 mr-1" />
                     {actionLoading === 'start_extraction' ? 'Starting...' : 'Start'}
@@ -557,14 +548,14 @@ export default function QueueManagementPage() {
                 </div>
               </div>
 
-              {/* Worker Status List - Collapsible */}
+              {/* Worker Status List */}
               {workerStatus?.workers && Object.entries(workerStatus.workers)
                 .filter(([key]) => key.includes('extraction'))
                 .map(([key, workerData]) => (
-                  <div key={key} className="mt-4 pt-4 border-t" style={{ borderColor: 'var(--color-1)', opacity: 0.2 }}>
+                  <div key={key} className="mt-4 pt-4 border-t border-gray-200">
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
                       {workerData.instances.map((instance) => (
-                        <div key={instance.worker_key} className="flex items-center justify-between text-xs p-2 rounded border" style={{ backgroundColor: 'var(--color-1)', opacity: 0.05, borderColor: 'var(--color-1)', borderOpacity: 0.2 }}>
+                        <div key={instance.worker_key} className="flex items-center justify-between text-xs p-2 rounded border border-gray-200 bg-gray-50">
                           <div className="flex items-center gap-2">
                             {getStatusIcon(instance.worker_running, instance.thread_alive)}
                             <span className="font-medium">Worker {instance.worker_number + 1}</span>
@@ -578,8 +569,8 @@ export default function QueueManagementPage() {
                   </div>
                 ))}
               {(!workerStatus?.workers || !Object.keys(workerStatus.workers).some(k => k.includes('extraction'))) && (
-                <div className="mt-4 pt-4 border-t" style={{ borderColor: 'var(--color-1)', opacity: 0.2 }}>
-                  <div className="text-sm text-secondary text-center p-3 rounded border" style={{ backgroundColor: 'var(--color-1)', opacity: 0.05, borderColor: 'var(--color-1)', borderOpacity: 0.2 }}>
+                <div className="mt-4 pt-4 border-t border-gray-200">
+                  <div className="text-sm text-secondary text-center p-3 rounded border border-gray-200 bg-gray-50">
                     No workers running
                   </div>
                 </div>
@@ -602,8 +593,8 @@ export default function QueueManagementPage() {
                 {/* Left: Queue Info */}
                 <div className="flex items-center space-x-4 flex-1">
                   {/* Queue Icon */}
-                  <div className="w-12 h-12 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'var(--color-2)', opacity: 0.1 }}>
-                    <Inbox className="h-6 w-6" style={{ color: 'var(--color-2)' }} />
+                  <div className="w-12 h-12 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'var(--color-2)', opacity: 0.15 }}>
+                    <Inbox className="h-6 w-6" style={{ color: 'var(--color-2)', opacity: 1 }} />
                   </div>
 
                   {/* Queue Details */}
@@ -611,20 +602,14 @@ export default function QueueManagementPage() {
                     <h3 className="text-lg font-semibold text-primary">TRANSFORM QUEUE</h3>
                     <div className="flex items-center space-x-4 mt-1">
                       {/* Messages Count */}
-                      <div className="flex items-center space-x-1 text-secondary">
-                        <span className="text-sm font-medium">Messages:</span>
-                        <Badge variant="default" style={{ backgroundColor: 'var(--color-2)' }}>
-                          {workerStatus?.queue_stats?.tier_queues?.premium?.transform?.message_count ?? 0}
-                        </Badge>
-                      </div>
+                      <span className="text-sm text-secondary">
+                        Messages: {workerStatus?.queue_stats?.tier_queues?.premium?.transform?.message_count ?? 0}
+                      </span>
 
                       {/* Active Workers */}
-                      <div className="flex items-center space-x-1 text-secondary">
-                        <span className="text-sm font-medium">Workers:</span>
-                        <Badge variant={workerStatus?.workers && Object.keys(workerStatus.workers).some(k => k.includes('transform')) ? "default" : "destructive"} style={{ backgroundColor: workerStatus?.workers && Object.keys(workerStatus.workers).some(k => k.includes('transform')) ? 'var(--color-2)' : undefined }}>
-                          {workerConfig?.current_tenant_allocation?.transform ?? 0}
-                        </Badge>
-                      </div>
+                      <span className="text-sm text-secondary">
+                        Workers: {workerConfig?.current_tenant_allocation?.transform ?? 0}
+                      </span>
 
                       {/* Queue Name */}
                       <span className="text-xs text-secondary">
@@ -640,10 +625,7 @@ export default function QueueManagementPage() {
                     size="sm"
                     onClick={() => performWorkerAction('start', 'transform')}
                     disabled={actionLoading === 'start_transform'}
-                    className="px-4 py-2"
-                    style={{ backgroundColor: 'var(--color-2)', color: 'white' }}
-                    onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
-                    onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                    className="px-4 py-2 btn-crud-create"
                   >
                     <Play className="h-4 w-4 mr-1" />
                     {actionLoading === 'start_transform' ? 'Starting...' : 'Start'}
@@ -661,14 +643,14 @@ export default function QueueManagementPage() {
                 </div>
               </div>
 
-              {/* Worker Status List - Collapsible */}
+              {/* Worker Status List */}
               {workerStatus?.workers && Object.entries(workerStatus.workers)
                 .filter(([key]) => key.includes('transform'))
                 .map(([key, workerData]) => (
-                  <div key={key} className="mt-4 pt-4 border-t" style={{ borderColor: 'var(--color-2)', opacity: 0.2 }}>
+                  <div key={key} className="mt-4 pt-4 border-t border-gray-200">
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
                       {workerData.instances.map((instance) => (
-                        <div key={instance.worker_key} className="flex items-center justify-between text-xs p-2 rounded border" style={{ backgroundColor: 'var(--color-2)', opacity: 0.05, borderColor: 'var(--color-2)', borderOpacity: 0.2 }}>
+                        <div key={instance.worker_key} className="flex items-center justify-between text-xs p-2 rounded border border-gray-200 bg-gray-50">
                           <div className="flex items-center gap-2">
                             {getStatusIcon(instance.worker_running, instance.thread_alive)}
                             <span className="font-medium">Worker {instance.worker_number + 1}</span>
@@ -682,8 +664,8 @@ export default function QueueManagementPage() {
                   </div>
                 ))}
               {(!workerStatus?.workers || !Object.keys(workerStatus.workers).some(k => k.includes('transform'))) && (
-                <div className="mt-4 pt-4 border-t" style={{ borderColor: 'var(--color-2)', opacity: 0.2 }}>
-                  <div className="text-sm text-secondary text-center p-3 rounded border" style={{ backgroundColor: 'var(--color-2)', opacity: 0.05, borderColor: 'var(--color-2)', borderOpacity: 0.2 }}>
+                <div className="mt-4 pt-4 border-t border-gray-200">
+                  <div className="text-sm text-secondary text-center p-3 rounded border border-gray-200 bg-gray-50">
                     No workers running
                   </div>
                 </div>
@@ -706,8 +688,8 @@ export default function QueueManagementPage() {
                 {/* Left: Queue Info */}
                 <div className="flex items-center space-x-4 flex-1">
                   {/* Queue Icon */}
-                  <div className="w-12 h-12 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'var(--color-3)', opacity: 0.1 }}>
-                    <Inbox className="h-6 w-6" style={{ color: 'var(--color-3)' }} />
+                  <div className="w-12 h-12 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'var(--color-3)', opacity: 0.15 }}>
+                    <Inbox className="h-6 w-6" style={{ color: 'var(--color-3)', opacity: 1 }} />
                   </div>
 
                   {/* Queue Details */}
@@ -715,20 +697,14 @@ export default function QueueManagementPage() {
                     <h3 className="text-lg font-semibold text-primary">EMBEDDING QUEUE</h3>
                     <div className="flex items-center space-x-4 mt-1">
                       {/* Messages Count */}
-                      <div className="flex items-center space-x-1 text-secondary">
-                        <span className="text-sm font-medium">Messages:</span>
-                        <Badge variant="default" style={{ backgroundColor: 'var(--color-3)' }}>
-                          {workerStatus?.queue_stats?.tier_queues?.premium?.embedding?.message_count ?? 0}
-                        </Badge>
-                      </div>
+                      <span className="text-sm text-secondary">
+                        Messages: {workerStatus?.queue_stats?.tier_queues?.premium?.embedding?.message_count ?? 0}
+                      </span>
 
                       {/* Active Workers */}
-                      <div className="flex items-center space-x-1 text-secondary">
-                        <span className="text-sm font-medium">Workers:</span>
-                        <Badge variant={workerStatus?.workers && Object.keys(workerStatus.workers).some(k => k.includes('embedding')) ? "default" : "destructive"} style={{ backgroundColor: workerStatus?.workers && Object.keys(workerStatus.workers).some(k => k.includes('embedding')) ? 'var(--color-3)' : undefined }}>
-                          {workerConfig?.current_tenant_allocation?.embedding ?? 0}
-                        </Badge>
-                      </div>
+                      <span className="text-sm text-secondary">
+                        Workers: {workerConfig?.current_tenant_allocation?.embedding ?? 0}
+                      </span>
 
                       {/* Queue Name */}
                       <span className="text-xs text-secondary">
@@ -744,10 +720,7 @@ export default function QueueManagementPage() {
                     size="sm"
                     onClick={() => performWorkerAction('start', 'embedding')}
                     disabled={actionLoading === 'start_embedding'}
-                    className="px-4 py-2"
-                    style={{ backgroundColor: 'var(--color-3)', color: 'white' }}
-                    onMouseEnter={(e) => e.currentTarget.style.opacity = '0.9'}
-                    onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                    className="px-4 py-2 btn-crud-create"
                   >
                     <Play className="h-4 w-4 mr-1" />
                     {actionLoading === 'start_embedding' ? 'Starting...' : 'Start'}
@@ -765,14 +738,14 @@ export default function QueueManagementPage() {
                 </div>
               </div>
 
-              {/* Worker Status List - Collapsible */}
+              {/* Worker Status List */}
               {workerStatus?.workers && Object.entries(workerStatus.workers)
                 .filter(([key]) => key.includes('embedding'))
                 .map(([key, workerData]) => (
-                  <div key={key} className="mt-4 pt-4 border-t" style={{ borderColor: 'var(--color-3)', opacity: 0.2 }}>
+                  <div key={key} className="mt-4 pt-4 border-t border-gray-200">
                     <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
                       {workerData.instances.map((instance) => (
-                        <div key={instance.worker_key} className="flex items-center justify-between text-xs p-2 rounded border" style={{ backgroundColor: 'var(--color-3)', opacity: 0.05, borderColor: 'var(--color-3)', borderOpacity: 0.2 }}>
+                        <div key={instance.worker_key} className="flex items-center justify-between text-xs p-2 rounded border border-gray-200 bg-gray-50">
                           <div className="flex items-center gap-2">
                             {getStatusIcon(instance.worker_running, instance.thread_alive)}
                             <span className="font-medium">Worker {instance.worker_number + 1}</span>
@@ -786,8 +759,8 @@ export default function QueueManagementPage() {
                   </div>
                 ))}
               {(!workerStatus?.workers || !Object.keys(workerStatus.workers).some(k => k.includes('embedding'))) && (
-                <div className="mt-4 pt-4 border-t" style={{ borderColor: 'var(--color-3)', opacity: 0.2 }}>
-                  <div className="text-sm text-secondary text-center p-3 rounded border" style={{ backgroundColor: 'var(--color-3)', opacity: 0.05, borderColor: 'var(--color-3)', borderOpacity: 0.2 }}>
+                <div className="mt-4 pt-4 border-t border-gray-200">
+                  <div className="text-sm text-secondary text-center p-3 rounded border border-gray-200 bg-gray-50">
                     No workers running
                   </div>
                 </div>
