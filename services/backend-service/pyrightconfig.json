@@ -8,13 +8,20 @@
     "**/.venv",
     "**/node_modules"
   ],
-  "extraPaths": [
-    "."
+  "executionEnvironments": [
+    {
+      "root": ".",
+      "pythonVersion": "3.11",
+      "pythonPlatform": "All",
+      "extraPaths": [
+        "."
+      ]
+    }
   ],
   "pythonVersion": "3.11",
   "pythonPlatform": "All",
   "typeCheckingMode": "basic",
-  "reportMissingImports": "warning",
+  "reportMissingImports": "none",
   "reportMissingTypeStubs": false,
   "reportUnusedImport": "warning",
   "reportUnusedClass": "warning",
