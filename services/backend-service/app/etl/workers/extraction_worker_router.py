@@ -12,7 +12,7 @@ Architecture:
 """
 
 import json
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 from app.core.logging_config import get_logger
 from app.etl.workers.base_worker import BaseWorker
 from app.etl.workers.queue_manager import QueueManager
@@ -27,7 +27,7 @@ class ExtractionWorker(BaseWorker):
     Consumes from tier-based extraction queues and routes to provider-specific workers.
     """
 
-    def __init__(self, queue_name: str = None, worker_number: int = None, tenant_ids: list = None):
+    def __init__(self, queue_name: Optional[str] = None, worker_number: Optional[int] = None, tenant_ids: Optional[list] = None):
         """
         Initialize extraction worker router.
 

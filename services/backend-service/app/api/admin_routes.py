@@ -57,6 +57,38 @@ class WorkerStatusResponse(BaseModel):
     raw_data_stats: Dict[str, Any]
 
 
+class QueueMessageStats(BaseModel):
+    """Message statistics from RabbitMQ."""
+    publish: int = 0
+    deliver: int = 0
+    ack: int = 0
+    get_empty: int = 0
+    publish_rate: float = 0.0
+    deliver_rate: float = 0.0
+    ack_rate: float = 0.0
+
+
+class QueueInfo(BaseModel):
+    """Queue information from RabbitMQ."""
+    name: str
+    vhost: str
+    state: str
+    messages: int
+    messages_ready: int
+    messages_unacknowledged: int
+    consumers: int
+    consumer_utilisation: float = 0.0
+    memory: int = 0
+    message_stats: Optional[QueueMessageStats] = None
+
+
+class QueuesStatusResponse(BaseModel):
+    """Response model for queues status from RabbitMQ."""
+    extraction: QueueInfo
+    transform: QueueInfo
+    embedding: QueueInfo
+
+
 class WorkerActionRequest(BaseModel):
     """Request model for worker actions."""
     action: str  # 'start', 'stop', 'restart'
@@ -1939,6 +1971,120 @@ async def debug_config():
 # ============================================================================
 # WORKER MANAGEMENT ENDPOINTS
 # ============================================================================
+
+@router.get("/queues/status", response_model=QueuesStatusResponse)
+async def get_queues_status(
+    current_user: User = Depends(require_authentication)
+):
+    """Get queue status directly from RabbitMQ Management API."""
+    try:
+        from app.core.database import get_database
+        import os
+
+        # Get current tenant's tier
+        database = get_database()
+        current_tenant_tier = 'premium'  # default
+
+        try:
+            with database.get_read_session_context() as session:
+                tenant = session.query(Tenant).filter(Tenant.id == current_user.tenant_id).first()
+                if tenant:
+                    current_tenant_tier = tenant.tier
+        except Exception as e:
+            logger.warning(f"Could not get tenant tier: {e}")
+
+        # RabbitMQ Management API configuration
+        rabbitmq_host = os.getenv('RABBITMQ_HOST', 'localhost')
+        rabbitmq_management_port = int(os.getenv('RABBITMQ_MANAGEMENT_PORT', '15672'))
+        rabbitmq_user = os.getenv('RABBITMQ_USER', 'etl_user')
+        rabbitmq_password = os.getenv('RABBITMQ_PASSWORD', 'etl_password')
+        rabbitmq_vhost = os.getenv('RABBITMQ_VHOST', 'pulse_etl')
+
+        # URL encode the vhost for API call
+        from urllib.parse import quote
+        vhost_encoded = quote(rabbitmq_vhost, safe='')
+
+        # Fetch queue information from RabbitMQ Management API
+        management_url = f"http://{rabbitmq_host}:{rabbitmq_management_port}/api/queues/{vhost_encoded}"
+
+        async with httpx.AsyncClient() as client:
+            response = await client.get(
+                management_url,
+                auth=(rabbitmq_user, rabbitmq_password),
+                params={
+                    'disable_stats': 'true',
+                    'enable_queue_totals': 'true'
+                },
+                timeout=10.0
+            )
+            response.raise_for_status()
+            all_queues = response.json()
+
+        # Filter queues for current tenant's tier
+        queue_types = ['extraction', 'transform', 'embedding']
+        queues_data = {}
+
+        for queue_type in queue_types:
+            queue_name = f"{queue_type}_queue_{current_tenant_tier}"
+
+            # Find the queue in the response
+            queue_info = next((q for q in all_queues if q['name'] == queue_name), None)
+
+            if queue_info:
+                # Extract message stats if available
+                msg_stats = queue_info.get('message_stats', {})
+                message_stats = None
+                if msg_stats:
+                    message_stats = QueueMessageStats(
+                        publish=msg_stats.get('publish', 0),
+                        deliver=msg_stats.get('deliver', 0),
+                        ack=msg_stats.get('ack', 0),
+                        get_empty=msg_stats.get('get_empty', 0),
+                        publish_rate=msg_stats.get('publish_details', {}).get('rate', 0.0),
+                        deliver_rate=msg_stats.get('deliver_details', {}).get('rate', 0.0),
+                        ack_rate=msg_stats.get('ack_details', {}).get('rate', 0.0)
+                    )
+
+                queues_data[queue_type] = QueueInfo(
+                    name=queue_info['name'],
+                    vhost=queue_info['vhost'],
+                    state=queue_info.get('state', 'unknown'),
+                    messages=queue_info.get('messages', 0),
+                    messages_ready=queue_info.get('messages_ready', 0),
+                    messages_unacknowledged=queue_info.get('messages_unacknowledged', 0),
+                    consumers=queue_info.get('consumers', 0),
+                    consumer_utilisation=queue_info.get('consumer_utilisation', 0.0),
+                    memory=queue_info.get('memory', 0),
+                    message_stats=message_stats
+                )
+            else:
+                # Queue doesn't exist yet - return default values
+                queues_data[queue_type] = QueueInfo(
+                    name=queue_name,
+                    vhost=rabbitmq_vhost,
+                    state='idle',
+                    messages=0,
+                    messages_ready=0,
+                    messages_unacknowledged=0,
+                    consumers=0,
+                    consumer_utilisation=0.0,
+                    memory=0,
+                    message_stats=None
+                )
+
+        return QueuesStatusResponse(
+            extraction=queues_data['extraction'],
+            transform=queues_data['transform'],
+            embedding=queues_data['embedding']
+        )
+
+    except Exception as e:
+        logger.error(f"Error getting queue status from RabbitMQ: {e}")
+        raise HTTPException(
+            status_code=500,
+            detail=f"Failed to get queue status: {str(e)}"
+        )
+
 
 @router.get("/workers/status", response_model=WorkerStatusResponse)
 async def get_worker_status(

@@ -152,13 +152,20 @@ POST /api/v1/admin/workers/action
 
 ## 🎮 Frontend Integration
 
-### **Queue Management Page** (`services/etl-frontend/src/pages/QueueManagementPage.tsx`)
+### **Queue Management Page** (`services/frontend-etl/src/pages/QueueManagementPage.tsx`)
 
 **Features:**
 - ✅ **Tier Worker Status**: Shows workers for current tenant's tier only
 - ✅ **Queue Statistics**: Shows message counts for tier queues
-- ✅ **Real-time Status**: Live worker status updates
+- ✅ **Auto-Refresh**: Automatically updates every 3 seconds (no manual refresh needed)
+- ✅ **Real-time Status**: Live worker and queue status from RabbitMQ Management API
 - ✅ **Tenant Isolation**: Users see only their tier's resources
+- ✅ **Dual Status Display**: Separate queue state (from RabbitMQ) and worker status (from worker manager)
+
+**Status Indicators:**
+- **Queue Status**: Shows RabbitMQ's actual state ("running", "idle") with blue badge for running
+- **Worker Status**: Shows internal worker process state ("running", "stopped") with blue badge for running
+- **Worker Count**: Shows total workers when running (e.g., "15 workers") or "0 workers" when stopped
 
 **UI Display:**
 ```

@@ -1,9 +1,6 @@
 import { useState, useEffect } from 'react'
-import { useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
-import { Button } from '../components/ui/button'
 import { Badge } from '../components/ui/badge'
-import { Separator } from '../components/ui/separator'
 import { Alert, AlertDescription } from '../components/ui/alert'
 import Header from '../components/Header'
 import CollapsedSidebar from '../components/CollapsedSidebar'
@@ -11,36 +8,36 @@ import ToastContainer from '../components/ToastContainer'
 import ConfirmationModal from '../components/ConfirmationModal'
 import { useToast } from '../hooks/useToast'
 import { useConfirmation } from '../hooks/useConfirmation'
-import { Play, Square, RotateCcw, Activity, Clock, CheckCircle, XCircle, AlertCircle, Settings, Save, Database, Inbox, Download, RefreshCw, Sparkles, Loader, Circle } from 'lucide-react'
+import { Play, Square, Activity, AlertCircle, Settings, Save, Download, Sparkles, TrendingUp, Database } from 'lucide-react'
 
-interface WorkerInstance {
-  worker_key: string
-  worker_number: number
-  worker_running: boolean
-  thread_alive: boolean
-  thread_name: string | null
-  queue_name: string | null
+interface QueueMessageStats {
+  publish: number
+  deliver: number
+  ack: number
+  get_empty: number
+  publish_rate: number
+  deliver_rate: number
+  ack_rate: number
 }
 
-interface WorkerTypeStatus {
-  count: number
-  instances: WorkerInstance[]
+interface QueueInfo {
+  name: string
+  vhost: string
+  state: string
+  messages: number
+  messages_ready: number
+  messages_unacknowledged: number
+  consumers: number
+  consumer_utilisation: number
+  memory: number
+  message_stats: QueueMessageStats | null
 }
 
-interface WorkerStatus {
-  running: boolean
-  worker_count: number
-  tenant_count: number
-  workers: Record<string, WorkerTypeStatus>
-  queue_stats: Record<string, any>
-  raw_data_stats: Record<string, {
-    count: number
-    oldest?: string
-    newest?: string
-  }>
+interface QueuesStatus {
+  extraction: QueueInfo
+  transform: QueueInfo
+  embedding: QueueInfo
 }
-
-
 
 interface WorkerPoolConfig {
   tier_configs: {
@@ -71,15 +68,30 @@ interface DatabaseCapacity {
   warning_message: string | null
 }
 
-interface QueueStats {
-  message_count: number
-  consumer_count: number
+interface WorkerStatus {
+  running: boolean
+  workers: {
+    [key: string]: {
+      tier: string
+      type: string
+      count: number
+      instances: Array<{
+        worker_key: string
+        worker_number: number
+        worker_running: boolean
+        thread_alive: boolean
+      }>
+    }
+  }
+  queue_stats: any
+  raw_data_stats: any
 }
 
 export default function QueueManagementPage() {
   const { toasts, removeToast, showSuccess, showError } = useToast()
   const { confirmation, hideConfirmation, confirmAction } = useConfirmation()
 
+  const [queuesStatus, setQueuesStatus] = useState<QueuesStatus | null>(null)
   const [workerStatus, setWorkerStatus] = useState<WorkerStatus | null>(null)
   const [workerConfig, setWorkerConfig] = useState<WorkerPoolConfig | null>(null)
   const [dbCapacity, setDbCapacity] = useState<DatabaseCapacity | null>(null)
@@ -110,9 +122,33 @@ export default function QueueManagementPage() {
     document.title = 'Queue Management - PEM'
   }, [])
 
-  const fetchWorkerStatus = async () => {
+  const fetchQueuesStatus = async () => {
     try {
       // Use backend service URL directly for admin endpoints
+      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
+      const response = await fetch(`${API_BASE_URL}/api/v1/admin/queues/status`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch queues status: ${response.statusText}`)
+      }
+
+      const data = await response.json()
+      console.log('Queues Status Response:', data)
+      setQueuesStatus(data)
+      setLastUpdated(new Date())
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch queues status')
+      showError('Fetch Failed', err instanceof Error ? err.message : 'Failed to fetch queues status')
+    }
+  }
+
+  const fetchWorkerStatus = async () => {
+    try {
       const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
       const response = await fetch(`${API_BASE_URL}/api/v1/admin/workers/status`, {
         headers: {
@@ -126,14 +162,12 @@ export default function QueueManagementPage() {
       }
 
       const data = await response.json()
+      console.log('Worker Status Response:', data)
       setWorkerStatus(data)
-      setLastUpdated(new Date())
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch worker status')
+      console.error('Failed to fetch worker status:', err)
     }
   }
-
-
 
   const fetchWorkerConfig = async (updateLocalState = false) => {
     try {
@@ -269,12 +303,16 @@ export default function QueueManagementPage() {
         throw new Error(result.message || `Failed to ${action} workers`)
       }
 
-      // Refresh status after action
-      await fetchWorkerStatus()
-
-      // Show success message
+      // Show success message first
       const scope = queueType ? `${queueType} workers` : 'all workers'
       showSuccess(`Workers ${action === 'start' ? 'Started' : action === 'stop' ? 'Stopped' : 'Restarted'}`, `${result.message} (${scope})`)
+
+      // Wait a moment for workers to fully start/stop, then refresh status
+      await new Promise(resolve => setTimeout(resolve, 500))
+      await Promise.all([
+        fetchQueuesStatus(),
+        fetchWorkerStatus()
+      ])
     } catch (err) {
       setError(err instanceof Error ? err.message : `Failed to ${action} workers`)
       showError(`Worker ${action.charAt(0).toUpperCase() + action.slice(1)} Failed`, err instanceof Error ? err.message : `Failed to ${action} workers`)
@@ -284,32 +322,94 @@ export default function QueueManagementPage() {
   }
 
 
+  // Get queue status info - matches RabbitMQ state exactly
+  const getQueueStatusInfo = (queueType: 'extraction' | 'transform' | 'embedding') => {
+    if (!queuesStatus) {
+      return {
+        color: 'text-gray-500',
+        bgColor: 'bg-gray-100',
+        label: 'unknown'
+      }
+    }
 
-  // Manual refresh function
-  const handleRefresh = async () => {
-    setLoading(true)
-    await Promise.all([
-      fetchWorkerStatus(),
-      fetchWorkerConfig(false), // Don't reset user's selections
-      fetchDatabaseCapacity()
-    ])
-    setLoading(false)
+    const queueInfo = queuesStatus[queueType]
+    const state = queueInfo.state.toLowerCase()
+
+    // Match RabbitMQ states exactly - "running" is blue (like job statuses)
+    if (state === 'running') {
+      return {
+        color: 'text-blue-500',
+        bgColor: 'bg-blue-100',
+        label: 'running'
+      }
+    } else if (state === 'idle') {
+      return {
+        color: 'text-gray-500',
+        bgColor: 'bg-gray-100',
+        label: 'idle'
+      }
+    } else {
+      return {
+        color: 'text-gray-500',
+        bgColor: 'bg-gray-100',
+        label: state
+      }
+    }
+  }
+
+  // Get worker status info (our internal worker processes)
+  const getWorkerStatusInfo = (queueType: 'extraction' | 'transform' | 'embedding') => {
+    if (!workerStatus || !workerConfig) {
+      return {
+        color: 'text-gray-500',
+        bgColor: 'bg-gray-100',
+        label: 'stopped'
+      }
+    }
+
+    // Get the tier and construct the worker key
+    const tier = workerConfig.current_tenant_tier
+    const workerKey = `${tier}_${queueType}`
+    const workerInfo = workerStatus.workers[workerKey]
+
+    if (!workerInfo) {
+      return {
+        color: 'text-gray-500',
+        bgColor: 'bg-gray-100',
+        label: 'stopped'
+      }
+    }
+
+    // Check if any worker instances are running
+    const hasRunningWorkers = workerInfo.instances.some(instance => instance.worker_running)
+
+    if (hasRunningWorkers) {
+      return {
+        color: 'text-blue-500',
+        bgColor: 'bg-blue-100',
+        label: 'running'
+      }
+    } else {
+      return {
+        color: 'text-gray-500',
+        bgColor: 'bg-gray-100',
+        label: 'stopped'
+      }
+    }
   }
 
   // Helper function to check if workers are running for a specific queue type
   const areWorkersRunning = (queueType: 'extraction' | 'transform' | 'embedding'): boolean => {
-    if (!workerStatus?.workers) return false
+    if (!workerStatus || !workerConfig) return false
 
-    const workerTypeStatus = workerStatus.workers[queueType]
-    if (!workerTypeStatus?.instances) return false
+    const tier = workerConfig.current_tenant_tier
+    const workerKey = `${tier}_${queueType}`
+    const workerInfo = workerStatus.workers[workerKey]
 
-    // Check if ANY worker instance is running
-    return workerTypeStatus.instances.some(instance => instance.worker_running)
-  }
+    if (!workerInfo) return false
 
-  // Helper function to get message count for a queue type
-  const getMessageCount = (queueType: 'extraction' | 'transform' | 'embedding'): number => {
-    return workerStatus?.queue_stats?.tier_queues?.premium?.[queueType]?.message_count ?? 0
+    // Check if any worker instances are running
+    return workerInfo.instances.some(instance => instance.worker_running)
   }
 
   // Helper function to check if ALL workers are running (for global controls)
@@ -326,42 +426,37 @@ export default function QueueManagementPage() {
            !areWorkersRunning('embedding')
   }
 
-  // Get status info for a queue (matching job card status)
-  const getQueueStatusInfo = (queueType: 'extraction' | 'transform' | 'embedding') => {
-    const isRunning = areWorkersRunning(queueType)
-    const messageCount = getMessageCount(queueType)
+  // Helper function to format memory size
+  const formatMemory = (bytes: number): string => {
+    if (bytes === 0) return '0 B'
+    const k = 1024
+    const sizes = ['B', 'KB', 'MB', 'GB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`
+  }
 
-    if (!isRunning) {
-      // Workers are stopped/idle - show "Idle" status (gray circle)
-      return {
-        icon: <Circle className="w-4 h-4" />,
-        color: 'text-gray-500',
-        bgColor: 'bg-gray-100',
-        label: 'Idle'
-      }
-    } else if (messageCount > 0) {
-      // Workers are running and processing messages - show "Running" status (blue with spinning loader)
-      return {
-        icon: <Loader className="w-4 h-4 animate-spin" />,
-        color: 'text-blue-500',
-        bgColor: 'bg-blue-100',
-        label: 'Running'
-      }
-    } else {
-      // Workers are running but waiting for messages - show "Ready" status (cyan with clock)
-      return {
-        icon: <Clock className="w-4 h-4" />,
-        color: 'text-cyan-500',
-        bgColor: 'bg-cyan-100',
-        label: 'Ready'
-      }
-    }
+  // Helper function to format rate (messages per second)
+  const formatRate = (rate: number): string => {
+    if (rate === 0) return '0/s'
+    if (rate < 1) return `${rate.toFixed(2)}/s`
+    return `${rate.toFixed(1)}/s`
+  }
+
+  // Helper function to format worker count (show total or 0)
+  const formatWorkerCount = (queueType: 'extraction' | 'transform' | 'embedding'): string => {
+    if (!workerConfig) return '0'
+
+    const total = workerConfig.current_tenant_allocation[queueType] ?? 0
+    const running = areWorkersRunning(queueType)
+
+    return running ? `${total}` : '0'
   }
 
   useEffect(() => {
     const loadData = async () => {
       setLoading(true)
       await Promise.all([
+        fetchQueuesStatus(),
         fetchWorkerStatus(),
         fetchWorkerConfig(true), // Update local state on initial load
         fetchDatabaseCapacity()
@@ -370,33 +465,17 @@ export default function QueueManagementPage() {
     }
 
     loadData()
-    // No auto-refresh interval - user will manually refresh
+
+    // Auto-refresh every 3 seconds
+    const interval = setInterval(async () => {
+      await Promise.all([
+        fetchQueuesStatus(),
+        fetchWorkerStatus()
+      ])
+    }, 3000)
+
+    return () => clearInterval(interval)
   }, [])
-
-  const getStatusIcon = (running: boolean, threadAlive: boolean) => {
-    if (running && threadAlive) {
-      return <CheckCircle className="h-4 w-4 text-green-500" />
-    } else if (running && !threadAlive) {
-      return <AlertCircle className="h-4 w-4 text-yellow-500" />
-    } else {
-      return <XCircle className="h-4 w-4 text-red-500" />
-    }
-  }
-
-
-
-  const getDataStatusIcon = (status: string) => {
-    switch (status) {
-      case 'pending':
-        return <Clock className="h-4 w-4 text-yellow-500" />
-      case 'completed':
-        return <CheckCircle className="h-4 w-4 text-green-500" />
-      case 'failed':
-        return <XCircle className="h-4 w-4 text-red-500" />
-      default:
-        return <Activity className="h-4 w-4 text-blue-500" />
-    }
-  }
 
   if (loading) {
     return (
@@ -482,247 +561,404 @@ export default function QueueManagementPage() {
                 <button
                   onClick={() => performWorkerAction('stop')}
                   disabled={actionLoading === 'stop' || areAllWorkersIdle()}
-                  className={`px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-900 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${areAllWorkersIdle() ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  className={`btn-crud-cancel flex items-center gap-2 ${areAllWorkersIdle() ? 'opacity-50 cursor-not-allowed' : ''}`}
                   title={areAllWorkersIdle() ? 'All workers are idle (not running)' : 'Stop all running workers'}
                 >
                   <Square className="h-4 w-4" />
                   <span>{actionLoading === 'stop' ? 'Stopping...' : 'Stop All'}</span>
-                </button>
-
-                <button
-                  onClick={() => performWorkerAction('restart')}
-                  disabled={actionLoading === 'restart'}
-                  className="btn-neutral-secondary flex items-center gap-2"
-                >
-                  <RotateCcw className="h-4 w-4" />
-                  <span>{actionLoading === 'restart' ? 'Restarting...' : 'Restart All'}</span>
-                </button>
-
-                <button
-                  onClick={handleRefresh}
-                  disabled={loading}
-                  className="btn-neutral-secondary flex items-center gap-2"
-                  title="Refresh queue statistics"
-                >
-                  <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
-                  <span>{loading ? 'Refreshing...' : 'Refresh'}</span>
                 </button>
               </div>
             </div>
           </CardHeader>
 
           <CardContent className="p-6">
-            <div className="space-y-4">
+            {/* Three Queues - All in One Row */}
+            <div className="grid grid-cols-3 gap-4">
 
               {/* Extraction Queue */}
               <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                <div className="flex items-center justify-between">
-                  {/* Left: Queue Info */}
-                  <div className="flex items-center space-x-4 flex-1">
-                    {/* Queue Icon */}
-                    <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-white border border-gray-200">
-                      <Download className="h-5 w-5 text-gray-600" />
-                    </div>
-
-                    {/* Queue Details */}
-                    <div className="flex-1">
-                      <h3 className="text-base font-semibold text-primary">Extraction Queue</h3>
-                      <div className="flex items-center space-x-4 mt-1">
-                        {/* Status Badge */}
-                        {(() => {
-                          const statusInfo = getQueueStatusInfo('extraction')
-                          return (
-                            <div className={`flex items-center space-x-1 ${statusInfo.color}`}>
-                              {statusInfo.icon}
-                              <span className="text-xs font-medium">{statusInfo.label}</span>
-                            </div>
-                          )
-                        })()}
-
-                        {/* Messages Count */}
-                        <span className="text-xs text-secondary">
-                          Messages: {workerStatus?.queue_stats?.tier_queues?.premium?.extraction?.message_count ?? 0}
-                        </span>
-
-                        {/* Active Workers */}
-                        <span className="text-xs text-secondary">
-                          Workers: {workerConfig?.current_tenant_allocation?.extraction ?? 0}
-                        </span>
+                <div className="flex flex-col space-y-3">
+                  {/* Queue Icon & Title */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-white border border-gray-200">
+                        <Download className="h-4 w-4 text-gray-600" />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-semibold text-primary">Extraction</h3>
+                        <Badge variant="default" className="text-xs px-2 py-0.5 bg-gradient-1-2 text-white border-0 rounded">
+                          Premium
+                        </Badge>
                       </div>
                     </div>
+                    {/* Action Buttons - Icon Only */}
+                    <div className="flex items-center space-x-1">
+                      <button
+                        onClick={() => performWorkerAction('start', 'extraction')}
+                        disabled={actionLoading === 'start_extraction' || areWorkersRunning('extraction')}
+                        className={`p-2 rounded-lg hover:bg-tertiary transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${areWorkersRunning('extraction') ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        title={areWorkersRunning('extraction') ? 'Workers are already running or ready' : 'Start workers'}
+                      >
+                        <Play className="w-4 h-4 text-secondary" />
+                      </button>
+                      <button
+                        onClick={() => performWorkerAction('stop', 'extraction')}
+                        disabled={actionLoading === 'stop_extraction' || !areWorkersRunning('extraction')}
+                        className={`p-2 rounded-lg hover:bg-tertiary transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${!areWorkersRunning('extraction') ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        title={!areWorkersRunning('extraction') ? 'Workers are idle' : 'Stop workers'}
+                      >
+                        <Square className="w-4 h-4 text-secondary" />
+                      </button>
+                    </div>
                   </div>
 
-                  {/* Right: Action Buttons */}
-                  <div className="flex items-center space-x-2">
-                    <button
-                      onClick={() => performWorkerAction('start', 'extraction')}
-                      disabled={actionLoading === 'start_extraction' || areWorkersRunning('extraction')}
-                      className={`btn-crud-create flex items-center space-x-2 text-sm px-3 py-1.5 ${areWorkersRunning('extraction') ? 'opacity-50 cursor-not-allowed' : ''}`}
-                      title={areWorkersRunning('extraction') ? 'Workers are already running or ready' : 'Start workers (currently Idle)'}
-                    >
-                      <Play className="w-3.5 h-3.5" />
-                      <span>{actionLoading === 'start_extraction' ? 'Starting...' : 'Start'}</span>
-                    </button>
-                    <button
-                      onClick={() => performWorkerAction('stop', 'extraction')}
-                      disabled={actionLoading === 'stop_extraction' || !areWorkersRunning('extraction')}
-                      className={`px-3 py-1.5 bg-gray-800 text-white rounded-lg hover:bg-gray-900 transition-colors flex items-center space-x-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed ${!areWorkersRunning('extraction') ? 'opacity-50 cursor-not-allowed' : ''}`}
-                      title={!areWorkersRunning('extraction') ? 'Workers are idle (not running)' : 'Stop running workers'}
-                    >
-                      <Square className="w-3.5 h-3.5" />
-                      <span>{actionLoading === 'stop_extraction' ? 'Stopping...' : 'Stop'}</span>
-                    </button>
-                  </div>
+                  {/* Status Badges & Stats */}
+                  {(() => {
+                    const queueStatusInfo = getQueueStatusInfo('extraction')
+                    const workerStatusInfo = getWorkerStatusInfo('extraction')
+                    const queueInfo = queuesStatus?.extraction
+                    return (
+                      <>
+                        <div className="space-y-2">
+                          {/* Queue Status */}
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-gray-500">Queue:</span>
+                              <Badge variant="default" className={`text-xs px-2 py-0.5 ${queueStatusInfo.bgColor} ${queueStatusInfo.color} border-0 rounded`}>
+                                {queueStatusInfo.label}
+                              </Badge>
+                            </div>
+                            <span className="text-xs text-secondary">
+                              {queueInfo?.messages ?? 0} messages
+                            </span>
+                          </div>
+
+                          {/* Worker Status */}
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-gray-500">Workers:</span>
+                              <Badge variant="default" className={`text-xs px-2 py-0.5 ${workerStatusInfo.bgColor} ${workerStatusInfo.color} border-0 rounded`}>
+                                {workerStatusInfo.label}
+                              </Badge>
+                            </div>
+                            <span className="text-xs text-secondary">
+                              {formatWorkerCount('extraction')} workers
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Additional Queue Metrics */}
+                        {queueInfo && (
+                          <div className="pt-2 border-t border-gray-200 space-y-1">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-gray-500 flex items-center gap-1">
+                                <Database className="w-3 h-3" />
+                                Memory
+                              </span>
+                              <span className="text-secondary font-medium">{formatMemory(queueInfo.memory)}</span>
+                            </div>
+                            {queueInfo.message_stats && (
+                              <>
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-gray-500 flex items-center gap-1">
+                                    <TrendingUp className="w-3 h-3" />
+                                    Published
+                                  </span>
+                                  <span className="text-secondary font-medium">
+                                    {queueInfo.message_stats.publish.toLocaleString()} ({formatRate(queueInfo.message_stats.publish_rate)})
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-gray-500">Delivered</span>
+                                  <span className="text-secondary font-medium">
+                                    {queueInfo.message_stats.deliver.toLocaleString()} ({formatRate(queueInfo.message_stats.deliver_rate)})
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-gray-500">Acknowledged</span>
+                                  <span className="text-secondary font-medium">
+                                    {queueInfo.message_stats.ack.toLocaleString()} ({formatRate(queueInfo.message_stats.ack_rate)})
+                                  </span>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    )
+                  })()}
                 </div>
               </div>
 
               {/* Transform Queue */}
               <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                <div className="flex items-center justify-between">
-                  {/* Left: Queue Info */}
-                  <div className="flex items-center space-x-4 flex-1">
-                    {/* Queue Icon */}
-                    <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-white border border-gray-200">
-                      <RefreshCw className="h-5 w-5 text-gray-600" />
-                    </div>
-
-                    {/* Queue Details */}
-                    <div className="flex-1">
-                      <h3 className="text-base font-semibold text-primary">Transform Queue</h3>
-                      <div className="flex items-center space-x-4 mt-1">
-                        {/* Status Badge */}
-                        {(() => {
-                          const statusInfo = getQueueStatusInfo('transform')
-                          return (
-                            <div className={`flex items-center space-x-1 ${statusInfo.color}`}>
-                              {statusInfo.icon}
-                              <span className="text-xs font-medium">{statusInfo.label}</span>
-                            </div>
-                          )
-                        })()}
-
-                        {/* Messages Count */}
-                        <span className="text-xs text-secondary">
-                          Messages: {workerStatus?.queue_stats?.tier_queues?.premium?.transform?.message_count ?? 0}
-                        </span>
-
-                        {/* Active Workers */}
-                        <span className="text-xs text-secondary">
-                          Workers: {workerConfig?.current_tenant_allocation?.transform ?? 0}
-                        </span>
+                <div className="flex flex-col space-y-3">
+                  {/* Queue Icon & Title */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-white border border-gray-200">
+                        <Activity className="h-4 w-4 text-gray-600" />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-semibold text-primary">Transform</h3>
+                        <Badge variant="default" className="text-xs px-2 py-0.5 bg-gradient-1-2 text-white border-0 rounded">
+                          Premium
+                        </Badge>
                       </div>
                     </div>
+                    {/* Action Buttons - Icon Only */}
+                    <div className="flex items-center space-x-1">
+                      <button
+                        onClick={() => performWorkerAction('start', 'transform')}
+                        disabled={actionLoading === 'start_transform' || areWorkersRunning('transform')}
+                        className={`p-2 rounded-lg hover:bg-tertiary transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${areWorkersRunning('transform') ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        title={areWorkersRunning('transform') ? 'Workers are already running or ready' : 'Start workers'}
+                      >
+                        <Play className="w-4 h-4 text-secondary" />
+                      </button>
+                      <button
+                        onClick={() => performWorkerAction('stop', 'transform')}
+                        disabled={actionLoading === 'stop_transform' || !areWorkersRunning('transform')}
+                        className={`p-2 rounded-lg hover:bg-tertiary transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${!areWorkersRunning('transform') ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        title={!areWorkersRunning('transform') ? 'Workers are idle' : 'Stop workers'}
+                      >
+                        <Square className="w-4 h-4 text-secondary" />
+                      </button>
+                    </div>
                   </div>
 
-                  {/* Right: Action Buttons */}
-                  <div className="flex items-center space-x-2">
-                    <button
-                      onClick={() => performWorkerAction('start', 'transform')}
-                      disabled={actionLoading === 'start_transform' || areWorkersRunning('transform')}
-                      className={`btn-crud-create flex items-center space-x-2 text-sm px-3 py-1.5 ${areWorkersRunning('transform') ? 'opacity-50 cursor-not-allowed' : ''}`}
-                      title={areWorkersRunning('transform') ? 'Workers are already running or ready' : 'Start workers (currently Idle)'}
-                    >
-                      <Play className="w-3.5 h-3.5" />
-                      <span>{actionLoading === 'start_transform' ? 'Starting...' : 'Start'}</span>
-                    </button>
-                    <button
-                      onClick={() => performWorkerAction('stop', 'transform')}
-                      disabled={actionLoading === 'stop_transform' || !areWorkersRunning('transform')}
-                      className={`px-3 py-1.5 bg-gray-800 text-white rounded-lg hover:bg-gray-900 transition-colors flex items-center space-x-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed ${!areWorkersRunning('transform') ? 'opacity-50 cursor-not-allowed' : ''}`}
-                      title={!areWorkersRunning('transform') ? 'Workers are idle (not running)' : 'Stop running workers'}
-                    >
-                      <Square className="w-3.5 h-3.5" />
-                      <span>{actionLoading === 'stop_transform' ? 'Stopping...' : 'Stop'}</span>
-                    </button>
-                  </div>
+                  {/* Status Badges & Stats */}
+                  {(() => {
+                    const queueStatusInfo = getQueueStatusInfo('transform')
+                    const workerStatusInfo = getWorkerStatusInfo('transform')
+                    const queueInfo = queuesStatus?.transform
+                    return (
+                      <>
+                        <div className="space-y-2">
+                          {/* Queue Status */}
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-gray-500">Queue:</span>
+                              <Badge variant="default" className={`text-xs px-2 py-0.5 ${queueStatusInfo.bgColor} ${queueStatusInfo.color} border-0 rounded`}>
+                                {queueStatusInfo.label}
+                              </Badge>
+                            </div>
+                            <span className="text-xs text-secondary">
+                              {queueInfo?.messages ?? 0} messages
+                            </span>
+                          </div>
+
+                          {/* Worker Status */}
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-gray-500">Workers:</span>
+                              <Badge variant="default" className={`text-xs px-2 py-0.5 ${workerStatusInfo.bgColor} ${workerStatusInfo.color} border-0 rounded`}>
+                                {workerStatusInfo.label}
+                              </Badge>
+                            </div>
+                            <span className="text-xs text-secondary">
+                              {formatWorkerCount('transform')} workers
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Additional Queue Metrics */}
+                        {queueInfo && (
+                          <div className="pt-2 border-t border-gray-200 space-y-1">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-gray-500 flex items-center gap-1">
+                                <Database className="w-3 h-3" />
+                                Memory
+                              </span>
+                              <span className="text-secondary font-medium">{formatMemory(queueInfo.memory)}</span>
+                            </div>
+                            {queueInfo.message_stats && (
+                              <>
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-gray-500 flex items-center gap-1">
+                                    <TrendingUp className="w-3 h-3" />
+                                    Published
+                                  </span>
+                                  <span className="text-secondary font-medium">
+                                    {queueInfo.message_stats.publish.toLocaleString()} ({formatRate(queueInfo.message_stats.publish_rate)})
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-gray-500">Delivered</span>
+                                  <span className="text-secondary font-medium">
+                                    {queueInfo.message_stats.deliver.toLocaleString()} ({formatRate(queueInfo.message_stats.deliver_rate)})
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-gray-500">Acknowledged</span>
+                                  <span className="text-secondary font-medium">
+                                    {queueInfo.message_stats.ack.toLocaleString()} ({formatRate(queueInfo.message_stats.ack_rate)})
+                                  </span>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    )
+                  })()}
                 </div>
               </div>
 
               {/* Embedding Queue */}
               <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
-                <div className="flex items-center justify-between">
-                  {/* Left: Queue Info */}
-                  <div className="flex items-center space-x-4 flex-1">
-                    {/* Queue Icon */}
-                    <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-white border border-gray-200">
-                      <Sparkles className="h-5 w-5 text-gray-600" />
-                    </div>
-
-                    {/* Queue Details */}
-                    <div className="flex-1">
-                      <h3 className="text-base font-semibold text-primary">Embedding Queue</h3>
-                      <div className="flex items-center space-x-4 mt-1">
-                        {/* Status Badge */}
-                        {(() => {
-                          const statusInfo = getQueueStatusInfo('embedding')
-                          return (
-                            <div className={`flex items-center space-x-1 ${statusInfo.color}`}>
-                              {statusInfo.icon}
-                              <span className="text-xs font-medium">{statusInfo.label}</span>
-                            </div>
-                          )
-                        })()}
-
-                        {/* Messages Count */}
-                        <span className="text-xs text-secondary">
-                          Messages: {workerStatus?.queue_stats?.tier_queues?.premium?.embedding?.message_count ?? 0}
-                        </span>
-
-                        {/* Active Workers */}
-                        <span className="text-xs text-secondary">
-                          Workers: {workerConfig?.current_tenant_allocation?.embedding ?? 0}
-                        </span>
+                <div className="flex flex-col space-y-3">
+                  {/* Queue Icon & Title */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-white border border-gray-200">
+                        <Sparkles className="h-4 w-4 text-gray-600" />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-semibold text-primary">Embedding</h3>
+                        <Badge variant="default" className="text-xs px-2 py-0.5 bg-gradient-1-2 text-white border-0 rounded">
+                          Premium
+                        </Badge>
                       </div>
                     </div>
+                    {/* Action Buttons - Icon Only */}
+                    <div className="flex items-center space-x-1">
+                      <button
+                        onClick={() => performWorkerAction('start', 'embedding')}
+                        disabled={actionLoading === 'start_embedding' || areWorkersRunning('embedding')}
+                        className={`p-2 rounded-lg hover:bg-tertiary transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${areWorkersRunning('embedding') ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        title={areWorkersRunning('embedding') ? 'Workers are already running or ready' : 'Start workers'}
+                      >
+                        <Play className="w-4 h-4 text-secondary" />
+                      </button>
+                      <button
+                        onClick={() => performWorkerAction('stop', 'embedding')}
+                        disabled={actionLoading === 'stop_embedding' || !areWorkersRunning('embedding')}
+                        className={`p-2 rounded-lg hover:bg-tertiary transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${!areWorkersRunning('embedding') ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        title={!areWorkersRunning('embedding') ? 'Workers are idle' : 'Stop workers'}
+                      >
+                        <Square className="w-4 h-4 text-secondary" />
+                      </button>
+                    </div>
                   </div>
 
-                  {/* Right: Action Buttons */}
-                  <div className="flex items-center space-x-2">
-                    <button
-                      onClick={() => performWorkerAction('start', 'embedding')}
-                      disabled={actionLoading === 'start_embedding' || areWorkersRunning('embedding')}
-                      className={`btn-crud-create flex items-center space-x-2 text-sm px-3 py-1.5 ${areWorkersRunning('embedding') ? 'opacity-50 cursor-not-allowed' : ''}`}
-                      title={areWorkersRunning('embedding') ? 'Workers are already running or ready' : 'Start workers (currently Idle)'}
-                    >
-                      <Play className="w-3.5 h-3.5" />
-                      <span>{actionLoading === 'start_embedding' ? 'Starting...' : 'Start'}</span>
-                    </button>
-                    <button
-                      onClick={() => performWorkerAction('stop', 'embedding')}
-                      disabled={actionLoading === 'stop_embedding' || !areWorkersRunning('embedding')}
-                      className={`px-3 py-1.5 bg-gray-800 text-white rounded-lg hover:bg-gray-900 transition-colors flex items-center space-x-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed ${!areWorkersRunning('embedding') ? 'opacity-50 cursor-not-allowed' : ''}`}
-                      title={!areWorkersRunning('embedding') ? 'Workers are idle (not running)' : 'Stop running workers'}
-                    >
-                      <Square className="w-3.5 h-3.5" />
-                      <span>{actionLoading === 'stop_embedding' ? 'Stopping...' : 'Stop'}</span>
-                    </button>
-                  </div>
+                  {/* Status Badges & Stats */}
+                  {(() => {
+                    const queueStatusInfo = getQueueStatusInfo('embedding')
+                    const workerStatusInfo = getWorkerStatusInfo('embedding')
+                    const queueInfo = queuesStatus?.embedding
+                    return (
+                      <>
+                        <div className="space-y-2">
+                          {/* Queue Status */}
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-gray-500">Queue:</span>
+                              <Badge variant="default" className={`text-xs px-2 py-0.5 ${queueStatusInfo.bgColor} ${queueStatusInfo.color} border-0 rounded`}>
+                                {queueStatusInfo.label}
+                              </Badge>
+                            </div>
+                            <span className="text-xs text-secondary">
+                              {queueInfo?.messages ?? 0} messages
+                            </span>
+                          </div>
+
+                          {/* Worker Status */}
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-gray-500">Workers:</span>
+                              <Badge variant="default" className={`text-xs px-2 py-0.5 ${workerStatusInfo.bgColor} ${workerStatusInfo.color} border-0 rounded`}>
+                                {workerStatusInfo.label}
+                              </Badge>
+                            </div>
+                            <span className="text-xs text-secondary">
+                              {formatWorkerCount('embedding')} workers
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Additional Queue Metrics */}
+                        {queueInfo && (
+                          <div className="pt-2 border-t border-gray-200 space-y-1">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-gray-500 flex items-center gap-1">
+                                <Database className="w-3 h-3" />
+                                Memory
+                              </span>
+                              <span className="text-secondary font-medium">{formatMemory(queueInfo.memory)}</span>
+                            </div>
+                            {queueInfo.message_stats && (
+                              <>
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-gray-500 flex items-center gap-1">
+                                    <TrendingUp className="w-3 h-3" />
+                                    Published
+                                  </span>
+                                  <span className="text-secondary font-medium">
+                                    {queueInfo.message_stats.publish.toLocaleString()} ({formatRate(queueInfo.message_stats.publish_rate)})
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-gray-500">Delivered</span>
+                                  <span className="text-secondary font-medium">
+                                    {queueInfo.message_stats.deliver.toLocaleString()} ({formatRate(queueInfo.message_stats.deliver_rate)})
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-gray-500">Acknowledged</span>
+                                  <span className="text-secondary font-medium">
+                                    {queueInfo.message_stats.ack.toLocaleString()} ({formatRate(queueInfo.message_stats.ack_rate)})
+                                  </span>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    )
+                  })()}
                 </div>
               </div>
 
-              {/* Divider */}
-              <Separator className="my-6" />
+            </div>
+          </CardContent>
+        </Card>
 
-              {/* Worker Configuration Section */}
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h3 className="text-base font-semibold text-primary flex items-center gap-2">
-                      <Settings className="h-4 w-4" />
-                      Worker Configuration
-                    </h3>
-                    <p className="text-xs text-secondary mt-1">Configure worker counts for each queue type</p>
-                  </div>
-                  <button
-                    onClick={updateWorkerCounts}
-                    disabled={saveLoading || !hasUnsavedChanges}
-                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    <Save className="h-3.5 w-3.5" />
-                    <span>{saveLoading ? 'Saving...' : 'Save Configuration'}</span>
-                  </button>
+        {/* Separate Worker Configuration Card */}
+          <Card className="border border-gray-400 mt-6"
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = 'var(--color-1)'
+              e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = '#9ca3af'
+              e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+            }}
+          >
+            <CardHeader className="border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Settings className="h-5 w-5" />
+                    Worker Configuration
+                  </CardTitle>
+                  <CardDescription className="mt-1">
+                    Configure worker counts for each queue type
+                  </CardDescription>
                 </div>
+                <button
+                  onClick={updateWorkerCounts}
+                  disabled={saveLoading || !hasUnsavedChanges}
+                  className="btn-crud-create disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  <Save className="h-4 w-4" />
+                  <span>{saveLoading ? 'Saving...' : 'Save Configuration'}</span>
+                </button>
+              </div>
+            </CardHeader>
 
+            <CardContent className="p-6">
+              <div className="space-y-4">
                 {/* Database Capacity Warning */}
                 {dbCapacity && dbCapacity.warning_message && (
                   <Alert className="border-yellow-200 bg-yellow-50">
@@ -859,12 +1095,11 @@ export default function QueueManagementPage() {
                   </Alert>
                 </div>
               </div>
-            </div>
-          </CardContent>
-        </Card>
-          </div>
-        </main>
-      </div>
+            </CardContent>
+          </Card>
+        </div>
+      </main>
+    </div>
 
       {/* Toast Container */}
       <ToastContainer toasts={toasts} onRemoveToast={removeToast} />
