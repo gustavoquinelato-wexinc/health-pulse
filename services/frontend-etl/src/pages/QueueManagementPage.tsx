@@ -516,27 +516,6 @@ export default function QueueManagementPage() {
                   </Badge>
                 </div>
                 <Separator />
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    onClick={() => performWorkerAction('start', 'extraction')}
-                    disabled={actionLoading === 'start_extraction'}
-                    className="flex-1 bg-green-600 hover:bg-green-700"
-                  >
-                    <Play className="h-3 w-3 mr-1" />
-                    {actionLoading === 'start_extraction' ? 'Starting...' : 'Start'}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => performWorkerAction('stop', 'extraction')}
-                    disabled={actionLoading === 'stop_extraction'}
-                    className="flex-1"
-                  >
-                    <Square className="h-3 w-3 mr-1" />
-                    {actionLoading === 'stop_extraction' ? 'Stopping...' : 'Stop'}
-                  </Button>
-                </div>
                 <div className="text-xs text-secondary">
                   Queue: extraction_queue_premium
                 </div>
@@ -577,27 +556,6 @@ export default function QueueManagementPage() {
                   </Badge>
                 </div>
                 <Separator />
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    onClick={() => performWorkerAction('start', 'transform')}
-                    disabled={actionLoading === 'start_transform'}
-                    className="flex-1 bg-blue-600 hover:bg-blue-700"
-                  >
-                    <Play className="h-3 w-3 mr-1" />
-                    {actionLoading === 'start_transform' ? 'Starting...' : 'Start'}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => performWorkerAction('stop', 'transform')}
-                    disabled={actionLoading === 'stop_transform'}
-                    className="flex-1"
-                  >
-                    <Square className="h-3 w-3 mr-1" />
-                    {actionLoading === 'stop_transform' ? 'Stopping...' : 'Stop'}
-                  </Button>
-                </div>
                 <div className="text-xs text-secondary">
                   Queue: transform_queue_premium
                 </div>
@@ -638,27 +596,6 @@ export default function QueueManagementPage() {
                   </Badge>
                 </div>
                 <Separator />
-                <div className="flex gap-2">
-                  <Button
-                    size="sm"
-                    onClick={() => performWorkerAction('start', 'embedding')}
-                    disabled={actionLoading === 'start_embedding'}
-                    className="flex-1 bg-purple-600 hover:bg-purple-700"
-                  >
-                    <Play className="h-3 w-3 mr-1" />
-                    {actionLoading === 'start_embedding' ? 'Starting...' : 'Start'}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => performWorkerAction('stop', 'embedding')}
-                    disabled={actionLoading === 'stop_embedding'}
-                    className="flex-1"
-                  >
-                    <Square className="h-3 w-3 mr-1" />
-                    {actionLoading === 'stop_embedding' ? 'Stopping...' : 'Stop'}
-                  </Button>
-                </div>
                 <div className="text-xs text-secondary">
                   Queue: embedding_queue_premium
                 </div>
@@ -710,11 +647,32 @@ export default function QueueManagementPage() {
                         .filter(([key]) => key.includes('extraction'))
                         .map(([key, workerData]) => (
                           <div key={key} className="p-3 bg-green-50 rounded-lg border border-green-200">
-                            <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center justify-between mb-3">
                               <span className="text-sm font-semibold text-green-900">Extraction Workers</span>
                               <Badge variant={workerData.instances.some(w => w.worker_running && w.thread_alive) ? "default" : "destructive"}>
                                 {workerData.instances.filter(w => w.worker_running && w.thread_alive).length} / {workerData.count} Running
                               </Badge>
+                            </div>
+                            <div className="flex gap-2 mb-3">
+                              <Button
+                                size="sm"
+                                onClick={() => performWorkerAction('start', 'extraction')}
+                                disabled={actionLoading === 'start_extraction'}
+                                className="flex-1 bg-green-600 hover:bg-green-700 h-8"
+                              >
+                                <Play className="h-3 w-3 mr-1" />
+                                {actionLoading === 'start_extraction' ? 'Starting...' : 'Start'}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => performWorkerAction('stop', 'extraction')}
+                                disabled={actionLoading === 'stop_extraction'}
+                                className="flex-1 h-8"
+                              >
+                                <Square className="h-3 w-3 mr-1" />
+                                {actionLoading === 'stop_extraction' ? 'Stopping...' : 'Stop'}
+                              </Button>
                             </div>
                             <div className="space-y-1">
                               {workerData.instances.map((instance) => (
@@ -737,11 +695,32 @@ export default function QueueManagementPage() {
                         .filter(([key]) => key.includes('transform'))
                         .map(([key, workerData]) => (
                           <div key={key} className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-                            <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center justify-between mb-3">
                               <span className="text-sm font-semibold text-blue-900">Transform Workers</span>
                               <Badge variant={workerData.instances.some(w => w.worker_running && w.thread_alive) ? "default" : "destructive"}>
                                 {workerData.instances.filter(w => w.worker_running && w.thread_alive).length} / {workerData.count} Running
                               </Badge>
+                            </div>
+                            <div className="flex gap-2 mb-3">
+                              <Button
+                                size="sm"
+                                onClick={() => performWorkerAction('start', 'transform')}
+                                disabled={actionLoading === 'start_transform'}
+                                className="flex-1 bg-blue-600 hover:bg-blue-700 h-8"
+                              >
+                                <Play className="h-3 w-3 mr-1" />
+                                {actionLoading === 'start_transform' ? 'Starting...' : 'Start'}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => performWorkerAction('stop', 'transform')}
+                                disabled={actionLoading === 'stop_transform'}
+                                className="flex-1 h-8"
+                              >
+                                <Square className="h-3 w-3 mr-1" />
+                                {actionLoading === 'stop_transform' ? 'Stopping...' : 'Stop'}
+                              </Button>
                             </div>
                             <div className="space-y-1">
                               {workerData.instances.map((instance) => (
@@ -764,11 +743,32 @@ export default function QueueManagementPage() {
                         .filter(([key]) => key.includes('embedding'))
                         .map(([key, workerData]) => (
                           <div key={key} className="p-3 bg-purple-50 rounded-lg border border-purple-200">
-                            <div className="flex items-center justify-between mb-2">
+                            <div className="flex items-center justify-between mb-3">
                               <span className="text-sm font-semibold text-purple-900">Embedding Workers</span>
                               <Badge variant={workerData.instances.some(w => w.worker_running && w.thread_alive) ? "default" : "destructive"}>
                                 {workerData.instances.filter(w => w.worker_running && w.thread_alive).length} / {workerData.count} Running
                               </Badge>
+                            </div>
+                            <div className="flex gap-2 mb-3">
+                              <Button
+                                size="sm"
+                                onClick={() => performWorkerAction('start', 'embedding')}
+                                disabled={actionLoading === 'start_embedding'}
+                                className="flex-1 bg-purple-600 hover:bg-purple-700 h-8"
+                              >
+                                <Play className="h-3 w-3 mr-1" />
+                                {actionLoading === 'start_embedding' ? 'Starting...' : 'Start'}
+                              </Button>
+                              <Button
+                                size="sm"
+                                variant="outline"
+                                onClick={() => performWorkerAction('stop', 'embedding')}
+                                disabled={actionLoading === 'stop_embedding'}
+                                className="flex-1 h-8"
+                              >
+                                <Square className="h-3 w-3 mr-1" />
+                                {actionLoading === 'stop_embedding' ? 'Stopping...' : 'Stop'}
+                              </Button>
                             </div>
                             <div className="space-y-1">
                               {workerData.instances.map((instance) => (
