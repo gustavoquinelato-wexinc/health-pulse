@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login 4 - Minimalist Zen</title>
+    <title>Login 4 - Quantum Portal</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         * {
@@ -14,34 +14,16 @@
         
         body {
             font-family: 'Inter', sans-serif;
-            background: #ffffff;
+            background: #000;
             overflow: hidden;
         }
         
-        .wave-container {
+        #quantum-canvas {
             position: fixed;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
-            overflow: hidden;
-        }
-        
-        .wave {
-            position: absolute;
-            width: 200%;
-            height: 200%;
-            top: -50%;
-            left: -50%;
-            background: radial-gradient(circle at center, transparent 0%, transparent 40%, rgba(40, 98, 235, 0.03) 40%, rgba(40, 98, 235, 0.03) 41%, transparent 41%);
-            background-size: 100px 100px;
-            animation: wave 30s linear infinite;
-        }
-        
-        @keyframes wave {
-            from { transform: rotate(0deg); }
-            to { transform: rotate(360deg); }
         }
         
         .container {
@@ -54,367 +36,503 @@
             padding: 2rem;
         }
         
-        .login-wrapper {
+        .quantum-portal {
             width: 100%;
-            max-width: 420px;
-        }
-        
-        .logo-minimal {
-            text-align: center;
-            margin-bottom: 3rem;
-        }
-        
-        .logo-circle {
-            width: 100px;
-            height: 100px;
-            margin: 0 auto 2rem;
-            background: white;
-            border-radius: 50%;
-            display: flex;
+            max-width: 1200px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4rem;
             align-items: center;
-            justify-content: center;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.08);
+        }
+        
+        .portal-visual {
             position: relative;
+            width: 100%;
+            aspect-ratio: 1;
+            max-width: 500px;
+            margin: 0 auto;
         }
         
-        .logo-circle::before {
-            content: '';
+        .portal-ring {
             position: absolute;
-            inset: -3px;
+            inset: 0;
+            border: 3px solid;
             border-radius: 50%;
-            background: linear-gradient(135deg, #2862EB, #763DED, #059669, #0EA5E9);
-            z-index: -1;
-            animation: rotate-border 4s linear infinite;
+            animation: rotate-ring 20s linear infinite;
         }
         
-        @keyframes rotate-border {
+        .portal-ring:nth-child(1) {
+            border-color: #2862EB transparent #2862EB transparent;
+            animation-duration: 8s;
+        }
+        
+        .portal-ring:nth-child(2) {
+            inset: 10%;
+            border-color: transparent #763DED transparent #763DED;
+            animation-duration: 12s;
+            animation-direction: reverse;
+        }
+        
+        .portal-ring:nth-child(3) {
+            inset: 20%;
+            border-color: #059669 transparent #059669 transparent;
+            animation-duration: 16s;
+        }
+        
+        .portal-ring:nth-child(4) {
+            inset: 30%;
+            border-color: transparent #0EA5E9 transparent #0EA5E9;
+            animation-duration: 20s;
+            animation-direction: reverse;
+        }
+        
+        @keyframes rotate-ring {
             from { transform: rotate(0deg); }
             to { transform: rotate(360deg); }
         }
         
-        .logo-circle svg {
-            width: 48px;
-            height: 48px;
-            stroke: #2862EB;
-            stroke-width: 2;
+        .portal-center {
+            position: absolute;
+            inset: 35%;
+            background: radial-gradient(circle, #2862EB 0%, #763DED 50%, transparent 100%);
+            border-radius: 50%;
+            animation: pulse-portal 3s ease-in-out infinite;
+            box-shadow: 0 0 100px rgba(40, 98, 235, 0.8);
+        }
+        
+        @keyframes pulse-portal {
+            0%, 100% { transform: scale(1); opacity: 0.8; }
+            50% { transform: scale(1.2); opacity: 1; }
+        }
+        
+        .portal-particles {
+            position: absolute;
+            inset: 0;
+        }
+        
+        .particle {
+            position: absolute;
+            width: 4px;
+            height: 4px;
+            background: white;
+            border-radius: 50%;
+            animation: orbit 10s linear infinite;
+        }
+        
+        .particle:nth-child(1) { top: 50%; left: 0; animation-delay: 0s; }
+        .particle:nth-child(2) { top: 50%; left: 0; animation-delay: 2s; }
+        .particle:nth-child(3) { top: 50%; left: 0; animation-delay: 4s; }
+        .particle:nth-child(4) { top: 50%; left: 0; animation-delay: 6s; }
+        .particle:nth-child(5) { top: 50%; left: 0; animation-delay: 8s; }
+        
+        @keyframes orbit {
+            from { transform: rotate(0deg) translateX(250px) rotate(0deg); }
+            to { transform: rotate(360deg) translateX(250px) rotate(-360deg); }
+        }
+        
+        .portal-info {
+            text-align: center;
+            margin-top: 3rem;
+        }
+        
+        .portal-info h1 {
+            color: white;
+            font-size: 3rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            background: linear-gradient(135deg, #2862EB, #763DED, #0EA5E9);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+        
+        .portal-info p {
+            color: #64748b;
+            font-size: 1.125rem;
+        }
+        
+        .login-quantum {
+            background: rgba(15, 23, 42, 0.5);
+            backdrop-filter: blur(30px);
+            border: 2px solid rgba(40, 98, 235, 0.3);
+            border-radius: 32px;
+            padding: 3.5rem;
+            box-shadow: 0 40px 100px rgba(0, 0, 0, 0.6);
+            position: relative;
+        }
+        
+        .login-quantum::before {
+            content: '';
+            position: absolute;
+            inset: -2px;
+            background: linear-gradient(135deg, #2862EB, #763DED, #059669, #0EA5E9);
+            border-radius: 32px;
+            opacity: 0.2;
+            z-index: -1;
+            filter: blur(20px);
+            animation: gradient-rotate 4s linear infinite;
+            background-size: 300% 300%;
+        }
+        
+        @keyframes gradient-rotate {
+            0% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+            100% { background-position: 0% 50%; }
+        }
+        
+        .quantum-header {
+            text-align: center;
+            margin-bottom: 3rem;
+        }
+        
+        .quantum-icon {
+            width: 80px;
+            height: 80px;
+            margin: 0 auto 1.5rem;
+            background: linear-gradient(135deg, #2862EB, #763DED);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 20px 60px rgba(40, 98, 235, 0.6);
+            animation: float-icon 4s ease-in-out infinite;
+        }
+        
+        @keyframes float-icon {
+            0%, 100% { transform: translateY(0px) rotate(0deg); }
+            50% { transform: translateY(-15px) rotate(180deg); }
+        }
+        
+        .quantum-icon svg {
+            width: 40px;
+            height: 40px;
+            stroke: white;
+            stroke-width: 2.5;
             fill: none;
         }
         
-        .brand-name {
-            color: #0f172a;
-            font-size: 2rem;
-            font-weight: 300;
-            letter-spacing: 0.1em;
-            text-transform: uppercase;
-        }
-        
-        .login-card {
-            background: white;
-            border-radius: 24px;
-            padding: 3rem;
-            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.08);
-        }
-        
-        .welcome-text {
-            text-align: center;
-            margin-bottom: 2.5rem;
-        }
-        
-        .welcome-text h2 {
-            color: #0f172a;
-            font-size: 1.75rem;
-            font-weight: 600;
+        .quantum-header h2 {
+            color: white;
+            font-size: 2.25rem;
+            font-weight: 700;
             margin-bottom: 0.5rem;
         }
         
-        .welcome-text p {
+        .quantum-header p {
             color: #64748b;
-            font-size: 0.875rem;
+            font-size: 1rem;
         }
         
-        .form-group {
-            margin-bottom: 1.75rem;
+        .quantum-field {
+            margin-bottom: 2rem;
         }
         
-        label {
+        .quantum-field label {
             display: block;
-            color: #334155;
-            font-size: 0.875rem;
-            font-weight: 600;
-            margin-bottom: 0.75rem;
+            color: #0EA5E9;
+            font-size: 0.8125rem;
+            font-weight: 700;
+            margin-bottom: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
         }
         
-        .input-container {
+        .quantum-input {
             position: relative;
         }
         
-        input {
+        .quantum-input input {
             width: 100%;
-            padding: 1rem;
-            background: #f8fafc;
-            border: 2px solid #e2e8f0;
-            border-radius: 12px;
-            color: #0f172a;
+            padding: 1.25rem;
+            background: rgba(10, 14, 26, 0.8);
+            border: 2px solid rgba(14, 165, 233, 0.3);
+            border-radius: 16px;
+            color: white;
             font-size: 1rem;
-            transition: all 0.3s ease;
+            transition: all 0.4s ease;
         }
         
-        input:focus {
+        .quantum-input input:focus {
             outline: none;
-            background: white;
-            border-color: #2862EB;
+            border-color: #0EA5E9;
+            background: rgba(10, 14, 26, 1);
+            box-shadow: 0 0 40px rgba(14, 165, 233, 0.5);
         }
         
-        input::placeholder {
-            color: #94a3b8;
+        .quantum-input input::placeholder {
+            color: #334155;
         }
         
-        .input-underline {
+        .quantum-input::after {
+            content: '';
             position: absolute;
             bottom: 0;
             left: 0;
-            height: 2px;
             width: 0;
-            background: linear-gradient(90deg, #2862EB, #763DED);
-            transition: width 0.3s ease;
+            height: 2px;
+            background: linear-gradient(90deg, #2862EB, #0EA5E9);
+            transition: width 0.4s ease;
         }
         
-        input:focus + .input-underline {
+        .quantum-input input:focus + ::after {
             width: 100%;
         }
         
-        .form-footer {
+        .quantum-footer {
             display: flex;
             justify-content: space-between;
             align-items: center;
-            margin-bottom: 2rem;
+            margin-bottom: 2.5rem;
             font-size: 0.875rem;
         }
         
-        .remember-check {
+        .quantum-remember {
             display: flex;
             align-items: center;
-            color: #64748b;
+            color: #94a3b8;
         }
         
-        .remember-check input {
-            width: auto;
+        .quantum-remember input {
             margin-right: 0.5rem;
         }
         
-        .forgot-password {
-            color: #2862EB;
+        .quantum-forgot {
+            color: #0EA5E9;
             text-decoration: none;
             font-weight: 600;
-            transition: color 0.2s;
-        }
-        
-        .forgot-password:hover {
-            color: #1e40af;
-        }
-        
-        .btn-submit {
-            width: 100%;
-            padding: 1.125rem;
-            background: #0f172a;
-            border: none;
-            border-radius: 12px;
-            color: white;
-            font-size: 1rem;
-            font-weight: 600;
-            cursor: pointer;
             transition: all 0.3s ease;
+        }
+        
+        .quantum-forgot:hover {
+            color: #38bdf8;
+            text-shadow: 0 0 20px rgba(14, 165, 233, 0.6);
+        }
+        
+        .btn-quantum {
+            width: 100%;
+            padding: 1.5rem;
+            background: linear-gradient(135deg, #2862EB 0%, #763DED 50%, #0EA5E9 100%);
+            background-size: 200% 200%;
+            border: none;
+            border-radius: 16px;
+            color: white;
+            font-size: 1.0625rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.4s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
             position: relative;
             overflow: hidden;
+            animation: gradient-shift 3s ease infinite;
         }
         
-        .btn-submit::before {
+        @keyframes gradient-shift {
+            0%, 100% { background-position: 0% 50%; }
+            50% { background-position: 100% 50%; }
+        }
+        
+        .btn-quantum::before {
             content: '';
             position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(135deg, #2862EB, #763DED);
-            opacity: 0;
-            transition: opacity 0.3s ease;
+            inset: 0;
+            background: linear-gradient(45deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+            transform: translateX(-100%);
+            transition: transform 0.6s ease;
         }
         
-        .btn-submit:hover::before {
-            opacity: 1;
+        .btn-quantum:hover::before {
+            transform: translateX(100%);
         }
         
-        .btn-submit span {
+        .btn-quantum:hover {
+            box-shadow: 0 0 50px rgba(40, 98, 235, 0.8);
+            transform: translateY(-3px);
+        }
+        
+        .btn-quantum span {
             position: relative;
             z-index: 1;
         }
         
-        .btn-submit:hover {
-            transform: translateY(-2px);
-            box-shadow: 0 10px 30px rgba(40, 98, 235, 0.3);
-        }
-        
-        .separator {
+        .quantum-divider {
             text-align: center;
-            margin: 2rem 0;
+            margin: 2.5rem 0;
             position: relative;
         }
         
-        .separator::before {
+        .quantum-divider::before,
+        .quantum-divider::after {
             content: '';
             position: absolute;
             top: 50%;
-            left: 0;
-            right: 0;
-            height: 1px;
-            background: #e2e8f0;
+            width: 35%;
+            height: 2px;
+            background: linear-gradient(90deg, transparent, rgba(14, 165, 233, 0.5), transparent);
         }
         
-        .separator span {
-            position: relative;
-            background: white;
-            padding: 0 1rem;
-            color: #94a3b8;
-            font-size: 0.875rem;
+        .quantum-divider::before { left: 0; }
+        .quantum-divider::after { right: 0; }
+        
+        .quantum-divider span {
+            color: #475569;
+            font-size: 0.8125rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
         }
         
-        .social-grid {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 1rem;
-        }
-        
-        .social-icon {
-            aspect-ratio: 1;
-            background: #f8fafc;
-            border: 2px solid #e2e8f0;
-            border-radius: 12px;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: pointer;
-            transition: all 0.3s ease;
-        }
-        
-        .social-icon:hover {
-            background: white;
-            border-color: #2862EB;
-            transform: translateY(-2px);
-            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.05);
-        }
-        
-        .social-icon svg {
-            width: 24px;
-            height: 24px;
-            fill: #64748b;
-        }
-        
-        .social-icon:hover svg {
-            fill: #2862EB;
-        }
-        
-        .footer-text {
+        .quantum-alt {
             text-align: center;
-            margin-top: 2rem;
-            color: #94a3b8;
-            font-size: 0.875rem;
+            color: #64748b;
+            font-size: 0.9375rem;
         }
         
-        .footer-text a {
-            color: #2862EB;
+        .quantum-alt a {
+            color: #0EA5E9;
             text-decoration: none;
             font-weight: 600;
+            transition: color 0.3s ease;
         }
         
-        .footer-text a:hover {
-            text-decoration: underline;
+        .quantum-alt a:hover {
+            color: #38bdf8;
+        }
+        
+        @media (max-width: 1024px) {
+            .quantum-portal {
+                grid-template-columns: 1fr;
+                gap: 2rem;
+            }
+            .portal-visual {
+                max-width: 300px;
+            }
         }
     </style>
 </head>
 <body>
-    <div class="wave-container">
-        <div class="wave"></div>
-    </div>
+    <canvas id="quantum-canvas"></canvas>
     
     <div class="container">
-        <div class="login-wrapper">
-            <div class="logo-minimal">
-                <div class="logo-circle">
-                    <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
-                        <path d="M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16"></path>
-                        <circle cx="12" cy="11" r="1"></circle>
-                        <circle cx="8" cy="11" r="1"></circle>
-                        <circle cx="16" cy="11" r="1"></circle>
-                    </svg>
+        <div class="quantum-portal">
+            <div>
+                <div class="portal-visual">
+                    <div class="portal-ring"></div>
+                    <div class="portal-ring"></div>
+                    <div class="portal-ring"></div>
+                    <div class="portal-ring"></div>
+                    <div class="portal-center"></div>
+                    <div class="portal-particles">
+                        <div class="particle"></div>
+                        <div class="particle"></div>
+                        <div class="particle"></div>
+                        <div class="particle"></div>
+                        <div class="particle"></div>
+                    </div>
                 </div>
-                <h1 class="brand-name">ETL</h1>
+                <div class="portal-info">
+                    <h1>QUANTUM ETL</h1>
+                    <p>Enter the Data Dimension</p>
+                </div>
             </div>
             
-            <div class="login-card">
-                <div class="welcome-text">
-                    <h2>Welcome</h2>
-                    <p>Please sign in to your account</p>
+            <div class="login-quantum">
+                <div class="quantum-header">
+                    <div class="quantum-icon">
+                        <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16"></path>
+                            <circle cx="12" cy="11" r="1"></circle>
+                            <circle cx="8" cy="11" r="1"></circle>
+                            <circle cx="16" cy="11" r="1"></circle>
+                        </svg>
+                    </div>
+                    <h2>Portal Access</h2>
+                    <p>Authenticate to enter the quantum realm</p>
                 </div>
                 
                 <form>
-                    <div class="form-group">
-                        <label for="email">Email</label>
-                        <div class="input-container">
-                            <input type="email" id="email" placeholder="name@company.com" required>
-                            <div class="input-underline"></div>
+                    <div class="quantum-field">
+                        <label for="email">Quantum ID</label>
+                        <div class="quantum-input">
+                            <input type="email" id="email" placeholder="quantum.user@dimension.io" required>
                         </div>
                     </div>
                     
-                    <div class="form-group">
-                        <label for="password">Password</label>
-                        <div class="input-container">
-                            <input type="password" id="password" placeholder="Enter your password" required>
-                            <div class="input-underline"></div>
+                    <div class="quantum-field">
+                        <label for="password">Dimensional Key</label>
+                        <div class="quantum-input">
+                            <input type="password" id="password" placeholder="Enter your quantum key" required>
                         </div>
                     </div>
                     
-                    <div class="form-footer">
-                        <label class="remember-check">
+                    <div class="quantum-footer">
+                        <label class="quantum-remember">
                             <input type="checkbox">
-                            Remember me
+                            Remember quantum state
                         </label>
-                        <a href="#" class="forgot-password">Forgot password?</a>
+                        <a href="#" class="quantum-forgot">Reset Portal</a>
                     </div>
                     
-                    <button type="submit" class="btn-submit">
-                        <span>Sign In</span>
+                    <button type="submit" class="btn-quantum">
+                        <span>Enter Portal</span>
                     </button>
                     
-                    <div class="separator">
-                        <span>or sign in with</span>
+                    <div class="quantum-divider">
+                        <span>Quantum Entanglement</span>
                     </div>
                     
-                    <div class="social-grid">
-                        <button type="button" class="social-icon" title="Google">
-                            <svg viewBox="0 0 24 24">
-                                <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
-                                <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
-                            </svg>
-                        </button>
-                        <button type="button" class="social-icon" title="GitHub">
-                            <svg viewBox="0 0 24 24">
-                                <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
-                            </svg>
-                        </button>
-                        <button type="button" class="social-icon" title="Microsoft">
-                            <svg viewBox="0 0 24 24">
-                                <path d="M11.4 24H0V12.6h11.4V24zM24 24H12.6V12.6H24V24zM11.4 11.4H0V0h11.4v11.4zm12.6 0H12.6V0H24v11.4z" fill="#00A4EF"/>
-                            </svg>
-                        </button>
+                    <div class="quantum-alt">
+                        Need access? <a href="#">Request Portal Key</a>
                     </div>
                 </form>
-                
-                <div class="footer-text">
-                    Don't have an account? <a href="#">Sign up</a>
-                </div>
             </div>
         </div>
     </div>
+    
+    <script>
+        const canvas = document.getElementById('quantum-canvas');
+        const ctx = canvas.getContext('2d');
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        
+        const stars = [];
+        for (let i = 0; i < 200; i++) {
+            stars.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height,
+                radius: Math.random() * 1.5,
+                speed: Math.random() * 0.5 + 0.1
+            });
+        }
+        
+        function drawQuantum() {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            stars.forEach(star => {
+                star.y += star.speed;
+                if (star.y > canvas.height) {
+                    star.y = 0;
+                    star.x = Math.random() * canvas.width;
+                }
+                
+                ctx.beginPath();
+                ctx.arc(star.x, star.y, star.radius, 0, Math.PI * 2);
+                ctx.fillStyle = 'rgba(14, 165, 233, 0.8)';
+                ctx.shadowBlur = 5;
+                ctx.shadowColor = '#0EA5E9';
+                ctx.fill();
+            });
+            
+            requestAnimationFrame(drawQuantum);
+        }
+        
+        drawQuantum();
+        
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        });
+    </script>
 </body>
 </html>
 

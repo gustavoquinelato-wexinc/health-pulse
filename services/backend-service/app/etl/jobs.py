@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from app.core.database import get_db_session
 from app.models.unified_models import Tenant
 from app.auth.auth_middleware import require_authentication
+from app.core.utils import DateTimeHelper
 
 import logging
 
@@ -134,6 +135,12 @@ class JobCardResponse(BaseModel):
     error_message: Optional[str]
     retry_count: int
 
+    class Config:
+        json_encoders = {
+            # Convert timezone-naive datetimes (stored in NY timezone) to ISO with timezone info
+            datetime: lambda v: DateTimeHelper.to_iso_with_tz(v) if v else None
+        }
+
 
 class JobDetailsResponse(BaseModel):
     """Detailed job information."""
@@ -157,6 +164,12 @@ class JobDetailsResponse(BaseModel):
 
     # Checkpoint flag (Boolean - indicates if job has checkpoint records)
     checkpoint_data: bool
+
+    class Config:
+        json_encoders = {
+            # Convert timezone-naive datetimes (stored in NY timezone) to ISO with timezone info
+            datetime: lambda v: DateTimeHelper.to_iso_with_tz(v) if v else None
+        }
 
 
 class JobActionResponse(BaseModel):
@@ -246,14 +259,10 @@ def calculate_next_run(
     - It represents when the job actually started running
     - For first-time jobs, it's None so we calculate from current time
     - This ensures proper countdown behavior for all job types
+
+    Returns timezone-naive datetime in configured timezone (America/New_York by default).
     """
     from datetime import timedelta
-    import pytz
-    import os
-
-    # Get timezone from environment (default to America/New_York which is GMT-5/GMT-4)
-    tz_name = os.getenv('SCHEDULER_TIMEZONE', 'America/New_York')
-    tz = pytz.timezone(tz_name)
 
     # If running (any active status), no next run
     if status in ['RUNNING']:
@@ -261,12 +270,12 @@ def calculate_next_run(
 
     # If never run (first time), schedule from now + interval
     if not last_run_started_at:
-        now = datetime.now(tz)
+        # Use DateTimeHelper.now_default() to get timezone-naive datetime in configured timezone
+        now = DateTimeHelper.now_default()
         return now + timedelta(minutes=schedule_interval_minutes)
 
-    # Ensure last_run_started_at is timezone-aware
-    if last_run_started_at.tzinfo is None:
-        last_run_started_at = tz.localize(last_run_started_at)
+    # last_run_started_at is already timezone-naive in configured timezone
+    # No need to convert - just add the interval
 
     # If failed with retries, use retry interval
     if status == 'FAILED' and retry_count > 0:
@@ -301,7 +310,7 @@ async def get_job_cards(
                 id, job_name, status, active,
                 schedule_interval_minutes, retry_interval_minutes,
                 integration_id, last_run_started_at, last_run_finished_at,
-                error_message, retry_count, last_updated_at
+                error_message, retry_count, last_updated_at, next_run
             FROM etl_jobs
             WHERE tenant_id = :tenant_id
             ORDER BY job_name ASC
@@ -319,14 +328,9 @@ async def get_job_cards(
             # Get integration info
             integration_type, logo_filename = get_integration_info(db, row[6])
 
-            # Calculate next run using last_run_started_at (row[7])
-            next_run = calculate_next_run(
-                last_run_started_at=row[7],
-                schedule_interval_minutes=row[4],
-                retry_interval_minutes=row[5],
-                status=status_json.get('overall', 'READY'),
-                retry_count=row[10]
-            )
+            # 🔑 Use next_run from database (row[12]) instead of calculating it
+            # The job scheduler maintains this column and it's the source of truth
+            next_run = row[12]
 
             job_cards.append(JobCardResponse(
                 id=row[0],
@@ -584,6 +588,61 @@ async def run_job_now(
             logger.warning(f"⚠️ JOB FINISHING: Job '{job_name}' is FINISHED and resetting - rejecting request")
             raise HTTPException(status_code=400, detail=f"Job {job_name} is resetting. Please wait a moment and try again.")
 
+        # 🔑 Check if workers are running BEFORE setting job to RUNNING
+        # This prevents the job from being set to RUNNING and then immediately to FAILED
+        workers_running, worker_message = _check_workers_running()
+        if not workers_running:
+            logger.error(f"❌ Cannot run job: {worker_message}")
+
+            # Update job status to FAILED and store error message in database
+            from app.core.utils import DateTimeHelper
+            import json
+            now = DateTimeHelper.now_default()
+
+            # Create the status JSON with error message
+            status_update = json.dumps({
+                'overall': 'FAILED',
+                'error': worker_message
+            })
+
+            # Use CAST() instead of :: to avoid syntax conflicts with named parameters
+            update_query = text("""
+                UPDATE etl_jobs
+                SET status = status || CAST(:status_update AS jsonb),
+                    error_message = :error_message,
+                    last_updated_at = :now
+                WHERE id = :job_id AND tenant_id = :tenant_id
+            """)
+
+            db.execute(update_query, {
+                'job_id': job_id,
+                'tenant_id': tenant_id,
+                'status_update': status_update,
+                'error_message': worker_message,
+                'now': now
+            })
+            db.commit()
+
+            # Send WebSocket update to notify UI
+            try:
+                from app.api.websocket_routes import get_job_websocket_manager
+                job_websocket_manager = get_job_websocket_manager()
+
+                # Send the same JSON structure that's in the database
+                await job_websocket_manager.send_job_status_update(
+                    tenant_id=tenant_id,
+                    job_id=job_id,
+                    status_json={
+                        'overall': 'FAILED',
+                        'error': worker_message
+                    }
+                )
+            except Exception as ws_error:
+                logger.warning(f"Failed to send WebSocket update: {ws_error}")
+
+            logger.info(f"📝 Job {job_id} marked as FAILED: {worker_message}")
+            raise HTTPException(status_code=400, detail=worker_message)
+
         # Set to RUNNING and record start time with proper timezone
         # Use atomic update to prevent race conditions
         from app.core.utils import DateTimeHelper
@@ -664,63 +723,29 @@ async def run_job_now(
             logger.info(f"🚀 Queuing Jira extraction job for background processing (integration {integration_id})")
 
             # Queue the job for extraction
-            success = await _queue_jira_extraction_job(tenant_id, integration_id, job_id)
+            # Queue the job for extraction (raises HTTPException if workers not running)
+            await _queue_jira_extraction_job(tenant_id, integration_id, job_id)
 
-            if success:
-                # Return HTTP 202 Accepted for non-blocking response
-
-                return JobActionResponse(
-                    success=True,
-                    message=f"Job {job_name} queued successfully - extraction will begin shortly",
-                    job_id=job_id,
-                    new_status="QUEUED"
-                )
-            else:
-                # Update job status to failed
-                update_query = text("""
-                    UPDATE etl_jobs
-                    SET status = jsonb_set(status, ARRAY['overall'], to_jsonb('FAILED'::text)),
-                        error_message = 'Failed to queue extraction job',
-                        last_updated_at = NOW()
-                    WHERE id = :job_id AND tenant_id = :tenant_id
-                """)
-                db.execute(update_query, {'job_id': job_id, 'tenant_id': tenant_id})
-                db.commit()
-
-                raise HTTPException(
-                    status_code=500,
-                    detail="Failed to queue extraction job"
-                )
+            # Return HTTP 202 Accepted for non-blocking response
+            return JobActionResponse(
+                success=True,
+                message=f"Job {job_name} queued successfully - extraction will begin shortly",
+                job_id=job_id,
+                new_status="QUEUED"
+            )
         elif job_name.lower() == 'github':
             logger.info(f"🚀 Queuing GitHub extraction job for background processing (integration {integration_id})")
 
-            # Queue the job for extraction
-            success = await _queue_github_extraction_job(tenant_id, integration_id, job_id)
+            # Queue the job for extraction (raises HTTPException if workers not running)
+            await _queue_github_extraction_job(tenant_id, integration_id, job_id)
 
-            if success:
-                # Return HTTP 202 Accepted for non-blocking response
-                return JobActionResponse(
-                    success=True,
-                    message=f"Job {job_name} queued successfully - extraction will begin shortly",
-                    job_id=job_id,
-                    new_status="QUEUED"
-                )
-            else:
-                # Update job status to failed
-                update_query = text("""
-                    UPDATE etl_jobs
-                    SET status = jsonb_set(status, ARRAY['overall'], to_jsonb('FAILED'::text)),
-                        error_message = 'Failed to queue extraction job',
-                        last_updated_at = NOW()
-                    WHERE id = :job_id AND tenant_id = :tenant_id
-                """)
-                db.execute(update_query, {'job_id': job_id, 'tenant_id': tenant_id})
-                db.commit()
-
-                raise HTTPException(
-                    status_code=500,
-                    detail="Failed to queue extraction job"
-                )
+            # Return HTTP 202 Accepted for non-blocking response
+            return JobActionResponse(
+                success=True,
+                message=f"Job {job_name} queued successfully - extraction will begin shortly",
+                job_id=job_id,
+                new_status="QUEUED"
+            )
         else:
             # For other jobs, set back to FINISHED with message
             finish_query = text("""
@@ -828,11 +853,36 @@ async def update_job_settings(
 
         job_name = result[0]
 
-        # Update settings
+        # Get current job details to recalculate next_run
+        job_query = text("""
+            SELECT status->>'overall' as overall_status,
+                   last_run_started_at,
+                   retry_count
+            FROM etl_jobs
+            WHERE id = :job_id AND tenant_id = :tenant_id
+        """)
+        job_result = db.execute(job_query, {'job_id': job_id, 'tenant_id': tenant_id}).fetchone()
+
+        if not job_result:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+        status, last_run_started_at, retry_count = job_result
+
+        # Recalculate next_run with new schedule interval using timezone-aware calculation
+        next_run = calculate_next_run(
+            last_run_started_at=last_run_started_at,
+            schedule_interval_minutes=request.schedule_interval_minutes,
+            retry_interval_minutes=request.retry_interval_minutes,
+            status=status,
+            retry_count=retry_count
+        )
+
+        # Update settings AND next_run
         update_query = text("""
             UPDATE etl_jobs
             SET schedule_interval_minutes = :schedule_interval,
                 retry_interval_minutes = :retry_interval,
+                next_run = :next_run,
                 last_updated_at = NOW()
             WHERE id = :job_id AND tenant_id = :tenant_id
         """)
@@ -840,12 +890,13 @@ async def update_job_settings(
             'job_id': job_id,
             'tenant_id': tenant_id,
             'schedule_interval': request.schedule_interval_minutes,
-            'retry_interval': request.retry_interval_minutes
+            'retry_interval': request.retry_interval_minutes,
+            'next_run': next_run
         })
         db.commit()
 
         logger.info(f"Job {job_name} (ID: {job_id}) settings updated: "
-                   f"schedule={request.schedule_interval_minutes}m, retry={request.retry_interval_minutes}m")
+                   f"schedule={request.schedule_interval_minutes}m, retry={request.retry_interval_minutes}m, next_run={next_run}")
 
         return JobSettingsResponse(
             success=True,
@@ -861,6 +912,35 @@ async def update_job_settings(
         db.rollback()
         logger.error(f"Error updating job {job_id} settings: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to update job settings: {str(e)}")
+
+
+def _check_workers_running() -> tuple[bool, str]:
+    """
+    Check if extraction workers are currently running.
+
+    Returns:
+        tuple: (workers_running: bool, message: str)
+    """
+    try:
+        from app.etl.workers.worker_manager import get_worker_manager
+
+        manager = get_worker_manager()
+        status = manager.get_worker_status()
+
+        workers_running = status.get('running', False)
+
+        if not workers_running:
+            message = "No workers are currently running. Please start workers from the Queue Management page before running jobs."
+            logger.warning(f"⚠️ Worker check failed: {message}")
+            return False, message
+
+        logger.info(f"✅ Worker check passed: Workers are running")
+        return True, "Workers are running"
+
+    except Exception as e:
+        logger.error(f"❌ Error checking worker status: {e}")
+        # If we can't check status, assume workers are running to avoid blocking jobs
+        return True, "Worker status check failed - proceeding anyway"
 
 
 async def _queue_jira_extraction_job(tenant_id: int, integration_id: int, job_id: int) -> bool:
@@ -881,10 +961,11 @@ async def _queue_jira_extraction_job(tenant_id: int, integration_id: int, job_id
         from app.core.database import get_database
         import json
 
+        # Note: Worker check is now done in run_job_now() before setting status to RUNNING
         # Note: Job status is already set to 'RUNNING' by run_job_now function
         # No need to update it again here to avoid database locks
 
-        logger.info(f"✅ Job {job_id} status updated to QUEUED")
+        logger.info(f"✅ Job {job_id} status already set to RUNNING - queuing extraction")
 
         # 🔑 Fetch the job token and last_sync_date from the database
         database = get_database()
@@ -943,6 +1024,9 @@ async def _queue_jira_extraction_job(tenant_id: int, integration_id: int, job_id
             logger.error(f"❌ Failed to publish extraction message to {tier_queue}")
             return False
 
+    except HTTPException:
+        # Re-raise HTTPException (e.g., workers not running)
+        raise
     except Exception as e:
         logger.error(f"Error queuing Jira extraction: {e}")
         import traceback
@@ -977,10 +1061,11 @@ async def _queue_github_extraction_job(tenant_id: int, integration_id: int, job_
         from app.models.unified_models import EtlJob
         import json
 
+        # Note: Worker check is now done in run_job_now() before setting status to RUNNING
         # Note: Job status is already set to 'RUNNING' by run_job_now function
         # No need to update it again here to avoid database locks
 
-        logger.info(f"✅ Job {job_id} status updated to QUEUED")
+        logger.info(f"✅ Job {job_id} status already set to RUNNING - queuing extraction")
 
         # 🔑 Check for checkpoint flag (new checkpoint system)
         database = get_database()
@@ -1161,6 +1246,9 @@ async def _queue_github_extraction_job(tenant_id: int, integration_id: int, job_
             logger.error(f"❌ Failed to publish extraction message to {tier_queue}")
             return False
 
+    except HTTPException:
+        # Re-raise HTTPException (e.g., workers not running)
+        raise
     except Exception as e:
         logger.error(f"Error queuing GitHub extraction: {e}")
         import traceback

@@ -1,9 +1,6 @@
 import { useState, useEffect } from 'react'
-import { useSearchParams } from 'react-router-dom'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '../components/ui/card'
-import { Button } from '../components/ui/button'
 import { Badge } from '../components/ui/badge'
-import { Separator } from '../components/ui/separator'
 import { Alert, AlertDescription } from '../components/ui/alert'
 import Header from '../components/Header'
 import CollapsedSidebar from '../components/CollapsedSidebar'
@@ -11,36 +8,36 @@ import ToastContainer from '../components/ToastContainer'
 import ConfirmationModal from '../components/ConfirmationModal'
 import { useToast } from '../hooks/useToast'
 import { useConfirmation } from '../hooks/useConfirmation'
-import { Play, Square, RotateCcw, Activity, Clock, CheckCircle, XCircle, AlertCircle, Settings, Save } from 'lucide-react'
+import { Play, Square, Activity, AlertCircle, Settings, Save, Download, Sparkles, TrendingUp, Database } from 'lucide-react'
 
-interface WorkerInstance {
-  worker_key: string
-  worker_number: number
-  worker_running: boolean
-  thread_alive: boolean
-  thread_name: string | null
-  queue_name: string | null
+interface QueueMessageStats {
+  publish: number
+  deliver: number
+  ack: number
+  get_empty: number
+  publish_rate: number
+  deliver_rate: number
+  ack_rate: number
 }
 
-interface WorkerTypeStatus {
-  count: number
-  instances: WorkerInstance[]
+interface QueueInfo {
+  name: string
+  vhost: string
+  state: string
+  messages: number
+  messages_ready: number
+  messages_unacknowledged: number
+  consumers: number
+  consumer_utilisation: number
+  memory: number
+  message_stats: QueueMessageStats | null
 }
 
-interface WorkerStatus {
-  running: boolean
-  worker_count: number
-  tenant_count: number
-  workers: Record<string, WorkerTypeStatus>
-  queue_stats: Record<string, any>
-  raw_data_stats: Record<string, {
-    count: number
-    oldest?: string
-    newest?: string
-  }>
+interface QueuesStatus {
+  extraction: QueueInfo
+  transform: QueueInfo
+  embedding: QueueInfo
 }
-
-
 
 interface WorkerPoolConfig {
   tier_configs: {
@@ -58,53 +55,100 @@ interface WorkerPoolConfig {
   }
 }
 
-type Tab = 'overview' | 'configuration'
+interface DatabaseCapacity {
+  total_connections: number
+  pool_size: number
+  max_overflow: number
+  reserved_for_ui: number
+  available_for_workers: number
+  current_worker_count: number
+  max_recommended_workers: number
+  current_usage_percent: number
+  can_add_workers: boolean
+  warning_message: string | null
+}
+
+interface WorkerStatus {
+  running: boolean
+  workers: {
+    [key: string]: {
+      tier: string
+      type: string
+      count: number
+      instances: Array<{
+        worker_key: string
+        worker_number: number
+        worker_running: boolean
+        thread_alive: boolean
+      }>
+    }
+  }
+  queue_stats: any
+  raw_data_stats: any
+}
 
 export default function QueueManagementPage() {
-  const [searchParams, setSearchParams] = useSearchParams()
   const { toasts, removeToast, showSuccess, showError } = useToast()
   const { confirmation, hideConfirmation, confirmAction } = useConfirmation()
 
+  const [queuesStatus, setQueuesStatus] = useState<QueuesStatus | null>(null)
   const [workerStatus, setWorkerStatus] = useState<WorkerStatus | null>(null)
   const [workerConfig, setWorkerConfig] = useState<WorkerPoolConfig | null>(null)
+  const [dbCapacity, setDbCapacity] = useState<DatabaseCapacity | null>(null)
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
-  const [scaleLoading, setScaleLoading] = useState(false)
+  const [saveLoading, setSaveLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
 
-  // Local state for tier selector
-  const [selectedTier, setSelectedTier] = useState<string>('free')
-  const [originalTier, setOriginalTier] = useState<string>('free')
+  // Local state for worker counts (editable)
+  const [extractionWorkers, setExtractionWorkers] = useState<number>(5)
+  const [transformWorkers, setTransformWorkers] = useState<number>(5)
+  const [embeddingWorkers, setEmbeddingWorkers] = useState<number>(15)
+
+  // Original values to detect changes
+  const [originalExtractionWorkers, setOriginalExtractionWorkers] = useState<number>(5)
+  const [originalTransformWorkers, setOriginalTransformWorkers] = useState<number>(5)
+  const [originalEmbeddingWorkers, setOriginalEmbeddingWorkers] = useState<number>(15)
 
   // Check if there are unsaved changes
-  const hasUnsavedChanges = selectedTier !== originalTier
+  const hasUnsavedChanges =
+    extractionWorkers !== originalExtractionWorkers ||
+    transformWorkers !== originalTransformWorkers ||
+    embeddingWorkers !== originalEmbeddingWorkers
 
-  // Initialize active tab from URL or default to 'overview'
-  const [activeTab, setActiveTab] = useState<Tab>(() => {
-    const tabFromUrl = searchParams.get('tab') as Tab
-    const validTabs: Tab[] = ['overview', 'configuration']
-    return validTabs.includes(tabFromUrl) ? tabFromUrl : 'overview'
-  })
-
-  // Update document title based on active tab
+  // Update document title
   useEffect(() => {
-    const titles = {
-      'overview': 'Queue Management - Overview',
-      'configuration': 'Queue Management - Configuration'
-    }
-    document.title = `${titles[activeTab]} - PEM`
-  }, [activeTab])
+    document.title = 'Queue Management - PEM'
+  }, [])
 
-  // Handle tab change and update URL
-  const handleTabChange = (tab: Tab) => {
-    setActiveTab(tab)
-    setSearchParams({ tab })
+  const fetchQueuesStatus = async () => {
+    try {
+      // Use backend service URL directly for admin endpoints
+      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
+      const response = await fetch(`${API_BASE_URL}/api/v1/admin/queues/status`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch queues status: ${response.statusText}`)
+      }
+
+      const data = await response.json()
+      console.log('Queues Status Response:', data)
+      setQueuesStatus(data)
+      setLastUpdated(new Date())
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to fetch queues status')
+      showError('Fetch Failed', err instanceof Error ? err.message : 'Failed to fetch queues status')
+    }
   }
 
   const fetchWorkerStatus = async () => {
     try {
-      // Use backend service URL directly for admin endpoints
       const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
       const response = await fetch(`${API_BASE_URL}/api/v1/admin/workers/status`, {
         headers: {
@@ -118,14 +162,12 @@ export default function QueueManagementPage() {
       }
 
       const data = await response.json()
+      console.log('Worker Status Response:', data)
       setWorkerStatus(data)
-      setLastUpdated(new Date())
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to fetch worker status')
+      console.error('Failed to fetch worker status:', err)
     }
   }
-
-
 
   const fetchWorkerConfig = async (updateLocalState = false) => {
     try {
@@ -146,46 +188,76 @@ export default function QueueManagementPage() {
 
       // Only update local state on initial load or after successful save
       if (updateLocalState) {
-        setSelectedTier(data.current_tenant_tier)
-        setOriginalTier(data.current_tenant_tier)
+        const allocation = data.current_tenant_allocation
+        setExtractionWorkers(allocation.extraction)
+        setTransformWorkers(allocation.transform)
+        setEmbeddingWorkers(allocation.embedding)
+        setOriginalExtractionWorkers(allocation.extraction)
+        setOriginalTransformWorkers(allocation.transform)
+        setOriginalEmbeddingWorkers(allocation.embedding)
       }
     } catch (err) {
       console.error('Failed to fetch worker config:', err)
     }
   }
 
-  const setTenantTier = async (tier: string) => {
-    setScaleLoading(true)
+  const fetchDatabaseCapacity = async () => {
+    try {
+      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
+      const response = await fetch(`${API_BASE_URL}/api/v1/admin/workers/db-capacity`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch database capacity: ${response.statusText}`)
+      }
+
+      const data = await response.json()
+      setDbCapacity(data)
+    } catch (err) {
+      console.error('Failed to fetch database capacity:', err)
+    }
+  }
+
+  const updateWorkerCounts = async () => {
+    setSaveLoading(true)
     setError(null)
 
     try {
       const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
-      const response = await fetch(`${API_BASE_URL}/api/v1/admin/workers/config/tier`, {
+      const response = await fetch(`${API_BASE_URL}/api/v1/admin/workers/config/update`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          tier: tier
+          extraction_workers: extractionWorkers,
+          transform_workers: transformWorkers,
+          embedding_workers: embeddingWorkers
         })
       })
 
       if (!response.ok) {
-        throw new Error(`Failed to set tenant tier: ${response.statusText}`)
+        const errorData = await response.json()
+        throw new Error(errorData.detail || `Failed to update worker counts: ${response.statusText}`)
       }
 
       // Refresh config and update local state to match saved values
       await fetchWorkerConfig(true)
+      await fetchDatabaseCapacity()
 
       // Show success message
       setError(null)
-      showSuccess('Tier Changed', `Tenant tier changed to ${tier}. Restart worker pools to apply changes.`)
+      showSuccess('Worker Counts Updated', 'Worker counts updated successfully. Restart worker pools to apply changes.')
 
       // Ask if user wants to restart workers using confirmation modal
       confirmAction(
         'Restart Worker Pools?',
-        `Tenant tier changed to ${tier} successfully! Changes will NOT take effect until worker pools are restarted. Would you like to restart all worker pools now? (This affects all tenants)`,
+        'Worker counts updated successfully! Changes will NOT take effect until worker pools are restarted. Would you like to restart all worker pools now?',
         async () => {
           // Automatically restart workers
           await performWorkerAction('restart')
@@ -193,16 +265,17 @@ export default function QueueManagementPage() {
         'Restart Pools'
       )
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to change tenant tier'
+      const errorMessage = err instanceof Error ? err.message : 'Failed to update worker counts'
       setError(errorMessage)
-      showError('Tier Change Failed', errorMessage)
+      showError('Update Failed', errorMessage)
     } finally {
-      setScaleLoading(false)
+      setSaveLoading(false)
     }
   }
 
-  const performWorkerAction = async (action: string) => {
-    setActionLoading(action)
+  const performWorkerAction = async (action: string, queueType?: string) => {
+    const actionKey = queueType ? `${action}_${queueType}` : action
+    setActionLoading(actionKey)
     setError(null)
 
     try {
@@ -214,7 +287,10 @@ export default function QueueManagementPage() {
           'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ action })
+        body: JSON.stringify({
+          action,
+          queue_type: queueType || null
+        })
       })
 
       if (!response.ok) {
@@ -227,59 +303,179 @@ export default function QueueManagementPage() {
         throw new Error(result.message || `Failed to ${action} workers`)
       }
 
-      // Refresh status after action
-      await fetchWorkerStatus()
+      // Show success message first
+      const scope = queueType ? `${queueType} workers` : 'all workers'
+      showSuccess(`Workers ${action === 'start' ? 'Started' : action === 'stop' ? 'Stopped' : 'Restarted'}`, `${result.message} (${scope})`)
+
+      // Wait a moment for workers to fully start/stop, then refresh status
+      await new Promise(resolve => setTimeout(resolve, 500))
+      await Promise.all([
+        fetchQueuesStatus(),
+        fetchWorkerStatus()
+      ])
     } catch (err) {
       setError(err instanceof Error ? err.message : `Failed to ${action} workers`)
+      showError(`Worker ${action.charAt(0).toUpperCase() + action.slice(1)} Failed`, err instanceof Error ? err.message : `Failed to ${action} workers`)
     } finally {
       setActionLoading(null)
     }
   }
 
 
+  // Get queue status info - matches RabbitMQ state exactly
+  const getQueueStatusInfo = (queueType: 'extraction' | 'transform' | 'embedding') => {
+    if (!queuesStatus) {
+      return {
+        color: 'text-gray-500',
+        bgColor: 'bg-gray-100',
+        label: 'unknown'
+      }
+    }
+
+    const queueInfo = queuesStatus[queueType]
+    const state = queueInfo.state.toLowerCase()
+
+    // Match RabbitMQ states exactly - "running" is blue (like job statuses)
+    if (state === 'running') {
+      return {
+        color: 'text-blue-500',
+        bgColor: 'bg-blue-100',
+        label: 'running'
+      }
+    } else if (state === 'idle') {
+      return {
+        color: 'text-gray-500',
+        bgColor: 'bg-gray-100',
+        label: 'idle'
+      }
+    } else {
+      return {
+        color: 'text-gray-500',
+        bgColor: 'bg-gray-100',
+        label: state
+      }
+    }
+  }
+
+  // Get worker status info (our internal worker processes)
+  const getWorkerStatusInfo = (queueType: 'extraction' | 'transform' | 'embedding') => {
+    if (!workerStatus || !workerConfig) {
+      return {
+        color: 'text-gray-500',
+        bgColor: 'bg-gray-100',
+        label: 'stopped'
+      }
+    }
+
+    // Get the tier and construct the worker key
+    const tier = workerConfig.current_tenant_tier
+    const workerKey = `${tier}_${queueType}`
+    const workerInfo = workerStatus.workers[workerKey]
+
+    if (!workerInfo) {
+      return {
+        color: 'text-gray-500',
+        bgColor: 'bg-gray-100',
+        label: 'stopped'
+      }
+    }
+
+    // Check if any worker instances are running
+    const hasRunningWorkers = workerInfo.instances.some(instance => instance.worker_running)
+
+    if (hasRunningWorkers) {
+      return {
+        color: 'text-blue-500',
+        bgColor: 'bg-blue-100',
+        label: 'running'
+      }
+    } else {
+      return {
+        color: 'text-gray-500',
+        bgColor: 'bg-gray-100',
+        label: 'stopped'
+      }
+    }
+  }
+
+  // Helper function to check if workers are running for a specific queue type
+  const areWorkersRunning = (queueType: 'extraction' | 'transform' | 'embedding'): boolean => {
+    if (!workerStatus || !workerConfig) return false
+
+    const tier = workerConfig.current_tenant_tier
+    const workerKey = `${tier}_${queueType}`
+    const workerInfo = workerStatus.workers[workerKey]
+
+    if (!workerInfo) return false
+
+    // Check if any worker instances are running
+    return workerInfo.instances.some(instance => instance.worker_running)
+  }
+
+  // Helper function to check if ALL workers are running (for global controls)
+  const areAllWorkersRunning = (): boolean => {
+    return areWorkersRunning('extraction') &&
+           areWorkersRunning('transform') &&
+           areWorkersRunning('embedding')
+  }
+
+  // Helper function to check if ALL workers are idle (for global controls)
+  const areAllWorkersIdle = (): boolean => {
+    return !areWorkersRunning('extraction') &&
+           !areWorkersRunning('transform') &&
+           !areWorkersRunning('embedding')
+  }
+
+  // Helper function to format memory size
+  const formatMemory = (bytes: number): string => {
+    if (bytes === 0) return '0 B'
+    const k = 1024
+    const sizes = ['B', 'KB', 'MB', 'GB']
+    const i = Math.floor(Math.log(bytes) / Math.log(k))
+    return `${(bytes / Math.pow(k, i)).toFixed(1)} ${sizes[i]}`
+  }
+
+  // Helper function to format rate (messages per second)
+  const formatRate = (rate: number): string => {
+    if (rate === 0) return '0/s'
+    if (rate < 1) return `${rate.toFixed(2)}/s`
+    return `${rate.toFixed(1)}/s`
+  }
+
+  // Helper function to format worker count (show total or 0)
+  const formatWorkerCount = (queueType: 'extraction' | 'transform' | 'embedding'): string => {
+    if (!workerConfig) return '0'
+
+    const total = workerConfig.current_tenant_allocation[queueType] ?? 0
+    const running = areWorkersRunning(queueType)
+
+    return running ? `${total}` : '0'
+  }
 
   useEffect(() => {
     const loadData = async () => {
       setLoading(true)
-      await Promise.all([fetchWorkerStatus(), fetchWorkerConfig(true)]) // Update local state on initial load
+      await Promise.all([
+        fetchQueuesStatus(),
+        fetchWorkerStatus(),
+        fetchWorkerConfig(true), // Update local state on initial load
+        fetchDatabaseCapacity()
+      ])
       setLoading(false)
     }
 
     loadData()
 
-    // Auto-refresh every 10 seconds (don't update local state on refresh)
-    const interval = setInterval(() => {
-      fetchWorkerStatus()
-      fetchWorkerConfig(false) // Don't reset user's selections
-    }, 10000)
+    // Auto-refresh every 3 seconds
+    const interval = setInterval(async () => {
+      await Promise.all([
+        fetchQueuesStatus(),
+        fetchWorkerStatus()
+      ])
+    }, 3000)
 
     return () => clearInterval(interval)
   }, [])
-
-  const getStatusIcon = (running: boolean, threadAlive: boolean) => {
-    if (running && threadAlive) {
-      return <CheckCircle className="h-4 w-4 text-green-500" />
-    } else if (running && !threadAlive) {
-      return <AlertCircle className="h-4 w-4 text-yellow-500" />
-    } else {
-      return <XCircle className="h-4 w-4 text-red-500" />
-    }
-  }
-
-
-
-  const getDataStatusIcon = (status: string) => {
-    switch (status) {
-      case 'pending':
-        return <Clock className="h-4 w-4 text-yellow-500" />
-      case 'completed':
-        return <CheckCircle className="h-4 w-4 text-green-500" />
-      case 'failed':
-        return <XCircle className="h-4 w-4 text-red-500" />
-      default:
-        return <Activity className="h-4 w-4 text-blue-500" />
-    }
-  }
 
   if (loading) {
     return (
@@ -326,39 +522,7 @@ export default function QueueManagementPage() {
           </Alert>
         )}
 
-        {/* Tabs */}
-        <div className="border-b border-gray-300 mb-6">
-          <nav className="flex space-x-8">
-            <button
-              onClick={() => handleTabChange('overview')}
-              className={`py-3 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 transition-colors ${
-                activeTab === 'overview'
-                  ? 'border-primary text-primary'
-                  : 'border-transparent text-secondary hover:text-primary hover:border-gray-300'
-              }`}
-            >
-              <Activity className="w-4 h-4" />
-              <span>Overview</span>
-            </button>
-            <button
-              onClick={() => handleTabChange('configuration')}
-              className={`py-3 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 transition-colors ${
-                activeTab === 'configuration'
-                  ? 'border-primary text-primary'
-                  : 'border-transparent text-secondary hover:text-primary hover:border-gray-300'
-              }`}
-            >
-              <Settings className="w-4 h-4" />
-              <span>Configuration</span>
-            </button>
-          </nav>
-        </div>
-
-        {/* Overview Tab Content */}
-        {activeTab === 'overview' && (
-          <div className="space-y-6">
-
-        {/* Worker Controls */}
+        {/* Unified Queue Management Card */}
         <Card className="border border-gray-400"
           onMouseEnter={(e) => {
             e.currentTarget.style.borderColor = 'var(--color-1)'
@@ -369,362 +533,566 @@ export default function QueueManagementPage() {
             e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
           }}
         >
-          <CardHeader>
-            <CardTitle>Worker Controls</CardTitle>
-            <CardDescription>
-              Start, stop, or restart ETL background workers for your tenant
-            </CardDescription>
+          {/* Card Header with Global Controls */}
+          <CardHeader className="border-b border-gray-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Activity className="h-5 w-5" />
+                  Worker Pools & Queue Management
+                </CardTitle>
+                <CardDescription className="mt-1">
+                  Monitor and control all ETL background workers
+                </CardDescription>
+              </div>
+
+              {/* Global Action Buttons */}
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => performWorkerAction('start')}
+                  disabled={actionLoading === 'start' || areAllWorkersRunning()}
+                  className={`btn-crud-create flex items-center gap-2 ${areAllWorkersRunning() ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  title={areAllWorkersRunning() ? 'All workers are already running or ready' : 'Start all workers (currently Idle)'}
+                >
+                  <Play className="h-4 w-4" />
+                  <span>{actionLoading === 'start' ? 'Starting...' : 'Start All'}</span>
+                </button>
+
+                <button
+                  onClick={() => performWorkerAction('stop')}
+                  disabled={actionLoading === 'stop' || areAllWorkersIdle()}
+                  className={`btn-crud-cancel flex items-center gap-2 ${areAllWorkersIdle() ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  title={areAllWorkersIdle() ? 'All workers are idle (not running)' : 'Stop all running workers'}
+                >
+                  <Square className="h-4 w-4" />
+                  <span>{actionLoading === 'stop' ? 'Stopping...' : 'Stop All'}</span>
+                </button>
+              </div>
+            </div>
           </CardHeader>
-          <CardContent>
-            <div className="flex gap-4">
-              <Button
-                onClick={() => performWorkerAction('start')}
-                disabled={actionLoading === 'start'}
-                className="flex items-center gap-2"
-              >
-                <Play className="h-4 w-4" />
-                {actionLoading === 'start' ? 'Starting...' : 'Start Workers'}
-              </Button>
 
-              <Button
-                variant="outline"
-                onClick={() => performWorkerAction('stop')}
-                disabled={actionLoading === 'stop'}
-                className="flex items-center gap-2"
-              >
-                <Square className="h-4 w-4" />
-                {actionLoading === 'stop' ? 'Stopping...' : 'Stop Workers'}
-              </Button>
+          <CardContent className="p-6">
+            {/* Three Queues - All in One Row */}
+            <div className="grid grid-cols-3 gap-4">
 
-              <Button
-                variant="outline"
-                onClick={() => performWorkerAction('restart')}
-                disabled={actionLoading === 'restart'}
-                className="flex items-center gap-2"
-              >
-                <RotateCcw className="h-4 w-4" />
-                {actionLoading === 'restart' ? 'Restarting...' : 'Restart Workers'}
-              </Button>
-            </div>
-          </CardContent>
-        </Card>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          {/* Worker Status Card */}
-          <Card className="border border-gray-400"
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = 'var(--color-1)'
-              e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = '#9ca3af'
-              e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
-            }}
-          >
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Activity className="h-5 w-5" />
-                Worker Status
-              </CardTitle>
-              <CardDescription>
-                Current status of ETL background workers
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="font-medium">Manager Running:</span>
-                  <Badge variant={workerStatus?.running ? "default" : "destructive"}>
-                    {workerStatus?.running ? "Active" : "Inactive"}
-                  </Badge>
-                </div>
-
-                <Separator />
-
-                <div className="space-y-3">
-                  <h4 className="font-medium text-sm">Worker Status (Your Tier):</h4>
-
-                  {/* Dynamically render workers by type (tier-based keys like premium_extraction) */}
-                  {workerStatus?.workers && Object.keys(workerStatus.workers).length > 0 ? (
-                    <>
-                      {/* Extraction Workers */}
-                      {Object.entries(workerStatus.workers)
-                        .filter(([key]) => key.includes('extraction'))
-                        .map(([key, workerData]) => (
-                          <div key={key} className="p-3 bg-green-50 rounded-lg border border-green-200">
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="text-sm font-semibold text-green-900">Extraction Workers</span>
-                              <Badge variant={workerData.instances.some(w => w.worker_running && w.thread_alive) ? "default" : "destructive"}>
-                                {workerData.instances.filter(w => w.worker_running && w.thread_alive).length} / {workerData.count} Running
-                              </Badge>
-                            </div>
-                            <div className="space-y-1">
-                              {workerData.instances.map((instance) => (
-                                <div key={instance.worker_key} className="flex items-center justify-between text-xs">
-                                  <div className="flex items-center gap-2">
-                                    {getStatusIcon(instance.worker_running, instance.thread_alive)}
-                                    <span>Worker {instance.worker_number + 1}</span>
-                                  </div>
-                                  <span className={instance.worker_running && instance.thread_alive ? "text-green-600" : "text-red-600"}>
-                                    {instance.worker_running && instance.thread_alive ? "Running" : "Stopped"}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-
-                      {/* Transform Workers */}
-                      {Object.entries(workerStatus.workers)
-                        .filter(([key]) => key.includes('transform'))
-                        .map(([key, workerData]) => (
-                          <div key={key} className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="text-sm font-semibold text-blue-900">Transform Workers</span>
-                              <Badge variant={workerData.instances.some(w => w.worker_running && w.thread_alive) ? "default" : "destructive"}>
-                                {workerData.instances.filter(w => w.worker_running && w.thread_alive).length} / {workerData.count} Running
-                              </Badge>
-                            </div>
-                            <div className="space-y-1">
-                              {workerData.instances.map((instance) => (
-                                <div key={instance.worker_key} className="flex items-center justify-between text-xs">
-                                  <div className="flex items-center gap-2">
-                                    {getStatusIcon(instance.worker_running, instance.thread_alive)}
-                                    <span>Worker {instance.worker_number + 1}</span>
-                                  </div>
-                                  <span className={instance.worker_running && instance.thread_alive ? "text-green-600" : "text-red-600"}>
-                                    {instance.worker_running && instance.thread_alive ? "Running" : "Stopped"}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-
-                      {/* Embedding Workers */}
-                      {Object.entries(workerStatus.workers)
-                        .filter(([key]) => key.includes('embedding'))
-                        .map(([key, workerData]) => (
-                          <div key={key} className="p-3 bg-purple-50 rounded-lg border border-purple-200">
-                            <div className="flex items-center justify-between mb-2">
-                              <span className="text-sm font-semibold text-purple-900">Embedding Workers</span>
-                              <Badge variant={workerData.instances.some(w => w.worker_running && w.thread_alive) ? "default" : "destructive"}>
-                                {workerData.instances.filter(w => w.worker_running && w.thread_alive).length} / {workerData.count} Running
-                              </Badge>
-                            </div>
-                            <div className="space-y-1">
-                              {workerData.instances.map((instance) => (
-                                <div key={instance.worker_key} className="flex items-center justify-between text-xs">
-                                  <div className="flex items-center gap-2">
-                                    {getStatusIcon(instance.worker_running, instance.thread_alive)}
-                                    <span>Worker {instance.worker_number + 1}</span>
-                                  </div>
-                                  <span className={instance.worker_running && instance.thread_alive ? "text-green-600" : "text-red-600"}>
-                                    {instance.worker_running && instance.thread_alive ? "Running" : "Stopped"}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                    </>
-                  ) : (
-                    <div className="text-center text-sm text-secondary p-4 bg-gray-50 rounded-lg">
-                      No workers running for your tier
+              {/* Extraction Queue */}
+              <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                <div className="flex flex-col space-y-3">
+                  {/* Queue Icon & Title */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-white border border-gray-200">
+                        <Download className="h-4 w-4 text-gray-600" />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-semibold text-primary">Extraction</h3>
+                        <Badge variant="default" className="text-xs px-2 py-0.5 bg-gradient-1-2 text-white border-0 rounded">
+                          Premium
+                        </Badge>
+                      </div>
                     </div>
-                  )}
-                </div>
-              </div>
-            </CardContent>
-          </Card>
+                    {/* Action Buttons - Icon Only */}
+                    <div className="flex items-center space-x-1">
+                      <button
+                        onClick={() => performWorkerAction('start', 'extraction')}
+                        disabled={actionLoading === 'start_extraction' || areWorkersRunning('extraction')}
+                        className={`p-2 rounded-lg hover:bg-tertiary transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${areWorkersRunning('extraction') ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        title={areWorkersRunning('extraction') ? 'Workers are already running or ready' : 'Start workers'}
+                      >
+                        <Play className="w-4 h-4 text-secondary" />
+                      </button>
+                      <button
+                        onClick={() => performWorkerAction('stop', 'extraction')}
+                        disabled={actionLoading === 'stop_extraction' || !areWorkersRunning('extraction')}
+                        className={`p-2 rounded-lg hover:bg-tertiary transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${!areWorkersRunning('extraction') ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        title={!areWorkersRunning('extraction') ? 'Workers are idle' : 'Stop workers'}
+                      >
+                        <Square className="w-4 h-4 text-secondary" />
+                      </button>
+                    </div>
+                  </div>
 
-          {/* Queue Statistics Card */}
-          <Card className="border border-gray-400"
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = 'var(--color-1)'
-              e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = '#9ca3af'
-              e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
-            }}
-          >
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Clock className="h-5 w-5" />
-                Processing Queue
-              </CardTitle>
-              <CardDescription>
-                Current data processing status
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {workerStatus?.raw_data_stats && Object.keys(workerStatus.raw_data_stats).length > 0 ? (
-                  Object.entries(workerStatus.raw_data_stats).map(([key, stats]) => {
-                    const [status, dataType] = key.split('_', 2)
+                  {/* Status Badges & Stats */}
+                  {(() => {
+                    const queueStatusInfo = getQueueStatusInfo('extraction')
+                    const workerStatusInfo = getWorkerStatusInfo('extraction')
+                    const queueInfo = queuesStatus?.extraction
                     return (
-                      <div key={key} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                        <div className="flex items-center gap-2">
-                          {getDataStatusIcon(status)}
-                          <div>
-                            <span className="font-medium capitalize">{status}</span>
-                            <span className="text-secondary ml-1">({dataType.replace('_', ' ')})</span>
+                      <>
+                        <div className="space-y-2">
+                          {/* Queue Status */}
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-gray-500">Queue:</span>
+                              <Badge variant="default" className={`text-xs px-2 py-0.5 ${queueStatusInfo.bgColor} ${queueStatusInfo.color} border-0 rounded`}>
+                                {queueStatusInfo.label}
+                              </Badge>
+                            </div>
+                            <span className="text-xs text-secondary">
+                              {queueInfo?.messages ?? 0} messages
+                            </span>
+                          </div>
+
+                          {/* Worker Status */}
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-gray-500">Workers:</span>
+                              <Badge variant="default" className={`text-xs px-2 py-0.5 ${workerStatusInfo.bgColor} ${workerStatusInfo.color} border-0 rounded`}>
+                                {workerStatusInfo.label}
+                              </Badge>
+                            </div>
+                            <span className="text-xs text-secondary">
+                              {formatWorkerCount('extraction')} workers
+                            </span>
                           </div>
                         </div>
-                        <div className="text-right">
-                          <div className="font-medium">{stats.count} records</div>
-                          {stats.oldest && (
-                            <div className="text-xs text-secondary">
-                              Oldest: {new Date(stats.oldest).toLocaleString()}
+
+                        {/* Additional Queue Metrics */}
+                        {queueInfo && (
+                          <div className="pt-2 border-t border-gray-200 space-y-1">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-gray-500 flex items-center gap-1">
+                                <Database className="w-3 h-3" />
+                                Memory
+                              </span>
+                              <span className="text-secondary font-medium">{formatMemory(queueInfo.memory)}</span>
                             </div>
-                          )}
-                        </div>
-                      </div>
+                            {queueInfo.message_stats && (
+                              <>
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-gray-500 flex items-center gap-1">
+                                    <TrendingUp className="w-3 h-3" />
+                                    Published
+                                  </span>
+                                  <span className="text-secondary font-medium">
+                                    {queueInfo.message_stats.publish.toLocaleString()} ({formatRate(queueInfo.message_stats.publish_rate)})
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-gray-500">Delivered</span>
+                                  <span className="text-secondary font-medium">
+                                    {queueInfo.message_stats.deliver.toLocaleString()} ({formatRate(queueInfo.message_stats.deliver_rate)})
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-gray-500">Acknowledged</span>
+                                  <span className="text-secondary font-medium">
+                                    {queueInfo.message_stats.ack.toLocaleString()} ({formatRate(queueInfo.message_stats.ack_rate)})
+                                  </span>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </>
                     )
-                  })
-                ) : (
-                  <div className="text-center py-4 text-secondary">
-                    <CheckCircle className="h-8 w-8 mx-auto mb-2 text-green-500" />
-                    No pending data to process
+                  })()}
+                </div>
+              </div>
+
+              {/* Transform Queue */}
+              <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                <div className="flex flex-col space-y-3">
+                  {/* Queue Icon & Title */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-white border border-gray-200">
+                        <Activity className="h-4 w-4 text-gray-600" />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-semibold text-primary">Transform</h3>
+                        <Badge variant="default" className="text-xs px-2 py-0.5 bg-gradient-1-2 text-white border-0 rounded">
+                          Premium
+                        </Badge>
+                      </div>
+                    </div>
+                    {/* Action Buttons - Icon Only */}
+                    <div className="flex items-center space-x-1">
+                      <button
+                        onClick={() => performWorkerAction('start', 'transform')}
+                        disabled={actionLoading === 'start_transform' || areWorkersRunning('transform')}
+                        className={`p-2 rounded-lg hover:bg-tertiary transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${areWorkersRunning('transform') ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        title={areWorkersRunning('transform') ? 'Workers are already running or ready' : 'Start workers'}
+                      >
+                        <Play className="w-4 h-4 text-secondary" />
+                      </button>
+                      <button
+                        onClick={() => performWorkerAction('stop', 'transform')}
+                        disabled={actionLoading === 'stop_transform' || !areWorkersRunning('transform')}
+                        className={`p-2 rounded-lg hover:bg-tertiary transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${!areWorkersRunning('transform') ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        title={!areWorkersRunning('transform') ? 'Workers are idle' : 'Stop workers'}
+                      >
+                        <Square className="w-4 h-4 text-secondary" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Status Badges & Stats */}
+                  {(() => {
+                    const queueStatusInfo = getQueueStatusInfo('transform')
+                    const workerStatusInfo = getWorkerStatusInfo('transform')
+                    const queueInfo = queuesStatus?.transform
+                    return (
+                      <>
+                        <div className="space-y-2">
+                          {/* Queue Status */}
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-gray-500">Queue:</span>
+                              <Badge variant="default" className={`text-xs px-2 py-0.5 ${queueStatusInfo.bgColor} ${queueStatusInfo.color} border-0 rounded`}>
+                                {queueStatusInfo.label}
+                              </Badge>
+                            </div>
+                            <span className="text-xs text-secondary">
+                              {queueInfo?.messages ?? 0} messages
+                            </span>
+                          </div>
+
+                          {/* Worker Status */}
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-gray-500">Workers:</span>
+                              <Badge variant="default" className={`text-xs px-2 py-0.5 ${workerStatusInfo.bgColor} ${workerStatusInfo.color} border-0 rounded`}>
+                                {workerStatusInfo.label}
+                              </Badge>
+                            </div>
+                            <span className="text-xs text-secondary">
+                              {formatWorkerCount('transform')} workers
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Additional Queue Metrics */}
+                        {queueInfo && (
+                          <div className="pt-2 border-t border-gray-200 space-y-1">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-gray-500 flex items-center gap-1">
+                                <Database className="w-3 h-3" />
+                                Memory
+                              </span>
+                              <span className="text-secondary font-medium">{formatMemory(queueInfo.memory)}</span>
+                            </div>
+                            {queueInfo.message_stats && (
+                              <>
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-gray-500 flex items-center gap-1">
+                                    <TrendingUp className="w-3 h-3" />
+                                    Published
+                                  </span>
+                                  <span className="text-secondary font-medium">
+                                    {queueInfo.message_stats.publish.toLocaleString()} ({formatRate(queueInfo.message_stats.publish_rate)})
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-gray-500">Delivered</span>
+                                  <span className="text-secondary font-medium">
+                                    {queueInfo.message_stats.deliver.toLocaleString()} ({formatRate(queueInfo.message_stats.deliver_rate)})
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-gray-500">Acknowledged</span>
+                                  <span className="text-secondary font-medium">
+                                    {queueInfo.message_stats.ack.toLocaleString()} ({formatRate(queueInfo.message_stats.ack_rate)})
+                                  </span>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    )
+                  })()}
+                </div>
+              </div>
+
+              {/* Embedding Queue */}
+              <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                <div className="flex flex-col space-y-3">
+                  {/* Queue Icon & Title */}
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center space-x-2">
+                      <div className="w-8 h-8 rounded-lg flex items-center justify-center bg-white border border-gray-200">
+                        <Sparkles className="h-4 w-4 text-gray-600" />
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-semibold text-primary">Embedding</h3>
+                        <Badge variant="default" className="text-xs px-2 py-0.5 bg-gradient-1-2 text-white border-0 rounded">
+                          Premium
+                        </Badge>
+                      </div>
+                    </div>
+                    {/* Action Buttons - Icon Only */}
+                    <div className="flex items-center space-x-1">
+                      <button
+                        onClick={() => performWorkerAction('start', 'embedding')}
+                        disabled={actionLoading === 'start_embedding' || areWorkersRunning('embedding')}
+                        className={`p-2 rounded-lg hover:bg-tertiary transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${areWorkersRunning('embedding') ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        title={areWorkersRunning('embedding') ? 'Workers are already running or ready' : 'Start workers'}
+                      >
+                        <Play className="w-4 h-4 text-secondary" />
+                      </button>
+                      <button
+                        onClick={() => performWorkerAction('stop', 'embedding')}
+                        disabled={actionLoading === 'stop_embedding' || !areWorkersRunning('embedding')}
+                        className={`p-2 rounded-lg hover:bg-tertiary transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${!areWorkersRunning('embedding') ? 'opacity-50 cursor-not-allowed' : ''}`}
+                        title={!areWorkersRunning('embedding') ? 'Workers are idle' : 'Stop workers'}
+                      >
+                        <Square className="w-4 h-4 text-secondary" />
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Status Badges & Stats */}
+                  {(() => {
+                    const queueStatusInfo = getQueueStatusInfo('embedding')
+                    const workerStatusInfo = getWorkerStatusInfo('embedding')
+                    const queueInfo = queuesStatus?.embedding
+                    return (
+                      <>
+                        <div className="space-y-2">
+                          {/* Queue Status */}
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-gray-500">Queue:</span>
+                              <Badge variant="default" className={`text-xs px-2 py-0.5 ${queueStatusInfo.bgColor} ${queueStatusInfo.color} border-0 rounded`}>
+                                {queueStatusInfo.label}
+                              </Badge>
+                            </div>
+                            <span className="text-xs text-secondary">
+                              {queueInfo?.messages ?? 0} messages
+                            </span>
+                          </div>
+
+                          {/* Worker Status */}
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center gap-2">
+                              <span className="text-xs text-gray-500">Workers:</span>
+                              <Badge variant="default" className={`text-xs px-2 py-0.5 ${workerStatusInfo.bgColor} ${workerStatusInfo.color} border-0 rounded`}>
+                                {workerStatusInfo.label}
+                              </Badge>
+                            </div>
+                            <span className="text-xs text-secondary">
+                              {formatWorkerCount('embedding')} workers
+                            </span>
+                          </div>
+                        </div>
+
+                        {/* Additional Queue Metrics */}
+                        {queueInfo && (
+                          <div className="pt-2 border-t border-gray-200 space-y-1">
+                            <div className="flex items-center justify-between text-xs">
+                              <span className="text-gray-500 flex items-center gap-1">
+                                <Database className="w-3 h-3" />
+                                Memory
+                              </span>
+                              <span className="text-secondary font-medium">{formatMemory(queueInfo.memory)}</span>
+                            </div>
+                            {queueInfo.message_stats && (
+                              <>
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-gray-500 flex items-center gap-1">
+                                    <TrendingUp className="w-3 h-3" />
+                                    Published
+                                  </span>
+                                  <span className="text-secondary font-medium">
+                                    {queueInfo.message_stats.publish.toLocaleString()} ({formatRate(queueInfo.message_stats.publish_rate)})
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-gray-500">Delivered</span>
+                                  <span className="text-secondary font-medium">
+                                    {queueInfo.message_stats.deliver.toLocaleString()} ({formatRate(queueInfo.message_stats.deliver_rate)})
+                                  </span>
+                                </div>
+                                <div className="flex items-center justify-between text-xs">
+                                  <span className="text-gray-500">Acknowledged</span>
+                                  <span className="text-secondary font-medium">
+                                    {queueInfo.message_stats.ack.toLocaleString()} ({formatRate(queueInfo.message_stats.ack_rate)})
+                                  </span>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        )}
+                      </>
+                    )
+                  })()}
+                </div>
+              </div>
+
+            </div>
+          </CardContent>
+        </Card>
+
+        {/* Separate Worker Configuration Card */}
+          <Card className="border border-gray-400 mt-6"
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = 'var(--color-1)'
+              e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = '#9ca3af'
+              e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+            }}
+          >
+            <CardHeader className="border-b border-gray-200">
+              <div className="flex items-center justify-between">
+                <div>
+                  <CardTitle className="flex items-center gap-2">
+                    <Settings className="h-5 w-5" />
+                    Worker Configuration
+                  </CardTitle>
+                  <CardDescription className="mt-1">
+                    Configure worker counts for each queue type
+                  </CardDescription>
+                </div>
+                <button
+                  onClick={updateWorkerCounts}
+                  disabled={saveLoading || !hasUnsavedChanges}
+                  className="btn-crud-create disabled:opacity-50 disabled:cursor-not-allowed min-w-[180px] flex items-center gap-2"
+                >
+                  <Save className="h-4 w-4 flex-shrink-0" />
+                  <span className="whitespace-nowrap">{saveLoading ? 'Saving...' : 'Save Configuration'}</span>
+                </button>
+              </div>
+            </CardHeader>
+
+            <CardContent className="p-6">
+              <div className="space-y-4">
+                {/* Database Capacity Warning */}
+                {dbCapacity && dbCapacity.warning_message && (
+                  <Alert className="border-yellow-200 bg-yellow-50">
+                    <AlertCircle className="h-4 w-4 text-yellow-600" />
+                    <AlertDescription className="text-yellow-800 text-xs">
+                      {dbCapacity.warning_message}
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {/* Database Capacity Stats */}
+                {dbCapacity && (
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                      <div className="text-xs text-secondary">Total Connections</div>
+                      <div className="text-xl font-bold">{dbCapacity.total_connections}</div>
+                      <div className="text-xs text-secondary mt-1">Pool: {dbCapacity.pool_size} + Overflow: {dbCapacity.max_overflow}</div>
+                    </div>
+                    <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                      <div className="text-xs text-secondary">Reserved for UI</div>
+                      <div className="text-xl font-bold text-blue-600">{dbCapacity.reserved_for_ui}</div>
+                      <div className="text-xs text-secondary mt-1">Frontend operations</div>
+                    </div>
+                    <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+                      <div className="text-xs text-secondary">Available for Workers</div>
+                      <div className="text-xl font-bold text-green-600">{dbCapacity.available_for_workers}</div>
+                      <div className="text-xs text-secondary mt-1">
+                        Recommended: {dbCapacity.max_recommended_workers} <span className="text-gray-400">(20% buffer)</span>
+                      </div>
+                    </div>
+                    <div className={`p-3 rounded-lg border ${dbCapacity.current_usage_percent > 80 ? 'bg-red-50 border-red-200' : dbCapacity.current_usage_percent > 60 ? 'bg-yellow-50 border-yellow-200' : 'bg-green-50 border-green-200'}`}>
+                      <div className="text-xs text-secondary">Current Usage</div>
+                      <div className={`text-xl font-bold ${dbCapacity.current_usage_percent > 80 ? 'text-red-600' : dbCapacity.current_usage_percent > 60 ? 'text-yellow-600' : 'text-green-600'}`}>
+                        {dbCapacity.current_usage_percent.toFixed(1)}%
+                      </div>
+                      <div className="text-xs text-secondary mt-1">{dbCapacity.current_worker_count} / {dbCapacity.max_recommended_workers} workers</div>
+                    </div>
                   </div>
                 )}
+
+                {/* Worker Count Configuration */}
+                <div className="p-4 bg-white rounded-lg border border-gray-200">
+                  <div className="flex items-center gap-6">
+                    {/* Extraction Workers */}
+                    <div className="flex items-center gap-3 flex-1">
+                      <label className="text-sm font-semibold text-gray-700 whitespace-nowrap">
+                        Extraction Workers
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max={dbCapacity?.max_recommended_workers ?? 100}
+                        value={extractionWorkers}
+                        onChange={(e) => setExtractionWorkers(parseInt(e.target.value) || 1)}
+                        disabled={saveLoading}
+                        className="w-20 p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-semibold text-center"
+                      />
+                    </div>
+
+                    {/* Transform Workers */}
+                    <div className="flex items-center gap-3 flex-1">
+                      <label className="text-sm font-semibold text-gray-700 whitespace-nowrap">
+                        Transform Workers
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max={dbCapacity?.max_recommended_workers ?? 100}
+                        value={transformWorkers}
+                        onChange={(e) => setTransformWorkers(parseInt(e.target.value) || 1)}
+                        disabled={saveLoading}
+                        className="w-20 p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-semibold text-center"
+                      />
+                    </div>
+
+                    {/* Embedding Workers */}
+                    <div className="flex items-center gap-3 flex-1">
+                      <label className="text-sm font-semibold text-gray-700 whitespace-nowrap">
+                        Embedding Workers
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max={dbCapacity?.max_recommended_workers ?? 100}
+                        value={embeddingWorkers}
+                        onChange={(e) => setEmbeddingWorkers(parseInt(e.target.value) || 1)}
+                        disabled={saveLoading}
+                        className="w-20 p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-semibold text-center"
+                      />
+                    </div>
+                  </div>
+
+                  {/* Total Workers Summary */}
+                  <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-semibold">Total Workers:</span>
+                      <div className="flex items-center gap-3">
+                        <span className="text-lg font-bold">
+                          {extractionWorkers + transformWorkers + embeddingWorkers}
+                        </span>
+                        {dbCapacity && (
+                          <Badge variant={
+                            (extractionWorkers + transformWorkers + embeddingWorkers) > dbCapacity.max_recommended_workers
+                              ? "destructive"
+                              : "default"
+                          }>
+                            {(extractionWorkers + transformWorkers + embeddingWorkers) > dbCapacity.max_recommended_workers
+                              ? "Exceeds Limit!"
+                              : "Within Limits"}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                    {dbCapacity && (extractionWorkers + transformWorkers + embeddingWorkers) > dbCapacity.max_recommended_workers && (
+                      <div className="mt-2 text-xs text-red-600">
+                        ⚠️ Total workers ({extractionWorkers + transformWorkers + embeddingWorkers}) exceeds recommended maximum ({dbCapacity.max_recommended_workers}).
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Important Notes */}
+                  <Alert className="border-blue-200 bg-blue-50 mt-4">
+                    <AlertCircle className="h-3.5 w-3.5 text-blue-600" />
+                    <AlertDescription className="text-blue-800">
+                      <div className="text-xs"><strong>Important:</strong> Changes require worker pool restart to take effect. Each worker uses 1 database connection.</div>
+                    </AlertDescription>
+                  </Alert>
+                </div>
               </div>
             </CardContent>
           </Card>
         </div>
-
-          </div>
-        )}
-
-        {/* Configuration Tab Content */}
-        {activeTab === 'configuration' && (
-          <div className="space-y-6">
-
-        {/* Configuration Header with Apply Button */}
-        <div className="rounded-lg bg-table-container shadow-md overflow-hidden border border-gray-400">
-          <div className="px-6 py-5 flex justify-between items-center bg-table-header">
-            <h2 className="text-lg font-semibold text-table-header">Tenant Tier Configuration</h2>
-            <button
-              onClick={() => setTenantTier(selectedTier)}
-              disabled={scaleLoading || !hasUnsavedChanges}
-              className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2 font-medium shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Save className="h-4 w-4" />
-              <span>{scaleLoading ? 'Saving...' : 'Save Tier'}</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Worker Scale Configuration Card */}
-        <Card className="border border-gray-400"
-          onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = 'var(--color-1)'
-            e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = '#9ca3af'
-            e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
-          }}
-        >
-          <CardContent className="pt-6">
-            <div className="space-y-6">
-              {/* Current Tier Display */}
-              {workerConfig && (
-                <div className="p-4 bg-gray-50 rounded-lg">
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <span className="text-secondary">Current Tier:</span>
-                      <div className="font-semibold text-lg mt-1 capitalize">{workerConfig.current_tenant_tier}</div>
-                    </div>
-                    <div>
-                      <span className="text-secondary">Worker Allocation (Shared Pool):</span>
-                      <div className="font-semibold text-sm mt-1">
-                        {workerConfig.current_tenant_allocation.extraction} Extraction + {' '}
-                        {workerConfig.current_tenant_allocation.transform} Transform + {' '}
-                        {workerConfig.current_tenant_allocation.embedding} Embedding
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              )}
-
-              {/* Tier Selector */}
-              <div className="space-y-4">
-                <h4 className="font-medium">Select Tenant Tier:</h4>
-
-                <div className="space-y-4">
-                  <select
-                    value={selectedTier}
-                    onChange={(e) => setSelectedTier(e.target.value)}
-                    disabled={scaleLoading}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg"
-                  >
-                    <option value="free">Free (1 worker per pool)</option>
-                    <option value="basic">Basic (3 workers per pool)</option>
-                    <option value="premium">Premium (5 workers per pool)</option>
-                    <option value="enterprise">Enterprise (10 workers per pool)</option>
-                  </select>
-                  <p className="text-xs text-secondary">
-                    Workers are shared across all tenants in the same tier. Changing tier affects worker pool allocation.
-                  </p>
-                </div>
-
-                {/* Tier Comparison Table */}
-                {workerConfig && (
-                  <div className="mt-6 overflow-hidden rounded-lg border border-gray-300">
-                    <table className="w-full text-sm">
-                      <thead className="bg-gray-100">
-                        <tr>
-                          <th className="px-4 py-2 text-left font-semibold">Tier</th>
-                          <th className="px-4 py-2 text-center font-semibold">Extraction</th>
-                          <th className="px-4 py-2 text-center font-semibold">Transform</th>
-                          <th className="px-4 py-2 text-center font-semibold">Embedding</th>
-                          <th className="px-4 py-2 text-center font-semibold">Total Workers</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {Object.entries(workerConfig.tier_configs).map(([tier, config]) => (
-                          <tr key={tier} className={tier === selectedTier ? 'bg-blue-50' : ''}>
-                            <td className="px-4 py-2 font-medium capitalize">{tier}</td>
-                            <td className="px-4 py-2 text-center">{config.extraction}</td>
-                            <td className="px-4 py-2 text-center">{config.transform}</td>
-                            <td className="px-4 py-2 text-center">{config.embedding}</td>
-                            <td className="px-4 py-2 text-center font-semibold">
-                              {config.extraction + config.transform + config.embedding}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
-                  </div>
-                )}
-
-              </div>
-
-              {/* Important Notes */}
-              <Alert className="border-blue-200 bg-blue-50">
-                <AlertCircle className="h-4 w-4 text-blue-600" />
-                <AlertDescription className="text-blue-800 space-y-2">
-                  <div><strong>Shared Pool Architecture:</strong></div>
-                  <ul className="list-disc list-inside space-y-1 text-xs">
-                    <li><strong>Shared Workers:</strong> Workers are shared across ALL tenants in the same tier (not per-tenant)</li>
-                    <li><strong>Tier-Based Allocation:</strong> Free=1, Basic=3, Premium=5, Enterprise=10 workers per pool</li>
-                    <li><strong>Restart Required:</strong> Changing tier requires restarting ALL worker pools (affects all tenants)</li>
-                    <li><strong>Round-Robin Processing:</strong> Workers consume from all tenant queues in their tier</li>
-                    <li><strong>Scalability:</strong> Shared pools scale to 10,000+ tenants vs per-tenant limit of ~50 tenants</li>
-                    <li><strong>Resource Efficiency:</strong> 92% reduction in resource usage compared to per-tenant workers</li>
-                  </ul>
-                </AlertDescription>
-              </Alert>
-            </div>
-          </CardContent>
-        </Card>
-          </div>
-        )}
-          </div>
-        </main>
-      </div>
+      </main>
+    </div>
 
       {/* Toast Container */}
       <ToastContainer toasts={toasts} onRemoveToast={removeToast} />

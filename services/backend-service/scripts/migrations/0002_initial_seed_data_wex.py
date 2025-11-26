@@ -683,13 +683,14 @@ def apply(connection):
                         status,
                         schedule_interval_minutes,
                         retry_interval_minutes,
+                        next_run,
                         integration_id,
                         tenant_id,
                         active,
                         created_at,
                         last_updated_at
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                    VALUES (%s, %s, %s, %s, (NOW() AT TIME ZONE 'America/New_York') + INTERVAL '1 hour', %s, %s, %s, NOW(), NOW())
                     ON CONFLICT (job_name, tenant_id) DO NOTHING;
                 """, (
                     job["job_name"],
@@ -1331,7 +1332,7 @@ def rollback(connection):
         cursor.execute("DELETE FROM raw_extraction_data WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'WEX');")
 
         print("📋 Removing custom fields mapping...")
-        cursor.execute("DELETE FROM custom_fields_mapping WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'WEX');")
+        cursor.execute("DELETE FROM custom_fields_mappings WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'WEX');")
 
         print("📋 Removing custom fields...")
         cursor.execute("DELETE FROM custom_fields WHERE tenant_id IN (SELECT id FROM tenants WHERE name = 'WEX');")

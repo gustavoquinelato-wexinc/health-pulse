@@ -689,6 +689,27 @@ tbody tr:hover {
     background-color: var(--color-5);
   }
 
+  /* Gradient Background Utilities */
+  .bg-gradient-1-2 {
+    background: linear-gradient(to right, var(--color-1), var(--color-2));
+  }
+
+  .bg-gradient-2-3 {
+    background: linear-gradient(to right, var(--color-2), var(--color-3));
+  }
+
+  .bg-gradient-3-4 {
+    background: linear-gradient(to right, var(--color-3), var(--color-4));
+  }
+
+  .bg-gradient-4-5 {
+    background: linear-gradient(to right, var(--color-4), var(--color-5));
+  }
+
+  .bg-gradient-5-1 {
+    background: linear-gradient(to right, var(--color-5), var(--color-1));
+  }
+
   /* Universal CRUD Button Classes - Compact Enterprise Standard */
   .btn-crud-create {
     @apply bg-[var(--crud-create)] text-white px-3 py-1.5 rounded font-medium transition-all duration-200 hover:opacity-90 hover:-translate-y-0.5;

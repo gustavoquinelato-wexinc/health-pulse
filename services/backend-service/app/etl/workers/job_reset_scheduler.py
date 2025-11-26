@@ -251,35 +251,61 @@ async def extend_deadline_and_reschedule(job_id: int, tenant_id: int, status: Di
 
 async def reset_job_to_ready(job_id: int, tenant_id: int, status: Dict[str, Any]):
     """
-    Reset job to READY status.
-    
+    Reset job to READY status and calculate next_run.
+
+    This ensures next_run is synchronized with the actual reset time,
+    preventing the countdown from showing incorrect values.
+
     Args:
         job_id: ETL job ID
         tenant_id: Tenant ID
         status: Current job status JSON
     """
     try:
+        from datetime import timedelta
+
         database = get_database()
         now = DateTimeHelper.now_default()
-        
+
         # Update status JSON
         status['overall'] = 'READY'
         status['token'] = None
         status['reset_deadline'] = None
         status['reset_attempt'] = 0
-        
+
         # Reset all step statuses to idle
         if 'steps' in status:
             for step_name, step_data in status['steps'].items():
                 step_data['extraction'] = 'idle'
                 step_data['transform'] = 'idle'
                 step_data['embedding'] = 'idle'
-        
-        # Update database
+
+        # 🔑 Calculate next_run based on schedule_interval_minutes
+        # This is done at reset time to ensure synchronization
         with database.get_write_session_context() as db:
+            # First, get schedule_interval_minutes
+            schedule_query = text("""
+                SELECT schedule_interval_minutes
+                FROM etl_jobs
+                WHERE id = :job_id AND tenant_id = :tenant_id
+            """)
+            schedule_result = db.execute(schedule_query, {
+                'job_id': job_id,
+                'tenant_id': tenant_id
+            }).fetchone()
+
+            if schedule_result and schedule_result[0]:
+                schedule_interval_minutes = schedule_result[0]
+                next_run = now + timedelta(minutes=schedule_interval_minutes)
+            else:
+                # Default to 1 hour if not set
+                next_run = now + timedelta(hours=1)
+
+            # Update database with status and next_run
             update_query = text("""
                 UPDATE etl_jobs
                 SET status = :status,
+                    next_run = :next_run,
                     last_updated_at = :now
                 WHERE id = :job_id AND tenant_id = :tenant_id
             """)
@@ -287,21 +313,31 @@ async def reset_job_to_ready(job_id: int, tenant_id: int, status: Dict[str, Any]
                 'job_id': job_id,
                 'tenant_id': tenant_id,
                 'status': json.dumps(status),
+                'next_run': next_run,
                 'now': now
             })
-        
+
         logger.info(f"✅ Job {job_id} reset to READY")
+        logger.info(f"   next_run: {next_run} (calculated at reset time)")
 
         # Send WebSocket update to active users (if any)
+        # Include next_run in the message so frontend can update countdown immediately
         try:
             from app.api.websocket_routes import get_job_websocket_manager
             job_websocket_manager = get_job_websocket_manager()
+
+            # Create enhanced status message with next_run timestamp
+            status_with_next_run = {
+                **status,
+                'next_run': DateTimeHelper.to_iso_with_tz(next_run)  # Include next_run for countdown
+            }
+
             await job_websocket_manager.send_job_status_update(
                 tenant_id=tenant_id,
                 job_id=job_id,
-                status_json=status
+                status_json=status_with_next_run
             )
-            logger.info(f"✅ WebSocket update sent for job reset to READY")
+            logger.info(f"✅ WebSocket update sent for job reset to READY with next_run: {next_run}")
         except Exception as ws_error:
             logger.debug(f"WebSocket update failed (no active connections): {ws_error}")
         

@@ -291,6 +291,168 @@ class WorkerManager:
         self.stop_all_workers()
         return self.start_all_workers()
 
+    def start_queue_type_workers(self, queue_type: str) -> bool:
+        """
+        Start workers for a specific queue type (extraction, transform, or embedding).
+
+        Args:
+            queue_type: Type of queue ('extraction', 'transform', or 'embedding')
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if queue_type not in ['extraction', 'transform', 'embedding']:
+            logger.error(f"Invalid queue type: {queue_type}")
+            return False
+
+        logger.info(f"🚀 Starting {queue_type} workers...")
+
+        try:
+            tier = 'premium'
+            if tier not in self.tier_workers:
+                self.tier_workers[tier] = {}
+
+            # Get worker counts from system_settings
+            worker_counts = self.get_premium_worker_config(1)
+            worker_count = worker_counts[queue_type]
+
+            logger.info(f"   📊 Starting {worker_count} {queue_type} workers")
+
+            queue_manager = QueueManager()
+            tier_queue = queue_manager.get_tier_queue_name(tier, queue_type)
+
+            # Initialize worker list for this type
+            self.tier_workers[tier][queue_type] = []
+
+            # Start workers based on queue type
+            if queue_type == 'extraction':
+                for worker_num in range(worker_count):
+                    worker = ExtractionWorker(
+                        queue_name=tier_queue,
+                        worker_number=worker_num,
+                        tenant_ids=None
+                    )
+                    worker_key = f"extraction_{tier}_worker_{worker_num}"
+                    self._start_worker_thread(worker_key, worker, tier, queue_type)
+
+            elif queue_type == 'transform':
+                for worker_num in range(worker_count):
+                    worker = TransformWorker(
+                        queue_name=tier_queue,
+                        worker_number=worker_num,
+                        tenant_ids=None
+                    )
+                    worker_key = f"transform_{tier}_worker_{worker_num}"
+                    self._start_worker_thread(worker_key, worker, tier, queue_type)
+
+            elif queue_type == 'embedding':
+                for worker_num in range(worker_count):
+                    worker = EmbeddingWorker(tier=tier)
+                    worker_key = f"embedding_{tier}_worker_{worker_num}"
+                    self._start_worker_thread(worker_key, worker, tier, queue_type)
+
+            logger.info(f"   ✅ Started {worker_count} {tier} {queue_type} workers (queue: {tier_queue})")
+            return True
+
+        except Exception as e:
+            logger.error(f"❌ Failed to start {queue_type} workers: {e}")
+            return False
+
+    def stop_queue_type_workers(self, queue_type: str) -> bool:
+        """
+        Stop workers for a specific queue type (extraction, transform, or embedding).
+
+        Args:
+            queue_type: Type of queue ('extraction', 'transform', or 'embedding')
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        if queue_type not in ['extraction', 'transform', 'embedding']:
+            logger.error(f"Invalid queue type: {queue_type}")
+            return False
+
+        logger.info(f"🛑 Stopping {queue_type} workers...")
+
+        try:
+            tier = 'premium'
+            stopped_count = 0
+
+            # Find and stop all workers of this type
+            workers_to_remove = []
+            for worker_key, worker in list(self.workers.items()):
+                if worker_key.startswith(f"{queue_type}_{tier}_"):
+                    try:
+                        logger.info(f"   Stopping {worker_key}...")
+                        worker.stop()
+                        workers_to_remove.append(worker_key)
+                        stopped_count += 1
+                    except Exception as e:
+                        logger.error(f"   ❌ Error stopping {worker_key}: {e}")
+
+            # Wait for threads to finish
+            for worker_key in workers_to_remove:
+                if worker_key in self.worker_threads:
+                    thread = self.worker_threads[worker_key]
+                    try:
+                        thread.join(timeout=5.0)
+                        if thread.is_alive():
+                            logger.warning(f"   ⚠️ Worker {worker_key} did not stop gracefully")
+                    except Exception as e:
+                        logger.error(f"   ❌ Error joining thread {worker_key}: {e}")
+
+            # Remove from tracking
+            for worker_key in workers_to_remove:
+                self.workers.pop(worker_key, None)
+                self.worker_threads.pop(worker_key, None)
+
+            # Clear tier workers list
+            if tier in self.tier_workers and queue_type in self.tier_workers[tier]:
+                self.tier_workers[tier][queue_type] = []
+
+            logger.info(f"✅ Stopped {stopped_count} {queue_type} workers")
+            return True
+
+        except Exception as e:
+            logger.error(f"❌ Failed to stop {queue_type} workers: {e}")
+            return False
+
+    def restart_queue_type_workers(self, queue_type: str) -> bool:
+        """
+        Restart workers for a specific queue type.
+
+        Args:
+            queue_type: Type of queue ('extraction', 'transform', or 'embedding')
+
+        Returns:
+            bool: True if successful, False otherwise
+        """
+        logger.info(f"🔄 Restarting {queue_type} workers...")
+        self.stop_queue_type_workers(queue_type)
+        return self.start_queue_type_workers(queue_type)
+
+    def _start_worker_thread(self, worker_key: str, worker: object, tier: str, queue_type: str):
+        """
+        Helper method to start a worker in a thread and track it.
+
+        Args:
+            worker_key: Unique identifier for the worker
+            worker: Worker instance to run
+            tier: Tier name (e.g., 'premium')
+            queue_type: Queue type (e.g., 'extraction')
+        """
+        thread = threading.Thread(
+            target=self._run_worker,
+            args=(worker_key, worker),
+            daemon=True,
+            name=f"Worker-{worker_key}"
+        )
+        thread.start()
+
+        self.workers[worker_key] = worker
+        self.worker_threads[worker_key] = thread
+        self.tier_workers[tier][queue_type].append(worker)
+
     def _run_worker(self, worker_key: str, worker: object):
         """
         Run a worker in a thread.
