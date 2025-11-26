@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login 9 - Neon Terminal</title>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <title>Login 9 - Infinite Scroll Universe</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         * {
             margin: 0;
@@ -18,410 +18,462 @@
             overflow: hidden;
         }
         
-        .scanlines {
+        #universe-canvas {
             position: fixed;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            background: repeating-linear-gradient(
-                0deg,
-                rgba(0, 0, 0, 0.15),
-                rgba(0, 0, 0, 0.15) 1px,
-                transparent 1px,
-                transparent 2px
-            );
-            pointer-events: none;
-            z-index: 1000;
-            animation: flicker 0.15s infinite;
         }
         
-        @keyframes flicker {
-            0% { opacity: 0.95; }
-            50% { opacity: 1; }
-            100% { opacity: 0.95; }
-        }
-        
-        .neon-bg {
+        .scroll-container {
             position: fixed;
             top: 0;
             left: 0;
             width: 100%;
-            height: 100%;
-            background: radial-gradient(ellipse at center, #0a0e1a 0%, #000000 100%);
+            height: 500vh;
         }
         
-        .grid-lines {
+        .viewport {
             position: fixed;
             top: 0;
             left: 0;
             width: 100%;
-            height: 100%;
-            background-image: 
-                linear-gradient(rgba(0, 255, 255, 0.03) 1px, transparent 1px),
-                linear-gradient(90deg, rgba(0, 255, 255, 0.03) 1px, transparent 1px);
-            background-size: 50px 50px;
-            animation: grid-move 20s linear infinite;
+            height: 100vh;
+            overflow-y: scroll;
+            scroll-snap-type: y mandatory;
         }
         
-        @keyframes grid-move {
-            0% { transform: translate(0, 0); }
-            100% { transform: translate(50px, 50px); }
-        }
-        
-        .container {
-            position: relative;
-            z-index: 10;
-            min-height: 100vh;
+        .scroll-section {
+            height: 100vh;
             display: flex;
             align-items: center;
             justify-content: center;
-            padding: 2rem;
+            scroll-snap-align: start;
+            position: relative;
         }
         
-        .terminal-window {
-            width: 100%;
+        .content-card {
             max-width: 600px;
-            background: rgba(0, 0, 0, 0.85);
-            border: 3px solid #00ffff;
-            border-radius: 8px;
-            box-shadow: 0 0 80px rgba(0, 255, 255, 0.5),
-                        inset 0 0 80px rgba(0, 255, 255, 0.05);
-            overflow: hidden;
+            background: rgba(15, 23, 42, 0.8);
+            backdrop-filter: blur(40px);
+            border: 2px solid rgba(255, 255, 255, 0.1);
+            border-radius: 32px;
+            padding: 4rem;
+            box-shadow: 0 40px 100px rgba(0, 0, 0, 0.8);
+            text-align: center;
+            opacity: 0;
+            transform: scale(0.8);
+            transition: all 0.6s ease;
         }
         
-        .terminal-header {
-            background: linear-gradient(135deg, #00ffff 0%, #ff00ff 100%);
-            padding: 0.75rem 1.5rem;
-            display: flex;
-            align-items: center;
-            gap: 0.75rem;
+        .scroll-section.active .content-card {
+            opacity: 1;
+            transform: scale(1);
         }
         
-        .terminal-dot {
-            width: 14px;
-            height: 14px;
+        .section-1 .content-card {
+            border-color: rgba(40, 98, 235, 0.4);
+            box-shadow: 0 40px 100px rgba(40, 98, 235, 0.3);
+        }
+        
+        .section-2 .content-card {
+            border-color: rgba(118, 61, 237, 0.4);
+            box-shadow: 0 40px 100px rgba(118, 61, 237, 0.3);
+        }
+        
+        .section-3 .content-card {
+            border-color: rgba(5, 150, 105, 0.4);
+            box-shadow: 0 40px 100px rgba(5, 150, 105, 0.3);
+        }
+        
+        .section-4 .content-card {
+            border-color: rgba(14, 165, 233, 0.4);
+            box-shadow: 0 40px 100px rgba(14, 165, 233, 0.3);
+        }
+        
+        .section-5 .content-card {
+            border-color: rgba(245, 158, 11, 0.4);
+            box-shadow: 0 40px 100px rgba(245, 158, 11, 0.3);
+        }
+        
+        .section-icon {
+            width: 120px;
+            height: 120px;
+            margin: 0 auto 2rem;
             border-radius: 50%;
-            background: #000;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 4rem;
+            position: relative;
         }
         
-        .terminal-title {
-            flex: 1;
-            text-align: center;
-            color: #000;
-            font-family: 'JetBrains Mono', monospace;
+        .section-1 .section-icon {
+            background: linear-gradient(135deg, #2862EB, #763DED);
+            box-shadow: 0 20px 60px rgba(40, 98, 235, 0.6);
+        }
+        
+        .section-2 .section-icon {
+            background: linear-gradient(135deg, #763DED, #EC4899);
+            box-shadow: 0 20px 60px rgba(118, 61, 237, 0.6);
+        }
+        
+        .section-3 .section-icon {
+            background: linear-gradient(135deg, #059669, #0EA5E9);
+            box-shadow: 0 20px 60px rgba(5, 150, 105, 0.6);
+        }
+        
+        .section-4 .section-icon {
+            background: linear-gradient(135deg, #0EA5E9, #2862EB);
+            box-shadow: 0 20px 60px rgba(14, 165, 233, 0.6);
+        }
+        
+        .section-5 .section-icon {
+            background: linear-gradient(135deg, #F59E0B, #EF4444);
+            box-shadow: 0 20px 60px rgba(245, 158, 11, 0.6);
+        }
+        
+        .section-icon::before {
+            content: '';
+            position: absolute;
+            inset: -15px;
+            border: 2px solid;
+            border-radius: 50%;
+            opacity: 0.3;
+            animation: ping-icon 2s ease-out infinite;
+        }
+        
+        .section-1 .section-icon::before { border-color: #2862EB; }
+        .section-2 .section-icon::before { border-color: #763DED; }
+        .section-3 .section-icon::before { border-color: #059669; }
+        .section-4 .section-icon::before { border-color: #0EA5E9; }
+        .section-5 .section-icon::before { border-color: #F59E0B; }
+        
+        @keyframes ping-icon {
+            0% { transform: scale(1); opacity: 0.5; }
+            100% { transform: scale(1.5); opacity: 0; }
+        }
+        
+        .section-title {
+            color: white;
+            font-size: 3rem;
             font-weight: 700;
-            font-size: 0.875rem;
-            text-transform: uppercase;
-            letter-spacing: 0.2em;
+            margin-bottom: 1rem;
         }
         
-        .terminal-body {
-            padding: 3rem;
+        .section-1 .section-title {
+            background: linear-gradient(135deg, #2862EB, #763DED);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
         
-        .terminal-logo {
-            text-align: center;
-            margin-bottom: 2.5rem;
+        .section-2 .section-title {
+            background: linear-gradient(135deg, #763DED, #EC4899);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
         
-        .neon-text {
-            font-size: 3.5rem;
-            font-weight: 700;
-            color: #00ffff;
-            text-shadow: 
-                0 0 10px #00ffff,
-                0 0 20px #00ffff,
-                0 0 40px #00ffff,
-                0 0 80px #00ffff;
-            animation: neon-pulse 2s ease-in-out infinite;
-            font-family: 'JetBrains Mono', monospace;
+        .section-3 .section-title {
+            background: linear-gradient(135deg, #059669, #0EA5E9);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
         
-        @keyframes neon-pulse {
-            0%, 100% {
-                text-shadow: 
-                    0 0 10px #00ffff,
-                    0 0 20px #00ffff,
-                    0 0 40px #00ffff,
-                    0 0 80px #00ffff;
-            }
-            50% {
-                text-shadow: 
-                    0 0 5px #00ffff,
-                    0 0 10px #00ffff,
-                    0 0 20px #00ffff,
-                    0 0 40px #00ffff;
-            }
+        .section-4 .section-title {
+            background: linear-gradient(135deg, #0EA5E9, #2862EB);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
         
-        .terminal-subtitle {
-            text-align: center;
-            color: #ff00ff;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 1rem;
-            margin-bottom: 3rem;
-            text-shadow: 0 0 10px #ff00ff;
+        .section-5 .section-title {
+            background: linear-gradient(135deg, #F59E0B, #EF4444);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
         }
         
-        .terminal-prompt {
-            color: #00ff00;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.875rem;
-            margin-bottom: 0.5rem;
-            text-shadow: 0 0 5px #00ff00;
-        }
-        
-        .terminal-prompt::before {
-            content: '> ';
-            color: #00ffff;
-        }
-        
-        .terminal-input-group {
+        .section-text {
+            color: #94a3b8;
+            font-size: 1.125rem;
+            line-height: 1.8;
             margin-bottom: 2rem;
         }
         
-        .terminal-input {
+        .form-field {
+            margin-bottom: 1.5rem;
+            text-align: left;
+        }
+        
+        .form-field label {
+            display: block;
+            color: #cbd5e1;
+            font-size: 0.875rem;
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+        }
+        
+        .form-field input {
             width: 100%;
-            padding: 1rem 1.25rem;
-            background: rgba(0, 255, 255, 0.05);
-            border: 2px solid #00ffff;
-            border-radius: 4px;
-            color: #00ffff;
-            font-family: 'JetBrains Mono', monospace;
+            padding: 1.25rem 1.5rem;
+            background: rgba(10, 14, 26, 0.8);
+            border: 2px solid rgba(255, 255, 255, 0.2);
+            border-radius: 16px;
+            color: white;
             font-size: 1rem;
             transition: all 0.3s ease;
         }
         
-        .terminal-input:focus {
+        .form-field input:focus {
             outline: none;
-            background: rgba(0, 255, 255, 0.1);
-            box-shadow: 0 0 20px rgba(0, 255, 255, 0.5);
+            box-shadow: 0 0 30px rgba(255, 255, 255, 0.2);
         }
         
-        .terminal-input::placeholder {
-            color: rgba(0, 255, 255, 0.3);
-            font-family: 'JetBrains Mono', monospace;
+        .section-1 .form-field input:focus { border-color: #2862EB; box-shadow: 0 0 30px rgba(40, 98, 235, 0.4); }
+        .section-2 .form-field input:focus { border-color: #763DED; box-shadow: 0 0 30px rgba(118, 61, 237, 0.4); }
+        .section-3 .form-field input:focus { border-color: #059669; box-shadow: 0 0 30px rgba(5, 150, 105, 0.4); }
+        .section-4 .form-field input:focus { border-color: #0EA5E9; box-shadow: 0 0 30px rgba(14, 165, 233, 0.4); }
+        .section-5 .form-field input:focus { border-color: #F59E0B; box-shadow: 0 0 30px rgba(245, 158, 11, 0.4); }
+        
+        .form-field input::placeholder {
+            color: #334155;
         }
         
-        .terminal-options {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            margin-bottom: 2rem;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.8125rem;
-        }
-        
-        .terminal-check {
-            display: flex;
-            align-items: center;
-            color: #00ff00;
-            text-shadow: 0 0 5px #00ff00;
-        }
-        
-        .terminal-check input {
-            margin-right: 0.5rem;
-            accent-color: #00ff00;
-        }
-        
-        .terminal-link {
-            color: #ff00ff;
-            text-decoration: none;
-            text-shadow: 0 0 5px #ff00ff;
-            transition: all 0.3s ease;
-        }
-        
-        .terminal-link:hover {
-            color: #00ffff;
-            text-shadow: 0 0 10px #00ffff;
-        }
-        
-        .btn-terminal {
+        .btn-scroll {
             width: 100%;
-            padding: 1.25rem;
-            background: transparent;
-            border: 3px solid #00ff00;
-            border-radius: 4px;
-            color: #00ff00;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 1rem;
+            padding: 1.5rem;
+            border: none;
+            border-radius: 16px;
+            color: white;
+            font-size: 1.0625rem;
             font-weight: 700;
             cursor: pointer;
             transition: all 0.3s ease;
             text-transform: uppercase;
-            letter-spacing: 0.2em;
-            position: relative;
-            overflow: hidden;
-            text-shadow: 0 0 10px #00ff00;
+            letter-spacing: 0.1em;
         }
         
-        .btn-terminal::before {
-            content: '';
+        .section-1 .btn-scroll {
+            background: linear-gradient(135deg, #2862EB, #763DED);
+        }
+        
+        .section-2 .btn-scroll {
+            background: linear-gradient(135deg, #763DED, #EC4899);
+        }
+        
+        .section-3 .btn-scroll {
+            background: linear-gradient(135deg, #059669, #0EA5E9);
+        }
+        
+        .section-4 .btn-scroll {
+            background: linear-gradient(135deg, #0EA5E9, #2862EB);
+        }
+        
+        .section-5 .btn-scroll {
+            background: linear-gradient(135deg, #F59E0B, #EF4444);
+        }
+        
+        .btn-scroll:hover {
+            transform: translateY(-3px);
+            box-shadow: 0 0 60px rgba(255, 255, 255, 0.4);
+        }
+        
+        .scroll-indicator {
             position: absolute;
-            top: 0;
-            left: -100%;
-            width: 100%;
-            height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(0, 255, 0, 0.3), transparent);
-            transition: left 0.5s ease;
+            bottom: 2rem;
+            left: 50%;
+            transform: translateX(-50%);
+            color: white;
+            font-size: 2rem;
+            animation: bounce-arrow 2s ease-in-out infinite;
         }
         
-        .btn-terminal:hover::before {
-            left: 100%;
+        @keyframes bounce-arrow {
+            0%, 100% { transform: translateX(-50%) translateY(0); }
+            50% { transform: translateX(-50%) translateY(10px); }
         }
         
-        .btn-terminal:hover {
-            background: rgba(0, 255, 0, 0.1);
-            box-shadow: 0 0 30px rgba(0, 255, 0, 0.6);
-            transform: translateY(-2px);
-        }
-        
-        .terminal-divider {
-            text-align: center;
-            margin: 2rem 0;
-            position: relative;
-        }
-        
-        .terminal-divider::before,
-        .terminal-divider::after {
-            content: '';
-            position: absolute;
+        .progress-dots {
+            position: fixed;
+            right: 2rem;
             top: 50%;
-            width: 40%;
-            height: 1px;
-            background: linear-gradient(90deg, transparent, #00ffff, transparent);
-        }
-        
-        .terminal-divider::before { left: 0; }
-        .terminal-divider::after { right: 0; }
-        
-        .terminal-divider span {
-            color: #00ffff;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.75rem;
-            text-transform: uppercase;
-            letter-spacing: 0.15em;
-            text-shadow: 0 0 5px #00ffff;
-        }
-        
-        .terminal-alt-methods {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
+            transform: translateY(-50%);
+            z-index: 100;
+            display: flex;
+            flex-direction: column;
             gap: 1rem;
         }
         
-        .alt-method {
-            padding: 1rem;
-            background: rgba(255, 0, 255, 0.05);
-            border: 2px solid #ff00ff;
-            border-radius: 4px;
-            color: #ff00ff;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.75rem;
-            font-weight: 700;
-            cursor: pointer;
+        .progress-dot {
+            width: 12px;
+            height: 12px;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.3);
             transition: all 0.3s ease;
-            text-align: center;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            text-shadow: 0 0 5px #ff00ff;
+            cursor: pointer;
         }
         
-        .alt-method:hover {
-            background: rgba(255, 0, 255, 0.15);
-            box-shadow: 0 0 20px rgba(255, 0, 255, 0.5);
-            transform: translateY(-2px);
-        }
-        
-        .terminal-footer {
-            text-align: center;
-            margin-top: 2rem;
-            color: #00ffff;
-            font-family: 'JetBrains Mono', monospace;
-            font-size: 0.75rem;
-            text-shadow: 0 0 5px #00ffff;
-        }
-        
-        .cursor-blink {
-            display: inline-block;
-            width: 10px;
-            height: 20px;
-            background: #00ff00;
-            animation: blink 1s step-end infinite;
-            margin-left: 5px;
-            box-shadow: 0 0 10px #00ff00;
-        }
-        
-        @keyframes blink {
-            0%, 50% { opacity: 1; }
-            51%, 100% { opacity: 0; }
+        .progress-dot.active {
+            width: 16px;
+            height: 16px;
+            background: white;
+            box-shadow: 0 0 20px rgba(255, 255, 255, 0.8);
         }
     </style>
 </head>
 <body>
-    <div class="scanlines"></div>
-    <div class="neon-bg"></div>
-    <div class="grid-lines"></div>
+    <canvas id="universe-canvas"></canvas>
     
-    <div class="container">
-        <div class="terminal-window">
-            <div class="terminal-header">
-                <div class="terminal-dot"></div>
-                <div class="terminal-dot"></div>
-                <div class="terminal-dot"></div>
-                <div class="terminal-title">ETL://TERMINAL</div>
+    <div class="progress-dots" id="progressDots"></div>
+    
+    <div class="viewport" id="viewport">
+        <div class="scroll-section section-1 active">
+            <div class="content-card">
+                <div class="section-icon">🌌</div>
+                <h1 class="section-title">Welcome</h1>
+                <p class="section-text">Begin your journey through the data universe. Scroll down to explore.</p>
+                <div class="scroll-indicator">↓</div>
             </div>
-            
-            <div class="terminal-body">
-                <div class="terminal-logo">
-                    <div class="neon-text">ETL</div>
-                </div>
+        </div>
+        
+        <div class="scroll-section section-2">
+            <div class="content-card">
+                <div class="section-icon">🚀</div>
+                <h1 class="section-title">Explore</h1>
+                <p class="section-text">Navigate through infinite possibilities. Your data awaits discovery.</p>
+                <div class="scroll-indicator">↓</div>
+            </div>
+        </div>
+        
+        <div class="scroll-section section-3">
+            <div class="content-card">
+                <div class="section-icon">💫</div>
+                <h1 class="section-title">Transform</h1>
+                <p class="section-text">ETL processes that transform raw data into actionable insights.</p>
+                <div class="scroll-indicator">↓</div>
+            </div>
+        </div>
+        
+        <div class="scroll-section section-4">
+            <div class="content-card">
+                <div class="section-icon">⚡</div>
+                <h1 class="section-title">Accelerate</h1>
+                <p class="section-text">Lightning-fast data processing at enterprise scale.</p>
+                <div class="scroll-indicator">↓</div>
+            </div>
+        </div>
+        
+        <div class="scroll-section section-5">
+            <div class="content-card">
+                <div class="section-icon">🎯</div>
+                <h1 class="section-title">Access Portal</h1>
+                <p class="section-text">You've reached the end. Enter your credentials to begin.</p>
                 
-                <div class="terminal-subtitle">
-                    &lt; DATA PIPELINE TERMINAL /&gt;<span class="cursor-blink"></span>
-                </div>
-                
-                <form>
-                    <div class="terminal-input-group">
-                        <div class="terminal-prompt">ENTER USER_ID</div>
-                        <input type="email" class="terminal-input" placeholder="user@terminal.sys" required>
+                <form style="margin-top: 2rem;">
+                    <div class="form-field">
+                        <label for="email">Email Address</label>
+                        <input type="email" id="email" placeholder="your.email@company.com" required>
                     </div>
                     
-                    <div class="terminal-input-group">
-                        <div class="terminal-prompt">ENTER ACCESS_CODE</div>
-                        <input type="password" class="terminal-input" placeholder="****************" required>
+                    <div class="form-field">
+                        <label for="password">Password</label>
+                        <input type="password" id="password" placeholder="Enter your password" required>
                     </div>
                     
-                    <div class="terminal-options">
-                        <label class="terminal-check">
-                            <input type="checkbox">
-                            SAVE_SESSION
-                        </label>
-                        <a href="#" class="terminal-link">RESET_AUTH</a>
-                    </div>
-                    
-                    <button type="submit" class="btn-terminal">
-                        EXECUTE LOGIN
+                    <button type="submit" class="btn-scroll">
+                        Enter Universe
                     </button>
-                    
-                    <div class="terminal-divider">
-                        <span>ALT_AUTH</span>
-                    </div>
-                    
-                    <div class="terminal-alt-methods">
-                        <button type="button" class="alt-method">SSH</button>
-                        <button type="button" class="alt-method">API</button>
-                        <button type="button" class="alt-method">TOKEN</button>
-                    </div>
-                    
-                    <div class="terminal-footer">
-                        SYSTEM_STATUS: ONLINE | UPTIME: 99.9% | SECURE_CONNECTION
-                    </div>
                 </form>
             </div>
         </div>
     </div>
+    
+    <script>
+        const canvas = document.getElementById('universe-canvas');
+        const ctx = canvas.getContext('2d');
+        const viewport = document.getElementById('viewport');
+        const sections = document.querySelectorAll('.scroll-section');
+        const progressDots = document.getElementById('progressDots');
+        
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        
+        // Create progress dots
+        sections.forEach((_, index) => {
+            const dot = document.createElement('div');
+            dot.className = 'progress-dot' + (index === 0 ? ' active' : '');
+            dot.addEventListener('click', () => {
+                sections[index].scrollIntoView({ behavior: 'smooth' });
+            });
+            progressDots.appendChild(dot);
+        });
+        
+        // Universe animation
+        const stars = [];
+        for (let i = 0; i < 300; i++) {
+            stars.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height,
+                radius: Math.random() * 2,
+                speed: Math.random() * 2 + 0.5,
+                alpha: Math.random()
+            });
+        }
+        
+        function drawUniverse() {
+            ctx.fillStyle = 'rgba(0, 0, 0, 0.1)';
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            stars.forEach(star => {
+                star.y += star.speed;
+                if (star.y > canvas.height) {
+                    star.y = 0;
+                    star.x = Math.random() * canvas.width;
+                }
+                
+                ctx.beginPath();
+                ctx.arc(star.x, star.y, star.radius, 0, Math.PI * 2);
+                ctx.fillStyle = `rgba(255, 255, 255, ${Math.abs(Math.sin(star.alpha))})`;
+                ctx.fill();
+                
+                star.alpha += 0.02;
+            });
+            
+            requestAnimationFrame(drawUniverse);
+        }
+        
+        drawUniverse();
+        
+        // Scroll detection
+        viewport.addEventListener('scroll', () => {
+            const scrollPosition = viewport.scrollTop;
+            const windowHeight = window.innerHeight;
+            
+            sections.forEach((section, index) => {
+                const sectionTop = section.offsetTop;
+                const sectionHeight = section.offsetHeight;
+                
+                if (scrollPosition >= sectionTop - windowHeight / 2 && 
+                    scrollPosition < sectionTop + sectionHeight - windowHeight / 2) {
+                    section.classList.add('active');
+                    document.querySelectorAll('.progress-dot').forEach((dot, i) => {
+                        dot.classList.toggle('active', i === index);
+                    });
+                } else {
+                    section.classList.remove('active');
+                }
+            });
+        });
+        
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        });
+    </script>
 </body>
 </html>
 

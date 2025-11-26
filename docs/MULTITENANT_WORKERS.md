@@ -24,7 +24,7 @@ OLD: transform_queue_tenant_1, transform_queue_tenant_2, ... (300 queues for 100
 NEW: Tier-based queues (12 queues total):
   - extraction_queue_free, extraction_queue_basic, extraction_queue_premium, extraction_queue_enterprise
   - transform_queue_free, transform_queue_basic, transform_queue_premium, transform_queue_enterprise
-  - vectorization_queue_free, vectorization_queue_basic, vectorization_queue_premium, vectorization_queue_enterprise
+  - embedding_queue_free, embedding_queue_basic, embedding_queue_premium, embedding_queue_enterprise
 ```
 
 #### 3. **Shared Worker Pools by Tier**
@@ -34,10 +34,10 @@ NEW: Tier-based queues (12 queues total):
 - ✅ Better resource utilization (workers always busy)
 
 **Worker Allocation:**
-- **Free Tier**: 1 extraction, 1 transform, 1 vectorization (3 workers total)
-- **Basic Tier**: 3 extraction, 3 transform, 3 vectorization (9 workers total)
-- **Premium Tier**: 5 extraction, 5 transform, 5 vectorization (15 workers total)
-- **Enterprise Tier**: 10 extraction, 10 transform, 10 vectorization (30 workers total)
+- **Free Tier**: 1 extraction, 1 transform, 1 embedding (3 workers total)
+- **Basic Tier**: 3 extraction, 3 transform, 3 embedding (9 workers total)
+- **Premium Tier**: 5 extraction, 5 transform, 5 embedding (15 workers total)
+- **Enterprise Tier**: 10 extraction, 10 transform, 10 embedding (30 workers total)
 
 **Total: 57 workers for unlimited tenants** (vs 900 workers for 100 tenants in old architecture)
 
@@ -55,7 +55,7 @@ NEW: Tier-based queues (12 queues total):
 ```python
 # Tier-based queue naming
 TIERS = ['free', 'basic', 'premium', 'enterprise']
-QUEUE_TYPES = ['extraction', 'transform', 'vectorization']
+QUEUE_TYPES = ['extraction', 'transform', 'embedding']
 
 def get_tier_queue_name(self, tier: str, queue_type: str = 'transform') -> str:
     return f"{queue_type}_queue_{tier}"
@@ -79,10 +79,10 @@ def publish_transform_job(self, tenant_id: int, ...):
 ```python
 # Tier-based worker pool management
 TIER_WORKER_COUNTS = {
-    'free': {'extraction': 1, 'transform': 1, 'vectorization': 1},
-    'basic': {'extraction': 3, 'transform': 3, 'vectorization': 3},
-    'premium': {'extraction': 5, 'transform': 5, 'vectorization': 5},
-    'enterprise': {'extraction': 10, 'transform': 10, 'vectorization': 10}
+    'free': {'extraction': 1, 'transform': 1, 'embedding': 1},
+    'basic': {'extraction': 3, 'transform': 3, 'embedding': 3},
+    'premium': {'extraction': 5, 'transform': 5, 'embedding': 5},
+    'enterprise': {'extraction': 10, 'transform': 10, 'embedding': 10}
 }
 
 def start_all_workers(self) -> bool:
@@ -121,7 +121,7 @@ Response:
       "instances": [...]
     },
     "premium_transform": {...},
-    "premium_vectorization": {...}
+    "premium_embedding": {...}
   },
   "queue_stats": {
     "architecture": "tier-based",
@@ -130,7 +130,7 @@ Response:
       "premium": {
         "extraction": {"queue_name": "extraction_queue_premium", "message_count": 15},
         "transform": {"queue_name": "transform_queue_premium", "message_count": 8},
-        "vectorization": {"queue_name": "vectorization_queue_premium", "message_count": 3}
+        "embedding": {"queue_name": "embedding_queue_premium", "message_count": 3}
       }
     }
   },
@@ -152,13 +152,20 @@ POST /api/v1/admin/workers/action
 
 ## 🎮 Frontend Integration
 
-### **Queue Management Page** (`services/etl-frontend/src/pages/QueueManagementPage.tsx`)
+### **Queue Management Page** (`services/frontend-etl/src/pages/QueueManagementPage.tsx`)
 
 **Features:**
 - ✅ **Tier Worker Status**: Shows workers for current tenant's tier only
 - ✅ **Queue Statistics**: Shows message counts for tier queues
-- ✅ **Real-time Status**: Live worker status updates
+- ✅ **Auto-Refresh**: Automatically updates every 3 seconds (no manual refresh needed)
+- ✅ **Real-time Status**: Live worker and queue status from RabbitMQ Management API
 - ✅ **Tenant Isolation**: Users see only their tier's resources
+- ✅ **Dual Status Display**: Separate queue state (from RabbitMQ) and worker status (from worker manager)
+
+**Status Indicators:**
+- **Queue Status**: Shows RabbitMQ's actual state ("running", "idle") with blue badge for running
+- **Worker Status**: Shows internal worker process state ("running", "stopped") with blue badge for running
+- **Worker Count**: Shows total workers when running (e.g., "15 workers") or "0 workers" when stopped
 
 **UI Display:**
 ```
@@ -176,7 +183,7 @@ Queue: 15 messages pending
 Transform Workers: 5 active
 Queue: 8 messages pending
 
-Vectorization Workers: 5 active
+Embedding Workers: 5 active
 Queue: 3 messages pending
 
 ℹ️ Note: Workers are shared with other Premium tier tenants
@@ -188,7 +195,7 @@ Queue: 3 messages pending
 
 ### **1. Start All Tier-Based Worker Pools**
 ```python
-from app.workers.worker_manager import get_worker_manager
+from app.etl.workers.worker_manager import get_worker_manager
 
 manager = get_worker_manager()
 manager.start_all_workers()  # Starts all tier pools (free, basic, premium, enterprise)
@@ -222,7 +229,7 @@ queue_manager.publish_transform_job(
 # 3. Message published to: transform_queue_premium
 # 4. One of 5 premium transform workers picks up message
 # 5. Worker processes message using tenant_id from payload
-# 6. Worker publishes next-stage message to: vectorization_queue_premium
+# 6. Worker publishes next-stage message to: embedding_queue_premium
 ```
 
 ---
@@ -237,7 +244,7 @@ queue_manager.publish_transform_job(
 # Should see:
 # - extraction_queue_free, extraction_queue_basic, extraction_queue_premium, extraction_queue_enterprise
 # - transform_queue_free, transform_queue_basic, transform_queue_premium, transform_queue_enterprise
-# - vectorization_queue_free, vectorization_queue_basic, vectorization_queue_premium, vectorization_queue_enterprise
+# - embedding_queue_free, embedding_queue_basic, embedding_queue_premium, embedding_queue_enterprise
 ```
 
 **2. Check Worker Startup**
@@ -245,7 +252,7 @@ queue_manager.publish_transform_job(
 # Backend logs should show:
 # ✅ Started 1 free extraction workers (queue: extraction_queue_free)
 # ✅ Started 1 free transform workers (queue: transform_queue_free)
-# ✅ Started 1 free vectorization workers (queue: vectorization_queue_free)
+# ✅ Started 1 free embedding workers (queue: embedding_queue_free)
 # ✅ Started 5 premium extraction workers (queue: extraction_queue_premium)
 # ... etc
 ```
@@ -298,8 +305,8 @@ queue_stats['tier_queues'] = {
 - ✅ **No Cross-Tier Access**: Cannot see other tiers' resources
 
 #### **What Tenants See**
-1. **Premium Tier Tenant**: Sees 5 extraction, 5 transform, 5 vectorization workers
-2. **Free Tier Tenant**: Sees 1 extraction, 1 transform, 1 vectorization worker
+1. **Premium Tier Tenant**: Sees 5 extraction, 5 transform, 5 embedding workers
+2. **Free Tier Tenant**: Sees 1 extraction, 1 transform, 1 embedding worker
 3. **All Tenants**: See only their tier's queue message counts
 4. **All Tenants**: See only their own raw data processing stats
 
@@ -371,7 +378,7 @@ python scripts/migration_runner.py --rollback-to 0000
 #### **Workers Not Starting**
 ```python
 # Check worker manager status
-from app.workers.worker_manager import get_worker_manager
+from app.etl.workers.worker_manager import get_worker_manager
 manager = get_worker_manager()
 print(f"Running: {manager.running}")
 print(f"Workers: {len(manager.workers)}")
