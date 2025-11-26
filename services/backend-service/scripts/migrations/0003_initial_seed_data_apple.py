@@ -650,13 +650,14 @@ def apply(connection):
                         status,
                         schedule_interval_minutes,
                         retry_interval_minutes,
+                        next_run,
                         integration_id,
                         tenant_id,
                         active,
                         created_at,
                         last_updated_at
                     )
-                    VALUES (%s, %s, %s, %s, %s, %s, %s, NOW(), NOW())
+                    VALUES (%s, %s, %s, %s, (NOW() AT TIME ZONE 'America/New_York') + INTERVAL '1 hour', %s, %s, %s, NOW(), NOW())
                     ON CONFLICT (job_name, tenant_id) DO NOTHING;
                 """, (
                     job["job_name"],

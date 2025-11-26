@@ -11,7 +11,7 @@ import ToastContainer from '../components/ToastContainer'
 import ConfirmationModal from '../components/ConfirmationModal'
 import { useToast } from '../hooks/useToast'
 import { useConfirmation } from '../hooks/useConfirmation'
-import { Play, Square, RotateCcw, Activity, Clock, CheckCircle, XCircle, AlertCircle, Settings, Save, Database, Inbox, Download, RefreshCw, Sparkles } from 'lucide-react'
+import { Play, Square, RotateCcw, Activity, Clock, CheckCircle, XCircle, AlertCircle, Settings, Save, Database, Inbox, Download, RefreshCw, Sparkles, Loader, Circle } from 'lucide-react'
 
 interface WorkerInstance {
   worker_key: string
@@ -76,10 +76,7 @@ interface QueueStats {
   consumer_count: number
 }
 
-type Tab = 'overview' | 'configuration'
-
 export default function QueueManagementPage() {
-  const [searchParams, setSearchParams] = useSearchParams()
   const { toasts, removeToast, showSuccess, showError } = useToast()
   const { confirmation, hideConfirmation, confirmAction } = useConfirmation()
 
@@ -108,27 +105,10 @@ export default function QueueManagementPage() {
     transformWorkers !== originalTransformWorkers ||
     embeddingWorkers !== originalEmbeddingWorkers
 
-  // Initialize active tab from URL or default to 'overview'
-  const [activeTab, setActiveTab] = useState<Tab>(() => {
-    const tabFromUrl = searchParams.get('tab') as Tab
-    const validTabs: Tab[] = ['overview', 'configuration']
-    return validTabs.includes(tabFromUrl) ? tabFromUrl : 'overview'
-  })
-
-  // Update document title based on active tab
+  // Update document title
   useEffect(() => {
-    const titles = {
-      'overview': 'Queue Management - Overview',
-      'configuration': 'Queue Management - Configuration'
-    }
-    document.title = `${titles[activeTab]} - PEM`
-  }, [activeTab])
-
-  // Handle tab change and update URL
-  const handleTabChange = (tab: Tab) => {
-    setActiveTab(tab)
-    setSearchParams({ tab })
-  }
+    document.title = 'Queue Management - PEM'
+  }, [])
 
   const fetchWorkerStatus = async () => {
     try {
@@ -305,6 +285,79 @@ export default function QueueManagementPage() {
 
 
 
+  // Manual refresh function
+  const handleRefresh = async () => {
+    setLoading(true)
+    await Promise.all([
+      fetchWorkerStatus(),
+      fetchWorkerConfig(false), // Don't reset user's selections
+      fetchDatabaseCapacity()
+    ])
+    setLoading(false)
+  }
+
+  // Helper function to check if workers are running for a specific queue type
+  const areWorkersRunning = (queueType: 'extraction' | 'transform' | 'embedding'): boolean => {
+    if (!workerStatus?.workers) return false
+
+    const workerTypeStatus = workerStatus.workers[queueType]
+    if (!workerTypeStatus?.instances) return false
+
+    // Check if ANY worker instance is running
+    return workerTypeStatus.instances.some(instance => instance.worker_running)
+  }
+
+  // Helper function to get message count for a queue type
+  const getMessageCount = (queueType: 'extraction' | 'transform' | 'embedding'): number => {
+    return workerStatus?.queue_stats?.tier_queues?.premium?.[queueType]?.message_count ?? 0
+  }
+
+  // Helper function to check if ALL workers are running (for global controls)
+  const areAllWorkersRunning = (): boolean => {
+    return areWorkersRunning('extraction') &&
+           areWorkersRunning('transform') &&
+           areWorkersRunning('embedding')
+  }
+
+  // Helper function to check if ALL workers are idle (for global controls)
+  const areAllWorkersIdle = (): boolean => {
+    return !areWorkersRunning('extraction') &&
+           !areWorkersRunning('transform') &&
+           !areWorkersRunning('embedding')
+  }
+
+  // Get status info for a queue (matching job card status)
+  const getQueueStatusInfo = (queueType: 'extraction' | 'transform' | 'embedding') => {
+    const isRunning = areWorkersRunning(queueType)
+    const messageCount = getMessageCount(queueType)
+
+    if (!isRunning) {
+      // Workers are stopped/idle - show "Idle" status (gray circle)
+      return {
+        icon: <Circle className="w-4 h-4" />,
+        color: 'text-gray-500',
+        bgColor: 'bg-gray-100',
+        label: 'Idle'
+      }
+    } else if (messageCount > 0) {
+      // Workers are running and processing messages - show "Running" status (blue with spinning loader)
+      return {
+        icon: <Loader className="w-4 h-4 animate-spin" />,
+        color: 'text-blue-500',
+        bgColor: 'bg-blue-100',
+        label: 'Running'
+      }
+    } else {
+      // Workers are running but waiting for messages - show "Ready" status (cyan with clock)
+      return {
+        icon: <Clock className="w-4 h-4" />,
+        color: 'text-cyan-500',
+        bgColor: 'bg-cyan-100',
+        label: 'Ready'
+      }
+    }
+  }
+
   useEffect(() => {
     const loadData = async () => {
       setLoading(true)
@@ -317,15 +370,7 @@ export default function QueueManagementPage() {
     }
 
     loadData()
-
-    // Auto-refresh every 5 seconds for real-time queue stats (don't update local state on refresh)
-    const interval = setInterval(() => {
-      fetchWorkerStatus()
-      fetchWorkerConfig(false) // Don't reset user's selections
-      fetchDatabaseCapacity()
-    }, 5000)
-
-    return () => clearInterval(interval)
+    // No auto-refresh interval - user will manually refresh
   }, [])
 
   const getStatusIcon = (running: boolean, threadAlive: boolean) => {
@@ -398,39 +443,7 @@ export default function QueueManagementPage() {
           </Alert>
         )}
 
-        {/* Tabs */}
-        <div className="border-b border-gray-300 mb-6">
-          <nav className="flex space-x-8">
-            <button
-              onClick={() => handleTabChange('overview')}
-              className={`py-3 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 transition-colors ${
-                activeTab === 'overview'
-                  ? 'border-primary text-primary'
-                  : 'border-transparent text-secondary hover:text-primary hover:border-gray-300'
-              }`}
-            >
-              <Activity className="w-4 h-4" />
-              <span>Overview</span>
-            </button>
-            <button
-              onClick={() => handleTabChange('configuration')}
-              className={`py-3 px-1 border-b-2 font-medium text-sm flex items-center space-x-2 transition-colors ${
-                activeTab === 'configuration'
-                  ? 'border-primary text-primary'
-                  : 'border-transparent text-secondary hover:text-primary hover:border-gray-300'
-              }`}
-            >
-              <Settings className="w-4 h-4" />
-              <span>Configuration</span>
-            </button>
-          </nav>
-        </div>
-
-        {/* Overview Tab Content */}
-        {activeTab === 'overview' && (
-          <div className="space-y-6">
-
-        {/* Global Worker Controls */}
+        {/* Unified Queue Management Card */}
         <Card className="border border-gray-400"
           onMouseEnter={(e) => {
             e.currentTarget.style.borderColor = 'var(--color-1)'
@@ -441,458 +454,414 @@ export default function QueueManagementPage() {
             e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
           }}
         >
-          <CardHeader>
-            <CardTitle>Global Worker Controls</CardTitle>
-            <CardDescription>
-              Control all ETL background workers (affects all queue types)
-            </CardDescription>
-          </CardHeader>
-          <CardContent>
-            <div className="flex gap-4">
-              <Button
-                onClick={() => performWorkerAction('start')}
-                disabled={actionLoading === 'start'}
-                className="flex items-center gap-2"
-              >
-                <Play className="h-4 w-4" />
-                {actionLoading === 'start' ? 'Starting...' : 'Start All Workers'}
-              </Button>
+          {/* Card Header with Global Controls */}
+          <CardHeader className="border-b border-gray-200">
+            <div className="flex items-center justify-between">
+              <div>
+                <CardTitle className="flex items-center gap-2">
+                  <Activity className="h-5 w-5" />
+                  Worker Pools & Queue Management
+                </CardTitle>
+                <CardDescription className="mt-1">
+                  Monitor and control all ETL background workers
+                </CardDescription>
+              </div>
 
-              <Button
-                variant="outline"
-                onClick={() => performWorkerAction('stop')}
-                disabled={actionLoading === 'stop'}
-                className="flex items-center gap-2"
-              >
-                <Square className="h-4 w-4" />
-                {actionLoading === 'stop' ? 'Stopping...' : 'Stop All Workers'}
-              </Button>
+              {/* Global Action Buttons */}
+              <div className="flex items-center gap-3">
+                <button
+                  onClick={() => performWorkerAction('start')}
+                  disabled={actionLoading === 'start' || areAllWorkersRunning()}
+                  className={`btn-crud-create flex items-center gap-2 ${areAllWorkersRunning() ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  title={areAllWorkersRunning() ? 'All workers are already running or ready' : 'Start all workers (currently Idle)'}
+                >
+                  <Play className="h-4 w-4" />
+                  <span>{actionLoading === 'start' ? 'Starting...' : 'Start All'}</span>
+                </button>
 
-              <Button
-                variant="outline"
-                onClick={() => performWorkerAction('restart')}
-                disabled={actionLoading === 'restart'}
-                className="flex items-center gap-2"
-              >
-                <RotateCcw className="h-4 w-4" />
-                {actionLoading === 'restart' ? 'Restarting...' : 'Restart All Workers'}
-              </Button>
+                <button
+                  onClick={() => performWorkerAction('stop')}
+                  disabled={actionLoading === 'stop' || areAllWorkersIdle()}
+                  className={`px-4 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-900 transition-colors flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed ${areAllWorkersIdle() ? 'opacity-50 cursor-not-allowed' : ''}`}
+                  title={areAllWorkersIdle() ? 'All workers are idle (not running)' : 'Stop all running workers'}
+                >
+                  <Square className="h-4 w-4" />
+                  <span>{actionLoading === 'stop' ? 'Stopping...' : 'Stop All'}</span>
+                </button>
+
+                <button
+                  onClick={() => performWorkerAction('restart')}
+                  disabled={actionLoading === 'restart'}
+                  className="btn-neutral-secondary flex items-center gap-2"
+                >
+                  <RotateCcw className="h-4 w-4" />
+                  <span>{actionLoading === 'restart' ? 'Restarting...' : 'Restart All'}</span>
+                </button>
+
+                <button
+                  onClick={handleRefresh}
+                  disabled={loading}
+                  className="btn-neutral-secondary flex items-center gap-2"
+                  title="Refresh queue statistics"
+                >
+                  <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+                  <span>{loading ? 'Refreshing...' : 'Refresh'}</span>
+                </button>
+              </div>
             </div>
-          </CardContent>
-        </Card>
-
-        {/* Queue Cards - Full Width Stacked Layout */}
-        <div className="space-y-6">
-          {/* Extraction Queue */}
-          <Card className="border transition-all duration-200 shadow-md"
-            style={{ borderColor: 'var(--color-1)' }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
-            }}
-          >
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                {/* Left: Queue Info */}
-                <div className="flex items-center space-x-4 flex-1">
-                  {/* Queue Icon */}
-                  <div className="w-12 h-12 rounded-lg flex items-center justify-center bg-gray-100">
-                    <Download className="h-6 w-6" style={{ color: 'var(--color-1)' }} />
-                  </div>
-
-                  {/* Queue Details */}
-                  <div className="flex-1">
-                    <h3 className="text-lg font-semibold text-primary">EXTRACTION QUEUE</h3>
-                    <div className="flex items-center space-x-4 mt-1">
-                      {/* Messages Count */}
-                      <span className="text-sm text-secondary">
-                        Messages: {workerStatus?.queue_stats?.tier_queues?.premium?.extraction?.message_count ?? 0}
-                      </span>
-
-                      {/* Active Workers */}
-                      <span className="text-sm text-secondary">
-                        Workers: {workerConfig?.current_tenant_allocation?.extraction ?? 0}
-                      </span>
-
-                      {/* Queue Name */}
-                      <span className="text-xs text-secondary">
-                        extraction_queue_premium
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Right: Action Buttons */}
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={() => performWorkerAction('start', 'extraction')}
-                    disabled={actionLoading === 'start_extraction'}
-                    className="btn-crud-create flex items-center space-x-2"
-                  >
-                    <Play className="w-4 h-4" />
-                    <span>{actionLoading === 'start_extraction' ? 'Starting...' : 'Start'}</span>
-                  </button>
-                  <button
-                    onClick={() => performWorkerAction('stop', 'extraction')}
-                    disabled={actionLoading === 'stop_extraction'}
-                    className="btn-crud-cancel flex items-center space-x-2"
-                  >
-                    <Square className="w-4 h-4" />
-                    <span>{actionLoading === 'stop_extraction' ? 'Stopping...' : 'Stop'}</span>
-                  </button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Transform Queue */}
-          <Card className="border transition-all duration-200 shadow-md"
-            style={{ borderColor: 'var(--color-2)' }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
-            }}
-          >
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                {/* Left: Queue Info */}
-                <div className="flex items-center space-x-4 flex-1">
-                  {/* Queue Icon */}
-                  <div className="w-12 h-12 rounded-lg flex items-center justify-center bg-gray-100">
-                    <RefreshCw className="h-6 w-6" style={{ color: 'var(--color-2)' }} />
-                  </div>
-
-                  {/* Queue Details */}
-                  <div className="flex-1">
-                    <h3 className="text-lg font-semibold text-primary">TRANSFORM QUEUE</h3>
-                    <div className="flex items-center space-x-4 mt-1">
-                      {/* Messages Count */}
-                      <span className="text-sm text-secondary">
-                        Messages: {workerStatus?.queue_stats?.tier_queues?.premium?.transform?.message_count ?? 0}
-                      </span>
-
-                      {/* Active Workers */}
-                      <span className="text-sm text-secondary">
-                        Workers: {workerConfig?.current_tenant_allocation?.transform ?? 0}
-                      </span>
-
-                      {/* Queue Name */}
-                      <span className="text-xs text-secondary">
-                        transform_queue_premium
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Right: Action Buttons */}
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={() => performWorkerAction('start', 'transform')}
-                    disabled={actionLoading === 'start_transform'}
-                    className="btn-crud-create flex items-center space-x-2"
-                  >
-                    <Play className="w-4 h-4" />
-                    <span>{actionLoading === 'start_transform' ? 'Starting...' : 'Start'}</span>
-                  </button>
-                  <button
-                    onClick={() => performWorkerAction('stop', 'transform')}
-                    disabled={actionLoading === 'stop_transform'}
-                    className="btn-crud-cancel flex items-center space-x-2"
-                  >
-                    <Square className="w-4 h-4" />
-                    <span>{actionLoading === 'stop_transform' ? 'Stopping...' : 'Stop'}</span>
-                  </button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-
-          {/* Embedding Queue */}
-          <Card className="border transition-all duration-200 shadow-md"
-            style={{ borderColor: 'var(--color-3)' }}
-            onMouseEnter={(e) => {
-              e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
-            }}
-          >
-            <CardContent className="p-6">
-              <div className="flex items-center justify-between">
-                {/* Left: Queue Info */}
-                <div className="flex items-center space-x-4 flex-1">
-                  {/* Queue Icon */}
-                  <div className="w-12 h-12 rounded-lg flex items-center justify-center bg-gray-100">
-                    <Sparkles className="h-6 w-6" style={{ color: 'var(--color-3)' }} />
-                  </div>
-
-                  {/* Queue Details */}
-                  <div className="flex-1">
-                    <h3 className="text-lg font-semibold text-primary">EMBEDDING QUEUE</h3>
-                    <div className="flex items-center space-x-4 mt-1">
-                      {/* Messages Count */}
-                      <span className="text-sm text-secondary">
-                        Messages: {workerStatus?.queue_stats?.tier_queues?.premium?.embedding?.message_count ?? 0}
-                      </span>
-
-                      {/* Active Workers */}
-                      <span className="text-sm text-secondary">
-                        Workers: {workerConfig?.current_tenant_allocation?.embedding ?? 0}
-                      </span>
-
-                      {/* Queue Name */}
-                      <span className="text-xs text-secondary">
-                        embedding_queue_premium
-                      </span>
-                    </div>
-                  </div>
-                </div>
-
-                {/* Right: Action Buttons */}
-                <div className="flex items-center space-x-2">
-                  <button
-                    onClick={() => performWorkerAction('start', 'embedding')}
-                    disabled={actionLoading === 'start_embedding'}
-                    className="btn-crud-create flex items-center space-x-2"
-                  >
-                    <Play className="w-4 h-4" />
-                    <span>{actionLoading === 'start_embedding' ? 'Starting...' : 'Start'}</span>
-                  </button>
-                  <button
-                    onClick={() => performWorkerAction('stop', 'embedding')}
-                    disabled={actionLoading === 'stop_embedding'}
-                    className="btn-crud-cancel flex items-center space-x-2"
-                  >
-                    <Square className="w-4 h-4" />
-                    <span>{actionLoading === 'stop_embedding' ? 'Stopping...' : 'Stop'}</span>
-                  </button>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
-
-          </div>
-        )}
-
-        {/* Configuration Tab Content */}
-        {activeTab === 'configuration' && (
-          <div className="space-y-6">
-
-        {/* Configuration Header with Save Button */}
-        <div className="rounded-lg bg-table-container shadow-md overflow-hidden border border-gray-400">
-          <div className="px-6 py-5 flex justify-between items-center bg-table-header">
-            <div>
-              <h2 className="text-lg font-semibold text-table-header">Worker Configuration</h2>
-              <p className="text-sm text-secondary mt-1">Configure worker counts for each queue type</p>
-            </div>
-            <button
-              onClick={updateWorkerCounts}
-              disabled={saveLoading || !hasUnsavedChanges}
-              className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2 font-medium shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              <Save className="h-4 w-4" />
-              <span>{saveLoading ? 'Saving...' : 'Save Configuration'}</span>
-            </button>
-          </div>
-        </div>
-
-        {/* Database Capacity Warning */}
-        {dbCapacity && dbCapacity.warning_message && (
-          <Alert className="border-yellow-200 bg-yellow-50">
-            <AlertCircle className="h-4 w-4 text-yellow-600" />
-            <AlertDescription className="text-yellow-800">
-              {dbCapacity.warning_message}
-            </AlertDescription>
-          </Alert>
-        )}
-
-        {/* Database Capacity Card */}
-        {dbCapacity && (
-          <Card className="border border-gray-400"
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = 'var(--color-1)'
-              e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = '#9ca3af'
-              e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
-            }}
-          >
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Database className="h-5 w-5" />
-                Database Connection Pool Capacity
-              </CardTitle>
-              <CardDescription>
-                Monitor database connection usage and worker limits
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
-                  <div className="p-3 bg-gray-50 rounded-lg">
-                    <div className="text-xs text-secondary">Total Connections</div>
-                    <div className="text-2xl font-bold">{dbCapacity.total_connections}</div>
-                    <div className="text-xs text-secondary mt-1">Pool: {dbCapacity.pool_size} + Overflow: {dbCapacity.max_overflow}</div>
-                  </div>
-                  <div className="p-3 bg-blue-50 rounded-lg">
-                    <div className="text-xs text-secondary">Reserved for UI</div>
-                    <div className="text-2xl font-bold text-blue-600">{dbCapacity.reserved_for_ui}</div>
-                    <div className="text-xs text-secondary mt-1">Frontend operations</div>
-                  </div>
-                  <div className="p-3 bg-green-50 rounded-lg">
-                    <div className="text-xs text-secondary">Available for Workers</div>
-                    <div className="text-2xl font-bold text-green-600">{dbCapacity.available_for_workers}</div>
-                    <div className="text-xs text-secondary mt-1">Max recommended: {dbCapacity.max_recommended_workers}</div>
-                  </div>
-                  <div className={`p-3 rounded-lg ${dbCapacity.current_usage_percent > 80 ? 'bg-red-50' : dbCapacity.current_usage_percent > 60 ? 'bg-yellow-50' : 'bg-green-50'}`}>
-                    <div className="text-xs text-secondary">Current Usage</div>
-                    <div className={`text-2xl font-bold ${dbCapacity.current_usage_percent > 80 ? 'text-red-600' : dbCapacity.current_usage_percent > 60 ? 'text-yellow-600' : 'text-green-600'}`}>
-                      {dbCapacity.current_usage_percent.toFixed(1)}%
-                    </div>
-                    <div className="text-xs text-secondary mt-1">{dbCapacity.current_worker_count} / {dbCapacity.max_recommended_workers} workers</div>
-                  </div>
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        )}
-
-        {/* Worker Count Configuration Card */}
-        <Card className="border border-gray-400"
-          onMouseEnter={(e) => {
-            e.currentTarget.style.borderColor = 'var(--color-1)'
-            e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.borderColor = '#9ca3af'
-            e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
-          }}
-        >
-          <CardHeader>
-            <CardTitle className="flex items-center gap-2">
-              <Settings className="h-5 w-5" />
-              Worker Count Configuration
-            </CardTitle>
-            <CardDescription>
-              Configure the number of workers for each queue type
-            </CardDescription>
           </CardHeader>
-          <CardContent>
-            <div className="space-y-6">
-              {/* Worker Count Inputs */}
-              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                {/* Extraction Workers */}
-                <div className="p-4 bg-green-50 rounded-lg border border-green-200">
-                  <label className="block text-sm font-semibold text-green-900 mb-2">
-                    Extraction Workers
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    max={dbCapacity?.max_recommended_workers ?? 100}
-                    value={extractionWorkers}
-                    onChange={(e) => setExtractionWorkers(parseInt(e.target.value) || 1)}
-                    disabled={saveLoading}
-                    className="w-full p-3 border border-green-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-lg font-semibold text-center"
-                  />
-                  <div className="text-xs text-secondary mt-2">
-                    Current: {originalExtractionWorkers} workers
-                  </div>
-                </div>
 
-                {/* Transform Workers */}
-                <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
-                  <label className="block text-sm font-semibold text-blue-900 mb-2">
-                    Transform Workers
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    max={dbCapacity?.max_recommended_workers ?? 100}
-                    value={transformWorkers}
-                    onChange={(e) => setTransformWorkers(parseInt(e.target.value) || 1)}
-                    disabled={saveLoading}
-                    className="w-full p-3 border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg font-semibold text-center"
-                  />
-                  <div className="text-xs text-secondary mt-2">
-                    Current: {originalTransformWorkers} workers
-                  </div>
-                </div>
+          <CardContent className="p-6">
+            <div className="space-y-4">
 
-                {/* Embedding Workers */}
-                <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
-                  <label className="block text-sm font-semibold text-purple-900 mb-2">
-                    Embedding Workers
-                  </label>
-                  <input
-                    type="number"
-                    min="1"
-                    max={dbCapacity?.max_recommended_workers ?? 100}
-                    value={embeddingWorkers}
-                    onChange={(e) => setEmbeddingWorkers(parseInt(e.target.value) || 1)}
-                    disabled={saveLoading}
-                    className="w-full p-3 border border-purple-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-lg font-semibold text-center"
-                  />
-                  <div className="text-xs text-secondary mt-2">
-                    Current: {originalEmbeddingWorkers} workers
-                  </div>
-                </div>
-              </div>
-
-              {/* Total Workers Summary */}
-              <div className="p-4 bg-gray-50 rounded-lg border border-gray-300">
+              {/* Extraction Queue */}
+              <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
                 <div className="flex items-center justify-between">
-                  <span className="font-semibold">Total Workers:</span>
-                  <div className="flex items-center gap-4">
-                    <span className="text-2xl font-bold">
-                      {extractionWorkers + transformWorkers + embeddingWorkers}
-                    </span>
-                    {dbCapacity && (
-                      <Badge variant={
-                        (extractionWorkers + transformWorkers + embeddingWorkers) > dbCapacity.max_recommended_workers
-                          ? "destructive"
-                          : "default"
-                      }>
-                        {(extractionWorkers + transformWorkers + embeddingWorkers) > dbCapacity.max_recommended_workers
-                          ? "Exceeds Limit!"
-                          : "Within Limits"}
-                      </Badge>
-                    )}
+                  {/* Left: Queue Info */}
+                  <div className="flex items-center space-x-4 flex-1">
+                    {/* Queue Icon */}
+                    <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-white border border-gray-200">
+                      <Download className="h-5 w-5 text-gray-600" />
+                    </div>
+
+                    {/* Queue Details */}
+                    <div className="flex-1">
+                      <h3 className="text-base font-semibold text-primary">Extraction Queue</h3>
+                      <div className="flex items-center space-x-4 mt-1">
+                        {/* Status Badge */}
+                        {(() => {
+                          const statusInfo = getQueueStatusInfo('extraction')
+                          return (
+                            <div className={`flex items-center space-x-1 ${statusInfo.color}`}>
+                              {statusInfo.icon}
+                              <span className="text-xs font-medium">{statusInfo.label}</span>
+                            </div>
+                          )
+                        })()}
+
+                        {/* Messages Count */}
+                        <span className="text-xs text-secondary">
+                          Messages: {workerStatus?.queue_stats?.tier_queues?.premium?.extraction?.message_count ?? 0}
+                        </span>
+
+                        {/* Active Workers */}
+                        <span className="text-xs text-secondary">
+                          Workers: {workerConfig?.current_tenant_allocation?.extraction ?? 0}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right: Action Buttons */}
+                  <div className="flex items-center space-x-2">
+                    <button
+                      onClick={() => performWorkerAction('start', 'extraction')}
+                      disabled={actionLoading === 'start_extraction' || areWorkersRunning('extraction')}
+                      className={`btn-crud-create flex items-center space-x-2 text-sm px-3 py-1.5 ${areWorkersRunning('extraction') ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      title={areWorkersRunning('extraction') ? 'Workers are already running or ready' : 'Start workers (currently Idle)'}
+                    >
+                      <Play className="w-3.5 h-3.5" />
+                      <span>{actionLoading === 'start_extraction' ? 'Starting...' : 'Start'}</span>
+                    </button>
+                    <button
+                      onClick={() => performWorkerAction('stop', 'extraction')}
+                      disabled={actionLoading === 'stop_extraction' || !areWorkersRunning('extraction')}
+                      className={`px-3 py-1.5 bg-gray-800 text-white rounded-lg hover:bg-gray-900 transition-colors flex items-center space-x-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed ${!areWorkersRunning('extraction') ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      title={!areWorkersRunning('extraction') ? 'Workers are idle (not running)' : 'Stop running workers'}
+                    >
+                      <Square className="w-3.5 h-3.5" />
+                      <span>{actionLoading === 'stop_extraction' ? 'Stopping...' : 'Stop'}</span>
+                    </button>
                   </div>
                 </div>
-                {dbCapacity && (extractionWorkers + transformWorkers + embeddingWorkers) > dbCapacity.max_recommended_workers && (
-                  <div className="mt-2 text-sm text-red-600">
-                    ⚠️ Total workers ({extractionWorkers + transformWorkers + embeddingWorkers}) exceeds recommended maximum ({dbCapacity.max_recommended_workers}).
-                    Reduce worker counts or increase DB_POOL_SIZE and DB_MAX_OVERFLOW in .env file.
+              </div>
+
+              {/* Transform Queue */}
+              <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                <div className="flex items-center justify-between">
+                  {/* Left: Queue Info */}
+                  <div className="flex items-center space-x-4 flex-1">
+                    {/* Queue Icon */}
+                    <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-white border border-gray-200">
+                      <RefreshCw className="h-5 w-5 text-gray-600" />
+                    </div>
+
+                    {/* Queue Details */}
+                    <div className="flex-1">
+                      <h3 className="text-base font-semibold text-primary">Transform Queue</h3>
+                      <div className="flex items-center space-x-4 mt-1">
+                        {/* Status Badge */}
+                        {(() => {
+                          const statusInfo = getQueueStatusInfo('transform')
+                          return (
+                            <div className={`flex items-center space-x-1 ${statusInfo.color}`}>
+                              {statusInfo.icon}
+                              <span className="text-xs font-medium">{statusInfo.label}</span>
+                            </div>
+                          )
+                        })()}
+
+                        {/* Messages Count */}
+                        <span className="text-xs text-secondary">
+                          Messages: {workerStatus?.queue_stats?.tier_queues?.premium?.transform?.message_count ?? 0}
+                        </span>
+
+                        {/* Active Workers */}
+                        <span className="text-xs text-secondary">
+                          Workers: {workerConfig?.current_tenant_allocation?.transform ?? 0}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right: Action Buttons */}
+                  <div className="flex items-center space-x-2">
+                    <button
+                      onClick={() => performWorkerAction('start', 'transform')}
+                      disabled={actionLoading === 'start_transform' || areWorkersRunning('transform')}
+                      className={`btn-crud-create flex items-center space-x-2 text-sm px-3 py-1.5 ${areWorkersRunning('transform') ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      title={areWorkersRunning('transform') ? 'Workers are already running or ready' : 'Start workers (currently Idle)'}
+                    >
+                      <Play className="w-3.5 h-3.5" />
+                      <span>{actionLoading === 'start_transform' ? 'Starting...' : 'Start'}</span>
+                    </button>
+                    <button
+                      onClick={() => performWorkerAction('stop', 'transform')}
+                      disabled={actionLoading === 'stop_transform' || !areWorkersRunning('transform')}
+                      className={`px-3 py-1.5 bg-gray-800 text-white rounded-lg hover:bg-gray-900 transition-colors flex items-center space-x-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed ${!areWorkersRunning('transform') ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      title={!areWorkersRunning('transform') ? 'Workers are idle (not running)' : 'Stop running workers'}
+                    >
+                      <Square className="w-3.5 h-3.5" />
+                      <span>{actionLoading === 'stop_transform' ? 'Stopping...' : 'Stop'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Embedding Queue */}
+              <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                <div className="flex items-center justify-between">
+                  {/* Left: Queue Info */}
+                  <div className="flex items-center space-x-4 flex-1">
+                    {/* Queue Icon */}
+                    <div className="w-10 h-10 rounded-lg flex items-center justify-center bg-white border border-gray-200">
+                      <Sparkles className="h-5 w-5 text-gray-600" />
+                    </div>
+
+                    {/* Queue Details */}
+                    <div className="flex-1">
+                      <h3 className="text-base font-semibold text-primary">Embedding Queue</h3>
+                      <div className="flex items-center space-x-4 mt-1">
+                        {/* Status Badge */}
+                        {(() => {
+                          const statusInfo = getQueueStatusInfo('embedding')
+                          return (
+                            <div className={`flex items-center space-x-1 ${statusInfo.color}`}>
+                              {statusInfo.icon}
+                              <span className="text-xs font-medium">{statusInfo.label}</span>
+                            </div>
+                          )
+                        })()}
+
+                        {/* Messages Count */}
+                        <span className="text-xs text-secondary">
+                          Messages: {workerStatus?.queue_stats?.tier_queues?.premium?.embedding?.message_count ?? 0}
+                        </span>
+
+                        {/* Active Workers */}
+                        <span className="text-xs text-secondary">
+                          Workers: {workerConfig?.current_tenant_allocation?.embedding ?? 0}
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right: Action Buttons */}
+                  <div className="flex items-center space-x-2">
+                    <button
+                      onClick={() => performWorkerAction('start', 'embedding')}
+                      disabled={actionLoading === 'start_embedding' || areWorkersRunning('embedding')}
+                      className={`btn-crud-create flex items-center space-x-2 text-sm px-3 py-1.5 ${areWorkersRunning('embedding') ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      title={areWorkersRunning('embedding') ? 'Workers are already running or ready' : 'Start workers (currently Idle)'}
+                    >
+                      <Play className="w-3.5 h-3.5" />
+                      <span>{actionLoading === 'start_embedding' ? 'Starting...' : 'Start'}</span>
+                    </button>
+                    <button
+                      onClick={() => performWorkerAction('stop', 'embedding')}
+                      disabled={actionLoading === 'stop_embedding' || !areWorkersRunning('embedding')}
+                      className={`px-3 py-1.5 bg-gray-800 text-white rounded-lg hover:bg-gray-900 transition-colors flex items-center space-x-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed ${!areWorkersRunning('embedding') ? 'opacity-50 cursor-not-allowed' : ''}`}
+                      title={!areWorkersRunning('embedding') ? 'Workers are idle (not running)' : 'Stop running workers'}
+                    >
+                      <Square className="w-3.5 h-3.5" />
+                      <span>{actionLoading === 'stop_embedding' ? 'Stopping...' : 'Stop'}</span>
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {/* Divider */}
+              <Separator className="my-6" />
+
+              {/* Worker Configuration Section */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <div>
+                    <h3 className="text-base font-semibold text-primary flex items-center gap-2">
+                      <Settings className="h-4 w-4" />
+                      Worker Configuration
+                    </h3>
+                    <p className="text-xs text-secondary mt-1">Configure worker counts for each queue type</p>
+                  </div>
+                  <button
+                    onClick={updateWorkerCounts}
+                    disabled={saveLoading || !hasUnsavedChanges}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+                  >
+                    <Save className="h-3.5 w-3.5" />
+                    <span>{saveLoading ? 'Saving...' : 'Save Configuration'}</span>
+                  </button>
+                </div>
+
+                {/* Database Capacity Warning */}
+                {dbCapacity && dbCapacity.warning_message && (
+                  <Alert className="border-yellow-200 bg-yellow-50">
+                    <AlertCircle className="h-4 w-4 text-yellow-600" />
+                    <AlertDescription className="text-yellow-800 text-xs">
+                      {dbCapacity.warning_message}
+                    </AlertDescription>
+                  </Alert>
+                )}
+
+                {/* Database Capacity Stats */}
+                {dbCapacity && (
+                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+                    <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                      <div className="text-xs text-secondary">Total Connections</div>
+                      <div className="text-xl font-bold">{dbCapacity.total_connections}</div>
+                      <div className="text-xs text-secondary mt-1">Pool: {dbCapacity.pool_size} + Overflow: {dbCapacity.max_overflow}</div>
+                    </div>
+                    <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
+                      <div className="text-xs text-secondary">Reserved for UI</div>
+                      <div className="text-xl font-bold text-blue-600">{dbCapacity.reserved_for_ui}</div>
+                      <div className="text-xs text-secondary mt-1">Frontend operations</div>
+                    </div>
+                    <div className="p-3 bg-green-50 rounded-lg border border-green-200">
+                      <div className="text-xs text-secondary">Available for Workers</div>
+                      <div className="text-xl font-bold text-green-600">{dbCapacity.available_for_workers}</div>
+                      <div className="text-xs text-secondary mt-1">Max: {dbCapacity.max_recommended_workers}</div>
+                    </div>
+                    <div className={`p-3 rounded-lg border ${dbCapacity.current_usage_percent > 80 ? 'bg-red-50 border-red-200' : dbCapacity.current_usage_percent > 60 ? 'bg-yellow-50 border-yellow-200' : 'bg-green-50 border-green-200'}`}>
+                      <div className="text-xs text-secondary">Current Usage</div>
+                      <div className={`text-xl font-bold ${dbCapacity.current_usage_percent > 80 ? 'text-red-600' : dbCapacity.current_usage_percent > 60 ? 'text-yellow-600' : 'text-green-600'}`}>
+                        {dbCapacity.current_usage_percent.toFixed(1)}%
+                      </div>
+                      <div className="text-xs text-secondary mt-1">{dbCapacity.current_worker_count} / {dbCapacity.max_recommended_workers} workers</div>
+                    </div>
                   </div>
                 )}
-              </div>
 
-              {/* Important Notes */}
-              <Alert className="border-blue-200 bg-blue-50">
-                <AlertCircle className="h-4 w-4 text-blue-600" />
-                <AlertDescription className="text-blue-800 space-y-2">
-                  <div><strong>Important Notes:</strong></div>
-                  <ul className="list-disc list-inside space-y-1 text-xs">
-                    <li><strong>Restart Required:</strong> Changes will NOT take effect until worker pools are restarted</li>
-                    <li><strong>Database Connections:</strong> Each worker uses 1 database connection. Monitor capacity above.</li>
-                    <li><strong>Recommended Limits:</strong> Stay within {dbCapacity?.max_recommended_workers ?? 64} workers to maintain 20% buffer</li>
-                    <li><strong>Scaling Up:</strong> To add more workers, increase DB_POOL_SIZE and DB_MAX_OVERFLOW in .env file</li>
-                    <li><strong>Premium Tier:</strong> All workers are in the premium tier shared pool</li>
-                  </ul>
-                </AlertDescription>
-              </Alert>
+                {/* Worker Count Configuration */}
+                <div className="p-4 bg-white rounded-lg border border-gray-200">
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                    {/* Extraction Workers */}
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-2">
+                        Extraction Workers
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max={dbCapacity?.max_recommended_workers ?? 100}
+                        value={extractionWorkers}
+                        onChange={(e) => setExtractionWorkers(parseInt(e.target.value) || 1)}
+                        disabled={saveLoading}
+                        className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-semibold text-center"
+                      />
+                      <div className="text-xs text-secondary mt-1">
+                        Current: {originalExtractionWorkers}
+                      </div>
+                    </div>
+
+                    {/* Transform Workers */}
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-2">
+                        Transform Workers
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max={dbCapacity?.max_recommended_workers ?? 100}
+                        value={transformWorkers}
+                        onChange={(e) => setTransformWorkers(parseInt(e.target.value) || 1)}
+                        disabled={saveLoading}
+                        className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-semibold text-center"
+                      />
+                      <div className="text-xs text-secondary mt-1">
+                        Current: {originalTransformWorkers}
+                      </div>
+                    </div>
+
+                    {/* Embedding Workers */}
+                    <div>
+                      <label className="block text-xs font-semibold text-gray-700 mb-2">
+                        Embedding Workers
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max={dbCapacity?.max_recommended_workers ?? 100}
+                        value={embeddingWorkers}
+                        onChange={(e) => setEmbeddingWorkers(parseInt(e.target.value) || 1)}
+                        disabled={saveLoading}
+                        className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-semibold text-center"
+                      />
+                      <div className="text-xs text-secondary mt-1">
+                        Current: {originalEmbeddingWorkers}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Total Workers Summary */}
+                  <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm font-semibold">Total Workers:</span>
+                      <div className="flex items-center gap-3">
+                        <span className="text-lg font-bold">
+                          {extractionWorkers + transformWorkers + embeddingWorkers}
+                        </span>
+                        {dbCapacity && (
+                          <Badge variant={
+                            (extractionWorkers + transformWorkers + embeddingWorkers) > dbCapacity.max_recommended_workers
+                              ? "destructive"
+                              : "default"
+                          }>
+                            {(extractionWorkers + transformWorkers + embeddingWorkers) > dbCapacity.max_recommended_workers
+                              ? "Exceeds Limit!"
+                              : "Within Limits"}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                    {dbCapacity && (extractionWorkers + transformWorkers + embeddingWorkers) > dbCapacity.max_recommended_workers && (
+                      <div className="mt-2 text-xs text-red-600">
+                        ⚠️ Total workers ({extractionWorkers + transformWorkers + embeddingWorkers}) exceeds recommended maximum ({dbCapacity.max_recommended_workers}).
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Important Notes */}
+                  <Alert className="border-blue-200 bg-blue-50 mt-4">
+                    <AlertCircle className="h-3.5 w-3.5 text-blue-600" />
+                    <AlertDescription className="text-blue-800">
+                      <div className="text-xs"><strong>Important:</strong> Changes require worker pool restart to take effect. Each worker uses 1 database connection.</div>
+                    </AlertDescription>
+                  </Alert>
+                </div>
+              </div>
             </div>
           </CardContent>
         </Card>
-          </div>
-        )}
           </div>
         </main>
       </div>

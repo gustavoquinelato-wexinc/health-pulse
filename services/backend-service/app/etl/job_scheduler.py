@@ -618,28 +618,9 @@ class IndividualJobTimer:
         try:
             from app.etl.workers.queue_manager import QueueManager
 
-            # Update job status to QUEUED
-            database = get_database()
-            with database.get_write_session_context() as session:
-                from app.core.utils import DateTimeHelper
-                now = DateTimeHelper.now_default()
-
-                update_query = text("""
-                    UPDATE etl_jobs
-                    SET status = jsonb_set(status, ARRAY['overall'], to_jsonb('QUEUED'::text)),
-                        last_updated_at = :now,
-                        error_message = NULL
-                    WHERE id = :job_id AND tenant_id = :tenant_id
-                """)
-
-                session.execute(update_query, {
-                    'job_id': self.job_id,
-                    'tenant_id': self.tenant_id,
-                    'now': now
-                })
-                session.commit()
-
-            logger.info(f"✅ Job '{self.job_name}' status updated to QUEUED")
+            # Note: Job status is already set to 'RUNNING' by _trigger_job method
+            # No need to update it again here to avoid database locks and constraint violations
+            logger.info(f"✅ Job '{self.job_name}' status already set to RUNNING - queuing extraction")
 
             # Queue the first extraction step: projects and issue types
             queue_manager = QueueManager()
@@ -688,6 +669,10 @@ class JobTimerManager:
             logger.info("🔍 Getting database connection for job scheduler...")
             database = get_database()
 
+            # First, fix any jobs with next_run in the past
+            logger.info("🔧 Checking for jobs with next_run in the past...")
+            await self._fix_past_next_run_times(database)
+
             logger.info("🔍 Opening database session...")
             with database.get_read_session_context() as session:
 
@@ -718,6 +703,68 @@ class JobTimerManager:
             logger.error(f"❌ Error starting job timers: {e}")
             logger.error(f"❌ Job timer startup error details: {type(e).__name__}: {str(e)}")
             raise
+
+    async def _fix_past_next_run_times(self, database):
+        """
+        Fix jobs with next_run in the past by recalculating based on schedule_interval_minutes.
+        Uses timezone-aware comparison.
+        """
+        try:
+            from app.core.utils import DateTimeHelper
+            from datetime import timedelta
+
+            now = DateTimeHelper.now_default()
+
+            with database.get_write_session_context() as session:
+                # Find jobs with next_run in the past or NULL
+                query = text("""
+                    SELECT id, job_name, next_run, schedule_interval_minutes, status->>'overall' as overall_status
+                    FROM etl_jobs
+                    WHERE active = TRUE
+                      AND (next_run IS NULL OR next_run < :now)
+                      AND status->>'overall' NOT IN ('RUNNING')
+                    ORDER BY id
+                """)
+
+                jobs_to_fix = session.execute(query, {'now': now}).fetchall()
+
+                if not jobs_to_fix:
+                    logger.info("✅ All active jobs have valid next_run times")
+                    return
+
+                logger.info(f"🔧 Found {len(jobs_to_fix)} jobs with next_run in the past or NULL - fixing...")
+
+                for job_id, job_name, old_next_run, schedule_interval_minutes, status in jobs_to_fix:
+                    # Calculate new next_run based on current time + schedule_interval
+                    new_next_run = now + timedelta(minutes=schedule_interval_minutes)
+
+                    update_query = text("""
+                        UPDATE etl_jobs
+                        SET next_run = :next_run,
+                            last_updated_at = :now
+                        WHERE id = :job_id
+                    """)
+
+                    session.execute(update_query, {
+                        'job_id': job_id,
+                        'next_run': new_next_run,
+                        'now': now
+                    })
+
+                    old_next_run_str = str(old_next_run)[:19] if old_next_run else 'NULL'
+                    logger.info(f"  ✅ Fixed job '{job_name}' (ID: {job_id}): "
+                              f"old_next_run={old_next_run_str}, "
+                              f"new_next_run={str(new_next_run)[:19]}, "
+                              f"interval={schedule_interval_minutes}min")
+
+                session.commit()
+                logger.info(f"✅ Fixed {len(jobs_to_fix)} jobs with past next_run times")
+
+        except Exception as e:
+            logger.error(f"❌ Error fixing past next_run times: {e}")
+            import traceback
+            logger.error(f"❌ Traceback: {traceback.format_exc()}")
+            # Don't raise - continue with scheduler startup
 
     async def _start_job_timer(self, job_id: int, job_name: str, tenant_id: int):
         """Start individual timer for a specific job"""

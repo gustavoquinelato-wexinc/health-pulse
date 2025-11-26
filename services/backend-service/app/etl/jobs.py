@@ -259,14 +259,10 @@ def calculate_next_run(
     - It represents when the job actually started running
     - For first-time jobs, it's None so we calculate from current time
     - This ensures proper countdown behavior for all job types
+
+    Returns timezone-naive datetime in configured timezone (America/New_York by default).
     """
     from datetime import timedelta
-    import pytz
-    import os
-
-    # Get timezone from environment (default to America/New_York which is GMT-5/GMT-4)
-    tz_name = os.getenv('SCHEDULER_TIMEZONE', 'America/New_York')
-    tz = pytz.timezone(tz_name)
 
     # If running (any active status), no next run
     if status in ['RUNNING']:
@@ -274,12 +270,12 @@ def calculate_next_run(
 
     # If never run (first time), schedule from now + interval
     if not last_run_started_at:
-        now = datetime.now(tz)
+        # Use DateTimeHelper.now_default() to get timezone-naive datetime in configured timezone
+        now = DateTimeHelper.now_default()
         return now + timedelta(minutes=schedule_interval_minutes)
 
-    # Ensure last_run_started_at is timezone-aware
-    if last_run_started_at.tzinfo is None:
-        last_run_started_at = tz.localize(last_run_started_at)
+    # last_run_started_at is already timezone-naive in configured timezone
+    # No need to convert - just add the interval
 
     # If failed with retries, use retry interval
     if status == 'FAILED' and retry_count > 0:
@@ -314,7 +310,7 @@ async def get_job_cards(
                 id, job_name, status, active,
                 schedule_interval_minutes, retry_interval_minutes,
                 integration_id, last_run_started_at, last_run_finished_at,
-                error_message, retry_count, last_updated_at
+                error_message, retry_count, last_updated_at, next_run
             FROM etl_jobs
             WHERE tenant_id = :tenant_id
             ORDER BY job_name ASC
@@ -332,14 +328,9 @@ async def get_job_cards(
             # Get integration info
             integration_type, logo_filename = get_integration_info(db, row[6])
 
-            # Calculate next run using last_run_started_at (row[7])
-            next_run = calculate_next_run(
-                last_run_started_at=row[7],
-                schedule_interval_minutes=row[4],
-                retry_interval_minutes=row[5],
-                status=status_json.get('overall', 'READY'),
-                retry_count=row[10]
-            )
+            # 🔑 Use next_run from database (row[12]) instead of calculating it
+            # The job scheduler maintains this column and it's the source of truth
+            next_run = row[12]
 
             job_cards.append(JobCardResponse(
                 id=row[0],
@@ -841,11 +832,36 @@ async def update_job_settings(
 
         job_name = result[0]
 
-        # Update settings
+        # Get current job details to recalculate next_run
+        job_query = text("""
+            SELECT status->>'overall' as overall_status,
+                   last_run_started_at,
+                   retry_count
+            FROM etl_jobs
+            WHERE id = :job_id AND tenant_id = :tenant_id
+        """)
+        job_result = db.execute(job_query, {'job_id': job_id, 'tenant_id': tenant_id}).fetchone()
+
+        if not job_result:
+            raise HTTPException(status_code=404, detail=f"Job {job_id} not found")
+
+        status, last_run_started_at, retry_count = job_result
+
+        # Recalculate next_run with new schedule interval using timezone-aware calculation
+        next_run = calculate_next_run(
+            last_run_started_at=last_run_started_at,
+            schedule_interval_minutes=request.schedule_interval_minutes,
+            retry_interval_minutes=request.retry_interval_minutes,
+            status=status,
+            retry_count=retry_count
+        )
+
+        # Update settings AND next_run
         update_query = text("""
             UPDATE etl_jobs
             SET schedule_interval_minutes = :schedule_interval,
                 retry_interval_minutes = :retry_interval,
+                next_run = :next_run,
                 last_updated_at = NOW()
             WHERE id = :job_id AND tenant_id = :tenant_id
         """)
@@ -853,12 +869,13 @@ async def update_job_settings(
             'job_id': job_id,
             'tenant_id': tenant_id,
             'schedule_interval': request.schedule_interval_minutes,
-            'retry_interval': request.retry_interval_minutes
+            'retry_interval': request.retry_interval_minutes,
+            'next_run': next_run
         })
         db.commit()
 
         logger.info(f"Job {job_name} (ID: {job_id}) settings updated: "
-                   f"schedule={request.schedule_interval_minutes}m, retry={request.retry_interval_minutes}m")
+                   f"schedule={request.schedule_interval_minutes}m, retry={request.retry_interval_minutes}m, next_run={next_run}")
 
         return JobSettingsResponse(
             success=True,
@@ -897,7 +914,7 @@ async def _queue_jira_extraction_job(tenant_id: int, integration_id: int, job_id
         # Note: Job status is already set to 'RUNNING' by run_job_now function
         # No need to update it again here to avoid database locks
 
-        logger.info(f"✅ Job {job_id} status updated to QUEUED")
+        logger.info(f"✅ Job {job_id} status already set to RUNNING - queuing extraction")
 
         # 🔑 Fetch the job token and last_sync_date from the database
         database = get_database()
@@ -993,7 +1010,7 @@ async def _queue_github_extraction_job(tenant_id: int, integration_id: int, job_
         # Note: Job status is already set to 'RUNNING' by run_job_now function
         # No need to update it again here to avoid database locks
 
-        logger.info(f"✅ Job {job_id} status updated to QUEUED")
+        logger.info(f"✅ Job {job_id} status already set to RUNNING - queuing extraction")
 
         # 🔑 Check for checkpoint flag (new checkpoint system)
         database = get_database()
