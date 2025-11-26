@@ -60,6 +60,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
   const [resetCountdown, setResetCountdown] = useState<number | null>(null)
   const [jobToken, setJobToken] = useState<string | null>(null)  // 🔑 Store execution token
   const [resetDeadline, setResetDeadline] = useState<string | null>(job.status?.reset_deadline || null)  // 🔑 Store reset deadline from WebSocket
+  const [wsNextRun, setWsNextRun] = useState<string | null>(null)  // 🔑 Store next_run from WebSocket (overrides prop when job resets)
   // Track if we're currently resetting to prevent WebSocket from interfering
   const isResettingRef = useRef<boolean>(false)
   // Track WebSocket connection to prevent React StrictMode double connections
@@ -170,11 +171,18 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
 
   const statusInfo = getStatusInfo()
 
+  // Parse backend timestamp to user's local time
+  const parseBackendTimestamp = (dateStr: string): Date => {
+    // Backend sends ISO format timestamps
+    // JavaScript's Date constructor automatically converts to user's local timezone
+    return new Date(dateStr)
+  }
+
   // Format last run time
   const formatLastRun = () => {
     if (!job.last_run_finished_at) return 'Never'
 
-    const date = new Date(job.last_run_finished_at)
+    const date = parseBackendTimestamp(job.last_run_finished_at)
     const now = new Date()
     const diffMs = now.getTime() - date.getTime()
     const diffMins = Math.floor(diffMs / 60000)
@@ -199,11 +207,11 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
 
 
 
-  // Format datetime with timezone
+  // Format datetime with timezone - converts to user's local timezone
   const formatDateTimeWithTZ = (dateStr: string | undefined): string => {
     if (!dateStr) return 'Never'
 
-    const date = new Date(dateStr)
+    const date = parseBackendTimestamp(dateStr)
     const options: Intl.DateTimeFormatOptions = {
       year: 'numeric',
       month: '2-digit',
@@ -214,7 +222,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
       timeZoneName: 'short'
     }
 
-    return date.toLocaleString('en-US', options)
+    return date.toLocaleString(undefined, options) // Use undefined to use user's locale
   }
 
   // Calculate countdown timer
@@ -231,14 +239,23 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
       return
     }
 
-    if (!job.next_run || job.next_run === null || job.next_run === undefined) {
+    // 🔑 Don't show countdown for FINISHED jobs - they show reset countdown instead
+    if (realTimeStatus === 'FINISHED') {
+      setCountdown('—')
+      return
+    }
+
+    // 🔑 Use WebSocket next_run if available (takes precedence when job resets), otherwise use prop
+    const nextRunToUse = wsNextRun || job.next_run
+
+    if (!nextRunToUse || nextRunToUse === null || nextRunToUse === undefined) {
       setCountdown('—')
       return
     }
 
     const updateCountdown = () => {
       const now = new Date()
-      const nextRun = new Date(job.next_run!)
+      const nextRun = new Date(nextRunToUse!)
       const diff = nextRun.getTime() - now.getTime()
 
       // If time has passed, show "Overdue"
@@ -276,7 +293,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
     const interval = setInterval(updateCountdown, 1000)
 
     return () => clearInterval(interval)
-  }, [job.next_run, job.active, realTimeStatus])
+  }, [job.next_run, wsNextRun, job.active, realTimeStatus, isJobRunning])
 
   // 🔑 System-level reset countdown - reads reset_deadline from WebSocket updates
   // This countdown is managed by the backend scheduler and is the same for all users
@@ -390,6 +407,8 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
               setResetCountdown(null)
               setResetDeadline(null)
             }
+            // 🔑 Clear WebSocket next_run when job starts (will be recalculated on completion)
+            setWsNextRun(null)
           } else if (data.overall === 'FAILED') {
             setRealTimeStatus('FAILED')
             // Clear any existing finished transition timer
@@ -426,6 +445,11 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
             setRealTimeStatus('READY')
             setResetCountdown(null)
             setResetDeadline(null)
+
+            // 🔑 Update next_run from WebSocket (if provided) to start countdown immediately
+            if (data.next_run) {
+              setWsNextRun(data.next_run)
+            }
 
             // 🔑 Explicitly update jobProgress to ensure step statuses are reset
             // This helps with browser compatibility (Edge sometimes doesn't update properly)
@@ -787,7 +811,7 @@ export default function JobCard({ job, onRunNow, onShowDetails, onToggleActive, 
             <div>
               <span className="text-secondary">Next Run:</span>
               <span className="ml-2 text-primary font-medium text-xs">
-                {realTimeStatus === 'RUNNING' ? '—' : (job.next_run ? formatDateTimeWithTZ(job.next_run) : '—')}
+                {(realTimeStatus === 'RUNNING' || realTimeStatus === 'FINISHED') ? '—' : ((wsNextRun || job.next_run) ? formatDateTimeWithTZ(wsNextRun || job.next_run) : '—')}
               </span>
             </div>
             <div>

@@ -27,6 +27,7 @@ export interface JobProgress {
   token?: string | null  // 🔑 Job execution token for tracking completion
   reset_deadline?: string | null  // 🔑 System-level reset countdown deadline (ISO timestamp)
   reset_attempt?: number  // 🔑 Reset attempt counter for exponential backoff
+  next_run?: string | null  // 🔑 Next run timestamp (ISO format) - updated when job resets to READY
   steps?: {
     [stepName: string]: StepStatus
   }
@@ -363,6 +364,7 @@ class ETLWebSocketService {
         token: dbStatus.token || null,  // 🔑 Pass execution token
         reset_deadline: dbStatus.reset_deadline || null,  // 🔑 Pass reset deadline for countdown
         reset_attempt: dbStatus.reset_attempt || 0,  // 🔑 Pass reset attempt counter
+        next_run: dbStatus.next_run || null,  // 🔑 Pass next_run timestamp for countdown
         steps: stepsData  // Include the steps data for UI step indicators
       }
 

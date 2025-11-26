@@ -645,6 +645,11 @@ class JiraExtractionWorker:
                 await self._send_worker_status("transform", tenant_id, job_id, "finished", "jira_dev_status")
                 await self._send_worker_status("embedding", tenant_id, job_id, "finished", "jira_dev_status")
 
+                # Step 5 (sprint_reports): extraction, transform, embedding
+                await self._send_worker_status("extraction", tenant_id, job_id, "finished", "jira_sprint_reports")
+                await self._send_worker_status("transform", tenant_id, job_id, "finished", "jira_sprint_reports")
+                await self._send_worker_status("embedding", tenant_id, job_id, "finished", "jira_sprint_reports")
+
                 # Mark overall job as FINISHED and update last_sync_date (using generic method)
                 await self.status_manager.complete_etl_job(
                     job_id=job_id,
@@ -861,8 +866,27 @@ class JiraExtractionWorker:
                 logger.info(f"🎯 Scenario 2: Only sprint_reports exists → Sprint gets last_job_item")
                 queue_order = [('sprint', True)]
             else:
-                # Scenario 3: Neither exists (already handled by earlier logic, but just in case)
-                logger.info(f"🎯 Scenario 3: No dev_status or sprint_reports to queue")
+                # Scenario 3: Neither exists - mark remaining steps as finished and complete job
+                logger.info(f"🎯 Scenario 3: No dev_status or sprint_reports to queue - marking remaining steps as finished")
+
+                # Step 4 (dev_status): extraction, transform, embedding
+                await self._send_worker_status("extraction", tenant_id, job_id, "finished", "jira_dev_status")
+                await self._send_worker_status("transform", tenant_id, job_id, "finished", "jira_dev_status")
+                await self._send_worker_status("embedding", tenant_id, job_id, "finished", "jira_dev_status")
+
+                # Step 5 (sprint_reports): extraction, transform, embedding
+                await self._send_worker_status("extraction", tenant_id, job_id, "finished", "jira_sprint_reports")
+                await self._send_worker_status("transform", tenant_id, job_id, "finished", "jira_sprint_reports")
+                await self._send_worker_status("embedding", tenant_id, job_id, "finished", "jira_sprint_reports")
+
+                # Mark overall job as FINISHED and update last_sync_date
+                await self.status_manager.complete_etl_job(
+                    job_id=job_id,
+                    tenant_id=tenant_id,
+                    last_sync_date=new_last_sync_date
+                )
+
+                logger.info(f"✅ All remaining steps marked as finished and job marked as FINISHED (no dev_status or sprint_reports to process)")
                 queue_order = []
 
             # Execute queuing based on determined order

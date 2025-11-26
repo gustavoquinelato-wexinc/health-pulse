@@ -13,6 +13,7 @@ from pydantic import BaseModel, Field
 from app.core.database import get_db_session
 from app.models.unified_models import Tenant
 from app.auth.auth_middleware import require_authentication
+from app.core.utils import DateTimeHelper
 
 import logging
 
@@ -134,6 +135,12 @@ class JobCardResponse(BaseModel):
     error_message: Optional[str]
     retry_count: int
 
+    class Config:
+        json_encoders = {
+            # Convert timezone-naive datetimes (stored in NY timezone) to ISO with timezone info
+            datetime: lambda v: DateTimeHelper.to_iso_with_tz(v) if v else None
+        }
+
 
 class JobDetailsResponse(BaseModel):
     """Detailed job information."""
@@ -157,6 +164,12 @@ class JobDetailsResponse(BaseModel):
 
     # Checkpoint flag (Boolean - indicates if job has checkpoint records)
     checkpoint_data: bool
+
+    class Config:
+        json_encoders = {
+            # Convert timezone-naive datetimes (stored in NY timezone) to ISO with timezone info
+            datetime: lambda v: DateTimeHelper.to_iso_with_tz(v) if v else None
+        }
 
 
 class JobActionResponse(BaseModel):

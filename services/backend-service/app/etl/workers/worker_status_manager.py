@@ -100,10 +100,11 @@ class WorkerStatusManager:
         1. Set overall status to FINISHED (or RATE_LIMITED if rate_limited=True)
         2. Update last_run_finished_at
         3. Update last_sync_date if provided (ONLY if not rate_limited)
-        4. Calculate and set next_run
-        5. Clear error_message and reset retry_count
-        6. Send WebSocket notification with complete job status
-        7. UI will automatically reset to READY after a few seconds (FINISHED only)
+        4. For RATE_LIMITED: Calculate and set next_run (15 min retry)
+        5. For FINISHED: next_run will be calculated when job resets to READY
+        6. Clear error_message and reset retry_count
+        7. Send WebSocket notification with complete job status
+        8. UI will automatically reset to READY after a few seconds (FINISHED only)
 
         Args:
             job_id: ETL job ID
@@ -116,38 +117,17 @@ class WorkerStatusManager:
             from app.core.utils import DateTimeHelper
 
             with self.database.get_write_session_context() as session:
-                # First, fetch job details to calculate next_run
-                job_query = text("""
-                    SELECT schedule_interval_minutes
-                    FROM etl_jobs
-                    WHERE id = :job_id AND tenant_id = :tenant_id
-                """)
-                job_result = session.execute(job_query, {
-                    'job_id': job_id,
-                    'tenant_id': tenant_id
-                }).fetchone()
-
-                if not job_result:
-                    logger.error(f"❌ Job {job_id} not found for completion")
-                    return
-
-                schedule_interval_minutes = job_result[0]
-
-                # Calculate next_run
                 now = DateTimeHelper.now_default()
 
                 if rate_limited:
-                    # 🔑 For rate limited jobs, use fast retry interval (15 minutes)
+                    # 🔑 For rate limited jobs, calculate next_run with fast retry interval (15 minutes)
                     next_run = now + timedelta(minutes=15)
                     overall_status = 'RATE_LIMITED'
                     reset_deadline_iso = None  # No reset deadline for rate limited jobs
                 else:
-                    # Normal completion: use schedule_interval_minutes
-                    if schedule_interval_minutes and schedule_interval_minutes > 0:
-                        next_run = now + timedelta(minutes=schedule_interval_minutes)
-                    else:
-                        # Default to 1 hour if not set
-                        next_run = now + timedelta(hours=1)
+                    # 🔑 For FINISHED jobs, next_run will be calculated when job resets to READY
+                    # This ensures next_run is synchronized with the actual reset time
+                    next_run = None
                     overall_status = 'FINISHED'
 
                     # 🔑 Calculate reset_deadline (30 seconds from now for initial countdown)
@@ -157,10 +137,10 @@ class WorkerStatusManager:
                     reset_deadline_iso = reset_deadline_with_tz.isoformat()
 
                 # 🔑 Build SQL based on rate_limited flag
-                # RATE_LIMITED: Don't update last_sync_date, no reset_deadline
-                # FINISHED: Update last_sync_date if provided, set reset_deadline
+                # RATE_LIMITED: Don't update last_sync_date, set next_run to 15 min, no reset_deadline
+                # FINISHED: Update last_sync_date if provided, set next_run to NULL, set reset_deadline
                 if rate_limited:
-                    # Rate limited: no last_sync_date update, no reset_deadline
+                    # Rate limited: no last_sync_date update, set next_run, no reset_deadline
                     sql = f"""
                         UPDATE etl_jobs
                         SET status = jsonb_set(
@@ -178,7 +158,7 @@ class WorkerStatusManager:
                         WHERE id = {job_id} AND tenant_id = {tenant_id}
                     """
                 elif last_sync_date:
-                    # Normal completion with last_sync_date
+                    # Normal completion with last_sync_date - next_run will be set on reset
                     sql = f"""
                         UPDATE etl_jobs
                         SET status = jsonb_set(
@@ -190,14 +170,14 @@ class WorkerStatusManager:
                             ),
                             last_run_finished_at = '{now.isoformat()}'::timestamp,
                             last_updated_at = '{now.isoformat()}'::timestamp,
-                            next_run = '{next_run.isoformat()}'::timestamp,
+                            next_run = NULL,
                             last_sync_date = '{last_sync_date}'::timestamp,
                             error_message = NULL,
                             retry_count = 0
                         WHERE id = {job_id} AND tenant_id = {tenant_id}
                     """
                 else:
-                    # Normal completion without last_sync_date
+                    # Normal completion without last_sync_date - next_run will be set on reset
                     sql = f"""
                         UPDATE etl_jobs
                         SET status = jsonb_set(
@@ -209,7 +189,7 @@ class WorkerStatusManager:
                             ),
                             last_run_finished_at = '{now.isoformat()}'::timestamp,
                             last_updated_at = '{now.isoformat()}'::timestamp,
-                            next_run = '{next_run.isoformat()}'::timestamp,
+                            next_run = NULL,
                             error_message = NULL,
                             retry_count = 0
                         WHERE id = {job_id} AND tenant_id = {tenant_id}
@@ -220,11 +200,12 @@ class WorkerStatusManager:
 
                 logger.info(f"🎯 [JOB COMPLETION] ETL job {job_id} marked as {overall_status}")
                 logger.info(f"   last_run_finished_at: {now}")
-                logger.info(f"   next_run: {next_run}")
                 if rate_limited:
+                    logger.info(f"   next_run: {next_run} (15 min retry)")
                     logger.info(f"   No reset_deadline (rate limited)")
                     logger.info(f"   last_sync_date NOT updated (rate limited)")
                 else:
+                    logger.info(f"   next_run: Will be calculated on reset to READY")
                     logger.info(f"   reset_deadline: {reset_deadline_iso} (30s countdown)")
                     if last_sync_date:
                         logger.info(f"   last_sync_date: {last_sync_date}")
