@@ -188,7 +188,7 @@ Queue: 3 messages pending
 
 ### **1. Start All Tier-Based Worker Pools**
 ```python
-from app.workers.worker_manager import get_worker_manager
+from app.etl.workers.worker_manager import get_worker_manager
 
 manager = get_worker_manager()
 manager.start_all_workers()  # Starts all tier pools (free, basic, premium, enterprise)
@@ -371,7 +371,7 @@ python scripts/migration_runner.py --rollback-to 0000
 #### **Workers Not Starting**
 ```python
 # Check worker manager status
-from app.workers.worker_manager import get_worker_manager
+from app.etl.workers.worker_manager import get_worker_manager
 manager = get_worker_manager()
 print(f"Running: {manager.running}")
 print(f"Workers: {len(manager.workers)}")

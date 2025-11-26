@@ -1917,9 +1917,9 @@ async def get_worker_status(
 ):
     """Get current status of ETL workers for current tenant's tier only."""
     try:
-        from app.workers.worker_manager import get_worker_manager
+        from app.etl.workers.worker_manager import get_worker_manager
         from app.core.database import get_database
-        from app.etl.queue.queue_manager import QueueManager
+        from app.etl.workers.queue_manager import QueueManager
         from sqlalchemy import text
 
         # Get current tenant's tier
@@ -2030,7 +2030,7 @@ async def worker_action(
 ):
     """Perform action on ALL worker pools (shared architecture - affects all tenants)."""
     try:
-        from app.workers.worker_manager import get_worker_manager
+        from app.etl.workers.worker_manager import get_worker_manager
 
         manager = get_worker_manager()
 
@@ -2070,7 +2070,7 @@ async def get_worker_pool_config(
     """Get worker pool configuration (tier-based shared pools)."""
     try:
         from app.core.database import get_database
-        from app.workers.worker_manager import get_worker_manager
+        from app.etl.workers.worker_manager import get_worker_manager
         from sqlalchemy import text
 
         tenant_id = current_user.tenant_id
