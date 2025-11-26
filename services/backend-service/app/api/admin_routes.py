@@ -718,7 +718,7 @@ async def get_system_stats(
                 "wits_hierarchies": WitHierarchy,
                 "projects_wits": ProjectWits,
                 "projects_statuses": ProjectsStatuses,
-                "etl_jobs": JobSchedule,
+                "etl_jobs": EtlJob,
                 "system_settings": SystemSettings,
                 "migration_history": MigrationHistory
             }
