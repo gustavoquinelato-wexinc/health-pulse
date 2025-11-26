@@ -259,8 +259,9 @@ export default function QueueManagementPage() {
     }
   }
 
-  const performWorkerAction = async (action: string) => {
-    setActionLoading(action)
+  const performWorkerAction = async (action: string, queueType?: string) => {
+    const actionKey = queueType ? `${action}_${queueType}` : action
+    setActionLoading(actionKey)
     setError(null)
 
     try {
@@ -272,7 +273,10 @@ export default function QueueManagementPage() {
           'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`,
           'Content-Type': 'application/json'
         },
-        body: JSON.stringify({ action })
+        body: JSON.stringify({
+          action,
+          queue_type: queueType || null
+        })
       })
 
       if (!response.ok) {
@@ -287,8 +291,13 @@ export default function QueueManagementPage() {
 
       // Refresh status after action
       await fetchWorkerStatus()
+
+      // Show success message
+      const scope = queueType ? `${queueType} workers` : 'all workers'
+      showSuccess(`Workers ${action === 'start' ? 'Started' : action === 'stop' ? 'Stopped' : 'Restarted'}`, `${result.message} (${scope})`)
     } catch (err) {
       setError(err instanceof Error ? err.message : `Failed to ${action} workers`)
+      showError(`Worker ${action.charAt(0).toUpperCase() + action.slice(1)} Failed`, err instanceof Error ? err.message : `Failed to ${action} workers`)
     } finally {
       setActionLoading(null)
     }
@@ -507,6 +516,27 @@ export default function QueueManagementPage() {
                   </Badge>
                 </div>
                 <Separator />
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => performWorkerAction('start', 'extraction')}
+                    disabled={actionLoading === 'start_extraction'}
+                    className="flex-1 bg-green-600 hover:bg-green-700"
+                  >
+                    <Play className="h-3 w-3 mr-1" />
+                    {actionLoading === 'start_extraction' ? 'Starting...' : 'Start'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => performWorkerAction('stop', 'extraction')}
+                    disabled={actionLoading === 'stop_extraction'}
+                    className="flex-1"
+                  >
+                    <Square className="h-3 w-3 mr-1" />
+                    {actionLoading === 'stop_extraction' ? 'Stopping...' : 'Stop'}
+                  </Button>
+                </div>
                 <div className="text-xs text-secondary">
                   Queue: extraction_queue_premium
                 </div>
@@ -547,6 +577,27 @@ export default function QueueManagementPage() {
                   </Badge>
                 </div>
                 <Separator />
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => performWorkerAction('start', 'transform')}
+                    disabled={actionLoading === 'start_transform'}
+                    className="flex-1 bg-blue-600 hover:bg-blue-700"
+                  >
+                    <Play className="h-3 w-3 mr-1" />
+                    {actionLoading === 'start_transform' ? 'Starting...' : 'Start'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => performWorkerAction('stop', 'transform')}
+                    disabled={actionLoading === 'stop_transform'}
+                    className="flex-1"
+                  >
+                    <Square className="h-3 w-3 mr-1" />
+                    {actionLoading === 'stop_transform' ? 'Stopping...' : 'Stop'}
+                  </Button>
+                </div>
                 <div className="text-xs text-secondary">
                   Queue: transform_queue_premium
                 </div>
@@ -587,6 +638,27 @@ export default function QueueManagementPage() {
                   </Badge>
                 </div>
                 <Separator />
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => performWorkerAction('start', 'embedding')}
+                    disabled={actionLoading === 'start_embedding'}
+                    className="flex-1 bg-purple-600 hover:bg-purple-700"
+                  >
+                    <Play className="h-3 w-3 mr-1" />
+                    {actionLoading === 'start_embedding' ? 'Starting...' : 'Start'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => performWorkerAction('stop', 'embedding')}
+                    disabled={actionLoading === 'stop_embedding'}
+                    className="flex-1"
+                  >
+                    <Square className="h-3 w-3 mr-1" />
+                    {actionLoading === 'stop_embedding' ? 'Stopping...' : 'Stop'}
+                  </Button>
+                </div>
                 <div className="text-xs text-secondary">
                   Queue: embedding_queue_premium
                 </div>

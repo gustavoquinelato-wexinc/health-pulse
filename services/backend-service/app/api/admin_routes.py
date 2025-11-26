@@ -60,6 +60,7 @@ class WorkerStatusResponse(BaseModel):
 class WorkerActionRequest(BaseModel):
     """Request model for worker actions."""
     action: str  # 'start', 'stop', 'restart'
+    queue_type: Optional[str] = None  # Optional: 'extraction', 'transform', 'embedding' (None = all queues)
 
 
 class TenantTierRequest(BaseModel):
@@ -2056,36 +2057,69 @@ async def worker_action(
     request: WorkerActionRequest,
     current_user: User = Depends(require_authentication)
 ):
-    """Perform action on ALL worker pools (shared architecture - affects all tenants)."""
+    """
+    Perform action on worker pools.
+
+    If queue_type is specified, only affects that queue type (extraction, transform, or embedding).
+    If queue_type is None, affects all worker pools.
+    """
     try:
         from app.etl.workers.worker_manager import get_worker_manager
 
         manager = get_worker_manager()
 
+        # Validate queue_type if provided
+        if request.queue_type and request.queue_type not in ['extraction', 'transform', 'embedding']:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Invalid queue_type: {request.queue_type}. Must be 'extraction', 'transform', or 'embedding'"
+            )
+
+        # Determine scope
+        scope = f"{request.queue_type} workers" if request.queue_type else "all worker pools"
+
+        # Perform action
         if request.action == "start":
-            success = manager.start_all_workers()
-            message = "All worker pools started" if success else "Failed to start worker pools"
+            if request.queue_type:
+                success = manager.start_queue_type_workers(request.queue_type)
+                message = f"{request.queue_type.capitalize()} workers started" if success else f"Failed to start {request.queue_type} workers"
+            else:
+                success = manager.start_all_workers()
+                message = "All worker pools started" if success else "Failed to start worker pools"
+
         elif request.action == "stop":
-            success = manager.stop_all_workers()
-            message = "All worker pools stopped" if success else "Failed to stop worker pools"
+            if request.queue_type:
+                success = manager.stop_queue_type_workers(request.queue_type)
+                message = f"{request.queue_type.capitalize()} workers stopped" if success else f"Failed to stop {request.queue_type} workers"
+            else:
+                success = manager.stop_all_workers()
+                message = "All worker pools stopped" if success else "Failed to stop worker pools"
+
         elif request.action == "restart":
-            success = manager.restart_all_workers()
-            message = "All worker pools restarted" if success else "Failed to restart worker pools"
+            if request.queue_type:
+                success = manager.restart_queue_type_workers(request.queue_type)
+                message = f"{request.queue_type.capitalize()} workers restarted" if success else f"Failed to restart {request.queue_type} workers"
+            else:
+                success = manager.restart_all_workers()
+                message = "All worker pools restarted" if success else "Failed to restart worker pools"
         else:
             raise HTTPException(
                 status_code=400,
                 detail=f"Invalid action: {request.action}. Must be 'start', 'stop', or 'restart'"
             )
 
-        logger.info(f"Worker pool action '{request.action}' performed by user {current_user.email}")
+        logger.info(f"Worker action '{request.action}' on {scope} performed by user {current_user.email}")
 
         return {
             "success": success,
             "message": message,
             "action": request.action,
-            "note": "Shared worker pools affect all tenants"
+            "queue_type": request.queue_type,
+            "note": "Worker pools are shared across all tenants" if not request.queue_type else f"{request.queue_type.capitalize()} workers are shared across all tenants"
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Error controlling workers: {e}")
         raise HTTPException(status_code=500, detail=f"Failed to control workers: {str(e)}")

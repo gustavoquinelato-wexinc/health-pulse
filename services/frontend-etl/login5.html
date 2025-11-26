@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login 5 - Neon Terminal</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            background: #000;
+            overflow: hidden;
+        }
+        
+        .scanlines {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: repeating-linear-gradient(
+                0deg,
+                rgba(0, 0, 0, 0.15),
+                rgba(0, 0, 0, 0.15) 1px,
+                transparent 1px,
+                transparent 2px
+            );
+            pointer-events: none;
+            z-index: 1000;
+            animation: flicker 0.15s infinite;
+        }
+        
+        @keyframes flicker {
+            0% { opacity: 0.95; }
+            50% { opacity: 1; }
+            100% { opacity: 0.95; }
+        }
+        
+        .neon-bg {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: radial-gradient(ellipse at center, #0a0e1a 0%, #000000 100%);
+        }
+        
+        .grid-lines {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-image: 
+                linear-gradient(rgba(0, 255, 255, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(0, 255, 255, 0.03) 1px, transparent 1px);
+            background-size: 50px 50px;
+            animation: grid-move 20s linear infinite;
+        }
+        
+        @keyframes grid-move {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(50px, 50px); }
+        }
+        
+        .container {
+            position: relative;
+            z-index: 10;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+        }
+        
+        .terminal-window {
+            width: 100%;
+            max-width: 600px;
+            background: rgba(0, 0, 0, 0.85);
+            border: 3px solid #00ffff;
+            border-radius: 8px;
+            box-shadow: 0 0 80px rgba(0, 255, 255, 0.5),
+                        inset 0 0 80px rgba(0, 255, 255, 0.05);
+            overflow: hidden;
+        }
+        
+        .terminal-header {
+            background: linear-gradient(135deg, #00ffff 0%, #ff00ff 100%);
+            padding: 0.75rem 1.5rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+        
+        .terminal-dot {
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            background: #000;
+        }
+        
+        .terminal-title {
+            flex: 1;
+            text-align: center;
+            color: #000;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.2em;
+        }
+        
+        .terminal-body {
+            padding: 3rem;
+        }
+        
+        .terminal-logo {
+            text-align: center;
+            margin-bottom: 2.5rem;
+        }
+        
+        .neon-text {
+            font-size: 3.5rem;
+            font-weight: 700;
+            color: #00ffff;
+            text-shadow: 
+                0 0 10px #00ffff,
+                0 0 20px #00ffff,
+                0 0 40px #00ffff,
+                0 0 80px #00ffff;
+            animation: neon-pulse 2s ease-in-out infinite;
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        @keyframes neon-pulse {
+            0%, 100% {
+                text-shadow: 
+                    0 0 10px #00ffff,
+                    0 0 20px #00ffff,
+                    0 0 40px #00ffff,
+                    0 0 80px #00ffff;
+            }
+            50% {
+                text-shadow: 
+                    0 0 5px #00ffff,
+                    0 0 10px #00ffff,
+                    0 0 20px #00ffff,
+                    0 0 40px #00ffff;
+            }
+        }
+        
+        .terminal-subtitle {
+            text-align: center;
+            color: #ff00ff;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1rem;
+            margin-bottom: 3rem;
+            text-shadow: 0 0 10px #ff00ff;
+        }
+        
+        .terminal-prompt {
+            color: #00ff00;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.875rem;
+            margin-bottom: 0.5rem;
+            text-shadow: 0 0 5px #00ff00;
+        }
+        
+        .terminal-prompt::before {
+            content: '> ';
+            color: #00ffff;
+        }
+        
+        .terminal-input-group {
+            margin-bottom: 2rem;
+        }
+        
+        .terminal-input {
+            width: 100%;
+            padding: 1rem 1.25rem;
+            background: rgba(0, 255, 255, 0.05);
+            border: 2px solid #00ffff;
+            border-radius: 4px;
+            color: #00ffff;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+        }
+        
+        .terminal-input:focus {
+            outline: none;
+            background: rgba(0, 255, 255, 0.1);
+            box-shadow: 0 0 20px rgba(0, 255, 255, 0.5);
+        }
+        
+        .terminal-input::placeholder {
+            color: rgba(0, 255, 255, 0.3);
+            font-family: 'JetBrains Mono', monospace;
+        }
+        
+        .terminal-options {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 2rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.8125rem;
+        }
+        
+        .terminal-check {
+            display: flex;
+            align-items: center;
+            color: #00ff00;
+            text-shadow: 0 0 5px #00ff00;
+        }
+        
+        .terminal-check input {
+            margin-right: 0.5rem;
+            accent-color: #00ff00;
+        }
+        
+        .terminal-link {
+            color: #ff00ff;
+            text-decoration: none;
+            text-shadow: 0 0 5px #ff00ff;
+            transition: all 0.3s ease;
+        }
+        
+        .terminal-link:hover {
+            color: #00ffff;
+            text-shadow: 0 0 10px #00ffff;
+        }
+        
+        .btn-terminal {
+            width: 100%;
+            padding: 1.25rem;
+            background: transparent;
+            border: 3px solid #00ff00;
+            border-radius: 4px;
+            color: #00ff00;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.2em;
+            position: relative;
+            overflow: hidden;
+            text-shadow: 0 0 10px #00ff00;
+        }
+        
+        .btn-terminal::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(0, 255, 0, 0.3), transparent);
+            transition: left 0.5s ease;
+        }
+        
+        .btn-terminal:hover::before {
+            left: 100%;
+        }
+        
+        .btn-terminal:hover {
+            background: rgba(0, 255, 0, 0.1);
+            box-shadow: 0 0 30px rgba(0, 255, 0, 0.6);
+            transform: translateY(-2px);
+        }
+        
+        .terminal-divider {
+            text-align: center;
+            margin: 2rem 0;
+            position: relative;
+        }
+        
+        .terminal-divider::before,
+        .terminal-divider::after {
+            content: '';
+            position: absolute;
+            top: 50%;
+            width: 40%;
+            height: 1px;
+            background: linear-gradient(90deg, transparent, #00ffff, transparent);
+        }
+        
+        .terminal-divider::before { left: 0; }
+        .terminal-divider::after { right: 0; }
+        
+        .terminal-divider span {
+            color: #00ffff;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.15em;
+            text-shadow: 0 0 5px #00ffff;
+        }
+        
+        .terminal-alt-methods {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+        }
+        
+        .alt-method {
+            padding: 1rem;
+            background: rgba(255, 0, 255, 0.05);
+            border: 2px solid #ff00ff;
+            border-radius: 4px;
+            color: #ff00ff;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-align: center;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            text-shadow: 0 0 5px #ff00ff;
+        }
+        
+        .alt-method:hover {
+            background: rgba(255, 0, 255, 0.15);
+            box-shadow: 0 0 20px rgba(255, 0, 255, 0.5);
+            transform: translateY(-2px);
+        }
+        
+        .terminal-footer {
+            text-align: center;
+            margin-top: 2rem;
+            color: #00ffff;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.75rem;
+            text-shadow: 0 0 5px #00ffff;
+        }
+        
+        .cursor-blink {
+            display: inline-block;
+            width: 10px;
+            height: 20px;
+            background: #00ff00;
+            animation: blink 1s step-end infinite;
+            margin-left: 5px;
+            box-shadow: 0 0 10px #00ff00;
+        }
+        
+        @keyframes blink {
+            0%, 50% { opacity: 1; }
+            51%, 100% { opacity: 0; }
+        }
+    </style>
+</head>
+<body>
+    <div class="scanlines"></div>
+    <div class="neon-bg"></div>
+    <div class="grid-lines"></div>
+    
+    <div class="container">
+        <div class="terminal-window">
+            <div class="terminal-header">
+                <div class="terminal-dot"></div>
+                <div class="terminal-dot"></div>
+                <div class="terminal-dot"></div>
+                <div class="terminal-title">ETL://TERMINAL</div>
+            </div>
+            
+            <div class="terminal-body">
+                <div class="terminal-logo">
+                    <div class="neon-text">ETL</div>
+                </div>
+                
+                <div class="terminal-subtitle">
+                    &lt; DATA PIPELINE TERMINAL /&gt;<span class="cursor-blink"></span>
+                </div>
+                
+                <form>
+                    <div class="terminal-input-group">
+                        <div class="terminal-prompt">ENTER USER_ID</div>
+                        <input type="email" class="terminal-input" placeholder="user@terminal.sys" required>
+                    </div>
+                    
+                    <div class="terminal-input-group">
+                        <div class="terminal-prompt">ENTER ACCESS_CODE</div>
+                        <input type="password" class="terminal-input" placeholder="****************" required>
+                    </div>
+                    
+                    <div class="terminal-options">
+                        <label class="terminal-check">
+                            <input type="checkbox">
+                            SAVE_SESSION
+                        </label>
+                        <a href="#" class="terminal-link">RESET_AUTH</a>
+                    </div>
+                    
+                    <button type="submit" class="btn-terminal">
+                        EXECUTE LOGIN
+                    </button>
+                    
+                    <div class="terminal-divider">
+                        <span>ALT_AUTH</span>
+                    </div>
+                    
+                    <div class="terminal-alt-methods">
+                        <button type="button" class="alt-method">SSH</button>
+                        <button type="button" class="alt-method">API</button>
+                        <button type="button" class="alt-method">TOKEN</button>
+                    </div>
+                    
+                    <div class="terminal-footer">
+                        SYSTEM_STATUS: ONLINE | UPTIME: 99.9% | SECURE_CONNECTION
+                    </div>
+                </form>
+            </div>
+        </div>
+    </div>
+</body>
+</html>
+

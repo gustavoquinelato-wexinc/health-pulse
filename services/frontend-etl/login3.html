@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Login 3 - Cyberpunk Grid</title>
+    <title>Login 3 - Minimalist Zen</title>
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
     <style>
         * {
@@ -14,16 +14,34 @@
         
         body {
             font-family: 'Inter', sans-serif;
+            background: #ffffff;
             overflow: hidden;
-            background: #000;
         }
         
-        #grid-canvas {
+        .wave-container {
             position: fixed;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
+            background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 100%);
+            overflow: hidden;
+        }
+        
+        .wave {
+            position: absolute;
+            width: 200%;
+            height: 200%;
+            top: -50%;
+            left: -50%;
+            background: radial-gradient(circle at center, transparent 0%, transparent 40%, rgba(40, 98, 235, 0.03) 40%, rgba(40, 98, 235, 0.03) 41%, transparent 41%);
+            background-size: 100px 100px;
+            animation: wave 30s linear infinite;
+        }
+        
+        @keyframes wave {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
         }
         
         .container {
@@ -36,419 +54,367 @@
             padding: 2rem;
         }
         
-        .login-container {
+        .login-wrapper {
             width: 100%;
-            max-width: 900px;
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            background: rgba(15, 23, 42, 0.85);
-            backdrop-filter: blur(20px);
-            border: 2px solid;
-            border-image: linear-gradient(135deg, #2862EB, #763DED, #059669, #0EA5E9) 1;
-            box-shadow: 0 0 60px rgba(40, 98, 235, 0.3), inset 0 0 60px rgba(40, 98, 235, 0.05);
-            overflow: hidden;
+            max-width: 420px;
         }
         
-        .info-panel {
-            padding: 3rem;
-            background: linear-gradient(135deg, rgba(40, 98, 235, 0.1) 0%, rgba(118, 61, 237, 0.1) 100%);
-            border-right: 2px solid rgba(40, 98, 235, 0.3);
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-        }
-        
-        .logo-section {
+        .logo-minimal {
+            text-align: center;
             margin-bottom: 3rem;
         }
         
-        .logo-box {
-            width: 80px;
-            height: 80px;
-            background: linear-gradient(135deg, #2862EB, #763DED);
-            clip-path: polygon(30% 0%, 70% 0%, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0% 70%, 0% 30%);
+        .logo-circle {
+            width: 100px;
+            height: 100px;
+            margin: 0 auto 2rem;
+            background: white;
+            border-radius: 50%;
             display: flex;
             align-items: center;
             justify-content: center;
-            margin-bottom: 1.5rem;
-            animation: rotate 10s linear infinite;
-            box-shadow: 0 0 30px rgba(40, 98, 235, 0.6);
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.08);
+            position: relative;
         }
         
-        @keyframes rotate {
+        .logo-circle::before {
+            content: '';
+            position: absolute;
+            inset: -3px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #2862EB, #763DED, #059669, #0EA5E9);
+            z-index: -1;
+            animation: rotate-border 4s linear infinite;
+        }
+        
+        @keyframes rotate-border {
             from { transform: rotate(0deg); }
             to { transform: rotate(360deg); }
         }
         
-        .logo-box svg {
-            width: 40px;
-            height: 40px;
-            stroke: white;
+        .logo-circle svg {
+            width: 48px;
+            height: 48px;
+            stroke: #2862EB;
             stroke-width: 2;
             fill: none;
-            animation: rotate 10s linear infinite reverse;
         }
         
-        .info-panel h1 {
-            color: white;
-            font-size: 2.5rem;
-            font-weight: 700;
-            margin-bottom: 1rem;
-            text-shadow: 0 0 20px rgba(40, 98, 235, 0.5);
-        }
-        
-        .info-panel .tagline {
-            color: #0EA5E9;
-            font-size: 1rem;
-            font-weight: 600;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
-            margin-bottom: 2rem;
-        }
-        
-        .stats {
-            display: grid;
-            gap: 1.5rem;
-        }
-        
-        .stat-item {
-            padding: 1rem;
-            background: rgba(40, 98, 235, 0.1);
-            border-left: 3px solid #2862EB;
-            border-radius: 4px;
-        }
-        
-        .stat-value {
-            color: #2862EB;
+        .brand-name {
+            color: #0f172a;
             font-size: 2rem;
-            font-weight: 700;
-            margin-bottom: 0.25rem;
-        }
-        
-        .stat-label {
-            color: #94a3b8;
-            font-size: 0.875rem;
+            font-weight: 300;
+            letter-spacing: 0.1em;
             text-transform: uppercase;
-            letter-spacing: 0.05em;
         }
         
-        .form-panel {
+        .login-card {
+            background: white;
+            border-radius: 24px;
             padding: 3rem;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.08);
         }
         
-        .form-header {
+        .welcome-text {
+            text-align: center;
             margin-bottom: 2.5rem;
         }
         
-        .form-header h2 {
-            color: white;
-            font-size: 2rem;
-            font-weight: 700;
+        .welcome-text h2 {
+            color: #0f172a;
+            font-size: 1.75rem;
+            font-weight: 600;
             margin-bottom: 0.5rem;
         }
         
-        .form-header p {
+        .welcome-text p {
             color: #64748b;
             font-size: 0.875rem;
         }
         
         .form-group {
-            margin-bottom: 1.5rem;
+            margin-bottom: 1.75rem;
         }
         
         label {
             display: block;
-            color: #0EA5E9;
-            font-size: 0.75rem;
-            font-weight: 700;
+            color: #334155;
+            font-size: 0.875rem;
+            font-weight: 600;
             margin-bottom: 0.75rem;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
         }
         
-        .input-wrapper {
+        .input-container {
             position: relative;
-        }
-        
-        .input-wrapper::before {
-            content: '';
-            position: absolute;
-            top: 0;
-            left: 0;
-            right: 0;
-            bottom: 0;
-            background: linear-gradient(135deg, #2862EB, #763DED);
-            opacity: 0;
-            transition: opacity 0.3s;
-            pointer-events: none;
-            border-radius: 8px;
-        }
-        
-        .input-wrapper:focus-within::before {
-            opacity: 0.1;
         }
         
         input {
             width: 100%;
             padding: 1rem;
-            background: rgba(15, 23, 42, 0.8);
-            border: 2px solid rgba(40, 98, 235, 0.3);
-            border-radius: 8px;
-            color: white;
+            background: #f8fafc;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
+            color: #0f172a;
             font-size: 1rem;
             transition: all 0.3s ease;
-            position: relative;
         }
         
         input:focus {
             outline: none;
+            background: white;
             border-color: #2862EB;
-            box-shadow: 0 0 20px rgba(40, 98, 235, 0.3);
         }
         
         input::placeholder {
-            color: #475569;
+            color: #94a3b8;
         }
         
-        .checkbox-group {
+        .input-underline {
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            height: 2px;
+            width: 0;
+            background: linear-gradient(90deg, #2862EB, #763DED);
+            transition: width 0.3s ease;
+        }
+        
+        input:focus + .input-underline {
+            width: 100%;
+        }
+        
+        .form-footer {
             display: flex;
+            justify-content: space-between;
             align-items: center;
             margin-bottom: 2rem;
-        }
-        
-        .checkbox-group input {
-            width: auto;
-            margin-right: 0.75rem;
-        }
-        
-        .checkbox-group label {
-            margin: 0;
-            color: #94a3b8;
             font-size: 0.875rem;
-            text-transform: none;
-            letter-spacing: normal;
-            font-weight: 400;
         }
         
-        .btn-login {
+        .remember-check {
+            display: flex;
+            align-items: center;
+            color: #64748b;
+        }
+        
+        .remember-check input {
+            width: auto;
+            margin-right: 0.5rem;
+        }
+        
+        .forgot-password {
+            color: #2862EB;
+            text-decoration: none;
+            font-weight: 600;
+            transition: color 0.2s;
+        }
+        
+        .forgot-password:hover {
+            color: #1e40af;
+        }
+        
+        .btn-submit {
             width: 100%;
             padding: 1.125rem;
-            background: linear-gradient(135deg, #2862EB 0%, #763DED 100%);
+            background: #0f172a;
             border: none;
-            border-radius: 8px;
+            border-radius: 12px;
             color: white;
             font-size: 1rem;
-            font-weight: 700;
+            font-weight: 600;
             cursor: pointer;
             transition: all 0.3s ease;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
             position: relative;
             overflow: hidden;
         }
         
-        .btn-login::before {
+        .btn-submit::before {
             content: '';
             position: absolute;
             top: 0;
-            left: -100%;
+            left: 0;
             width: 100%;
             height: 100%;
-            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
-            transition: left 0.5s;
+            background: linear-gradient(135deg, #2862EB, #763DED);
+            opacity: 0;
+            transition: opacity 0.3s ease;
         }
         
-        .btn-login:hover::before {
-            left: 100%;
+        .btn-submit:hover::before {
+            opacity: 1;
         }
         
-        .btn-login:hover {
-            box-shadow: 0 0 30px rgba(40, 98, 235, 0.6);
+        .btn-submit span {
+            position: relative;
+            z-index: 1;
+        }
+        
+        .btn-submit:hover {
             transform: translateY(-2px);
+            box-shadow: 0 10px 30px rgba(40, 98, 235, 0.3);
         }
         
-        .divider {
+        .separator {
             text-align: center;
             margin: 2rem 0;
-            color: #475569;
-            font-size: 0.75rem;
-            text-transform: uppercase;
-            letter-spacing: 0.1em;
+            position: relative;
         }
         
-        .biometric-btn {
-            width: 100%;
-            padding: 1rem;
-            background: rgba(40, 98, 235, 0.1);
-            border: 2px solid rgba(40, 98, 235, 0.3);
-            border-radius: 8px;
-            color: #0EA5E9;
+        .separator::before {
+            content: '';
+            position: absolute;
+            top: 50%;
+            left: 0;
+            right: 0;
+            height: 1px;
+            background: #e2e8f0;
+        }
+        
+        .separator span {
+            position: relative;
+            background: white;
+            padding: 0 1rem;
+            color: #94a3b8;
             font-size: 0.875rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.3s ease;
+        }
+        
+        .social-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 1rem;
+        }
+        
+        .social-icon {
+            aspect-ratio: 1;
+            background: #f8fafc;
+            border: 2px solid #e2e8f0;
+            border-radius: 12px;
             display: flex;
             align-items: center;
             justify-content: center;
-            gap: 0.75rem;
+            cursor: pointer;
+            transition: all 0.3s ease;
         }
         
-        .biometric-btn:hover {
-            background: rgba(40, 98, 235, 0.2);
+        .social-icon:hover {
+            background: white;
             border-color: #2862EB;
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(0, 0, 0, 0.05);
         }
         
-        .biometric-btn svg {
-            width: 20px;
-            height: 20px;
-            stroke: currentColor;
-            stroke-width: 2;
-            fill: none;
+        .social-icon svg {
+            width: 24px;
+            height: 24px;
+            fill: #64748b;
         }
         
-        @media (max-width: 768px) {
-            .login-container {
-                grid-template-columns: 1fr;
-            }
-            .info-panel {
-                display: none;
-            }
+        .social-icon:hover svg {
+            fill: #2862EB;
+        }
+        
+        .footer-text {
+            text-align: center;
+            margin-top: 2rem;
+            color: #94a3b8;
+            font-size: 0.875rem;
+        }
+        
+        .footer-text a {
+            color: #2862EB;
+            text-decoration: none;
+            font-weight: 600;
+        }
+        
+        .footer-text a:hover {
+            text-decoration: underline;
         }
     </style>
 </head>
 <body>
-    <canvas id="grid-canvas"></canvas>
+    <div class="wave-container">
+        <div class="wave"></div>
+    </div>
     
     <div class="container">
-        <div class="login-container">
-            <div class="info-panel">
-                <div class="logo-section">
-                    <div class="logo-box">
-                        <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16"></path>
-                            <circle cx="12" cy="11" r="1"></circle>
-                            <circle cx="8" cy="11" r="1"></circle>
-                            <circle cx="16" cy="11" r="1"></circle>
-                        </svg>
-                    </div>
-                    <h1>ETL CORE</h1>
-                    <p class="tagline">Data Pipeline System</p>
+        <div class="login-wrapper">
+            <div class="logo-minimal">
+                <div class="logo-circle">
+                    <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
+                        <path d="M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16"></path>
+                        <circle cx="12" cy="11" r="1"></circle>
+                        <circle cx="8" cy="11" r="1"></circle>
+                        <circle cx="16" cy="11" r="1"></circle>
+                    </svg>
                 </div>
-                
-                <div class="stats">
-                    <div class="stat-item">
-                        <div class="stat-value">99.9%</div>
-                        <div class="stat-label">Uptime</div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="stat-value">2.4M</div>
-                        <div class="stat-label">Records/Hour</div>
-                    </div>
-                    <div class="stat-item">
-                        <div class="stat-value">24/7</div>
-                        <div class="stat-label">Monitoring</div>
-                    </div>
-                </div>
+                <h1 class="brand-name">ETL</h1>
             </div>
             
-            <div class="form-panel">
-                <div class="form-header">
-                    <h2>Access Terminal</h2>
-                    <p>Enter credentials to continue</p>
+            <div class="login-card">
+                <div class="welcome-text">
+                    <h2>Welcome</h2>
+                    <p>Please sign in to your account</p>
                 </div>
                 
                 <form>
                     <div class="form-group">
-                        <label for="email">User ID</label>
-                        <div class="input-wrapper">
-                            <input type="email" id="email" placeholder="user@domain.com" required>
+                        <label for="email">Email</label>
+                        <div class="input-container">
+                            <input type="email" id="email" placeholder="name@company.com" required>
+                            <div class="input-underline"></div>
                         </div>
                     </div>
                     
                     <div class="form-group">
-                        <label for="password">Access Code</label>
-                        <div class="input-wrapper">
-                            <input type="password" id="password" placeholder="••••••••••••" required>
+                        <label for="password">Password</label>
+                        <div class="input-container">
+                            <input type="password" id="password" placeholder="Enter your password" required>
+                            <div class="input-underline"></div>
                         </div>
                     </div>
                     
-                    <div class="checkbox-group">
-                        <input type="checkbox" id="remember">
-                        <label for="remember">Maintain session</label>
+                    <div class="form-footer">
+                        <label class="remember-check">
+                            <input type="checkbox">
+                            Remember me
+                        </label>
+                        <a href="#" class="forgot-password">Forgot password?</a>
                     </div>
                     
-                    <button type="submit" class="btn-login">Initialize Access</button>
-                    
-                    <div class="divider">or authenticate with</div>
-                    
-                    <button type="button" class="biometric-btn">
-                        <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
-                            <path d="M12 2a5 5 0 0 0-5 5v3H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-2V7a5 5 0 0 0-5-5z"></path>
-                            <circle cx="12" cy="15" r="1"></circle>
-                        </svg>
-                        Biometric Authentication
+                    <button type="submit" class="btn-submit">
+                        <span>Sign In</span>
                     </button>
+                    
+                    <div class="separator">
+                        <span>or sign in with</span>
+                    </div>
+                    
+                    <div class="social-grid">
+                        <button type="button" class="social-icon" title="Google">
+                            <svg viewBox="0 0 24 24">
+                                <path d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z" fill="#4285F4"/>
+                                <path d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" fill="#34A853"/>
+                            </svg>
+                        </button>
+                        <button type="button" class="social-icon" title="GitHub">
+                            <svg viewBox="0 0 24 24">
+                                <path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/>
+                            </svg>
+                        </button>
+                        <button type="button" class="social-icon" title="Microsoft">
+                            <svg viewBox="0 0 24 24">
+                                <path d="M11.4 24H0V12.6h11.4V24zM24 24H12.6V12.6H24V24zM11.4 11.4H0V0h11.4v11.4zm12.6 0H12.6V0H24v11.4z" fill="#00A4EF"/>
+                            </svg>
+                        </button>
+                    </div>
                 </form>
+                
+                <div class="footer-text">
+                    Don't have an account? <a href="#">Sign up</a>
+                </div>
             </div>
         </div>
     </div>
-    
-    <script>
-        // Animated Grid Background
-        const canvas = document.getElementById('grid-canvas');
-        const ctx = canvas.getContext('2d');
-        
-        canvas.width = window.innerWidth;
-        canvas.height = window.innerHeight;
-        
-        const gridSize = 50;
-        let offset = 0;
-        
-        function drawGrid() {
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
-            
-            // Vertical lines
-            for (let x = 0; x < canvas.width; x += gridSize) {
-                const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
-                gradient.addColorStop(0, 'rgba(40, 98, 235, 0)');
-                gradient.addColorStop(0.5, 'rgba(40, 98, 235, 0.3)');
-                gradient.addColorStop(1, 'rgba(40, 98, 235, 0)');
-                
-                ctx.strokeStyle = gradient;
-                ctx.lineWidth = 1;
-                ctx.beginPath();
-                ctx.moveTo(x, 0);
-                ctx.lineTo(x, canvas.height);
-                ctx.stroke();
-            }
-            
-            // Horizontal lines with perspective
-            for (let y = offset; y < canvas.height + gridSize; y += gridSize) {
-                const alpha = Math.max(0, Math.min(0.3, (y / canvas.height) * 0.3));
-                ctx.strokeStyle = `rgba(118, 61, 237, ${alpha})`;
-                ctx.lineWidth = 1;
-                ctx.beginPath();
-                ctx.moveTo(0, y);
-                ctx.lineTo(canvas.width, y);
-                ctx.stroke();
-            }
-            
-            offset += 0.5;
-            if (offset >= gridSize) offset = 0;
-            
-            requestAnimationFrame(drawGrid);
-        }
-        
-        drawGrid();
-        
-        window.addEventListener('resize', () => {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
-        });
-    </script>
 </body>
 </html>
 

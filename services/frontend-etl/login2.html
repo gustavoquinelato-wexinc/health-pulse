@@ -1,0 +1,454 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Login 2 - Cyberpunk Grid</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        body {
+            font-family: 'Inter', sans-serif;
+            overflow: hidden;
+            background: #000;
+        }
+        
+        #grid-canvas {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+        }
+        
+        .container {
+            position: relative;
+            z-index: 10;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2rem;
+        }
+        
+        .login-container {
+            width: 100%;
+            max-width: 900px;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            background: rgba(15, 23, 42, 0.85);
+            backdrop-filter: blur(20px);
+            border: 2px solid;
+            border-image: linear-gradient(135deg, #2862EB, #763DED, #059669, #0EA5E9) 1;
+            box-shadow: 0 0 60px rgba(40, 98, 235, 0.3), inset 0 0 60px rgba(40, 98, 235, 0.05);
+            overflow: hidden;
+        }
+        
+        .info-panel {
+            padding: 3rem;
+            background: linear-gradient(135deg, rgba(40, 98, 235, 0.1) 0%, rgba(118, 61, 237, 0.1) 100%);
+            border-right: 2px solid rgba(40, 98, 235, 0.3);
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+        
+        .logo-section {
+            margin-bottom: 3rem;
+        }
+        
+        .logo-box {
+            width: 80px;
+            height: 80px;
+            background: linear-gradient(135deg, #2862EB, #763DED);
+            clip-path: polygon(30% 0%, 70% 0%, 100% 30%, 100% 70%, 70% 100%, 30% 100%, 0% 70%, 0% 30%);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 1.5rem;
+            animation: rotate 10s linear infinite;
+            box-shadow: 0 0 30px rgba(40, 98, 235, 0.6);
+        }
+        
+        @keyframes rotate {
+            from { transform: rotate(0deg); }
+            to { transform: rotate(360deg); }
+        }
+        
+        .logo-box svg {
+            width: 40px;
+            height: 40px;
+            stroke: white;
+            stroke-width: 2;
+            fill: none;
+            animation: rotate 10s linear infinite reverse;
+        }
+        
+        .info-panel h1 {
+            color: white;
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+            text-shadow: 0 0 20px rgba(40, 98, 235, 0.5);
+        }
+        
+        .info-panel .tagline {
+            color: #0EA5E9;
+            font-size: 1rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            margin-bottom: 2rem;
+        }
+        
+        .stats {
+            display: grid;
+            gap: 1.5rem;
+        }
+        
+        .stat-item {
+            padding: 1rem;
+            background: rgba(40, 98, 235, 0.1);
+            border-left: 3px solid #2862EB;
+            border-radius: 4px;
+        }
+        
+        .stat-value {
+            color: #2862EB;
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 0.25rem;
+        }
+        
+        .stat-label {
+            color: #94a3b8;
+            font-size: 0.875rem;
+            text-transform: uppercase;
+            letter-spacing: 0.05em;
+        }
+        
+        .form-panel {
+            padding: 3rem;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+        }
+        
+        .form-header {
+            margin-bottom: 2.5rem;
+        }
+        
+        .form-header h2 {
+            color: white;
+            font-size: 2rem;
+            font-weight: 700;
+            margin-bottom: 0.5rem;
+        }
+        
+        .form-header p {
+            color: #64748b;
+            font-size: 0.875rem;
+        }
+        
+        .form-group {
+            margin-bottom: 1.5rem;
+        }
+        
+        label {
+            display: block;
+            color: #0EA5E9;
+            font-size: 0.75rem;
+            font-weight: 700;
+            margin-bottom: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+        
+        .input-wrapper {
+            position: relative;
+        }
+        
+        .input-wrapper::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: linear-gradient(135deg, #2862EB, #763DED);
+            opacity: 0;
+            transition: opacity 0.3s;
+            pointer-events: none;
+            border-radius: 8px;
+        }
+        
+        .input-wrapper:focus-within::before {
+            opacity: 0.1;
+        }
+        
+        input {
+            width: 100%;
+            padding: 1rem;
+            background: rgba(15, 23, 42, 0.8);
+            border: 2px solid rgba(40, 98, 235, 0.3);
+            border-radius: 8px;
+            color: white;
+            font-size: 1rem;
+            transition: all 0.3s ease;
+            position: relative;
+        }
+        
+        input:focus {
+            outline: none;
+            border-color: #2862EB;
+            box-shadow: 0 0 20px rgba(40, 98, 235, 0.3);
+        }
+        
+        input::placeholder {
+            color: #475569;
+        }
+        
+        .checkbox-group {
+            display: flex;
+            align-items: center;
+            margin-bottom: 2rem;
+        }
+        
+        .checkbox-group input {
+            width: auto;
+            margin-right: 0.75rem;
+        }
+        
+        .checkbox-group label {
+            margin: 0;
+            color: #94a3b8;
+            font-size: 0.875rem;
+            text-transform: none;
+            letter-spacing: normal;
+            font-weight: 400;
+        }
+        
+        .btn-login {
+            width: 100%;
+            padding: 1.125rem;
+            background: linear-gradient(135deg, #2862EB 0%, #763DED 100%);
+            border: none;
+            border-radius: 8px;
+            color: white;
+            font-size: 1rem;
+            font-weight: 700;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .btn-login::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+            transition: left 0.5s;
+        }
+        
+        .btn-login:hover::before {
+            left: 100%;
+        }
+        
+        .btn-login:hover {
+            box-shadow: 0 0 30px rgba(40, 98, 235, 0.6);
+            transform: translateY(-2px);
+        }
+        
+        .divider {
+            text-align: center;
+            margin: 2rem 0;
+            color: #475569;
+            font-size: 0.75rem;
+            text-transform: uppercase;
+            letter-spacing: 0.1em;
+        }
+        
+        .biometric-btn {
+            width: 100%;
+            padding: 1rem;
+            background: rgba(40, 98, 235, 0.1);
+            border: 2px solid rgba(40, 98, 235, 0.3);
+            border-radius: 8px;
+            color: #0EA5E9;
+            font-size: 0.875rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s ease;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 0.75rem;
+        }
+        
+        .biometric-btn:hover {
+            background: rgba(40, 98, 235, 0.2);
+            border-color: #2862EB;
+        }
+        
+        .biometric-btn svg {
+            width: 20px;
+            height: 20px;
+            stroke: currentColor;
+            stroke-width: 2;
+            fill: none;
+        }
+        
+        @media (max-width: 768px) {
+            .login-container {
+                grid-template-columns: 1fr;
+            }
+            .info-panel {
+                display: none;
+            }
+        }
+    </style>
+</head>
+<body>
+    <canvas id="grid-canvas"></canvas>
+    
+    <div class="container">
+        <div class="login-container">
+            <div class="info-panel">
+                <div class="logo-section">
+                    <div class="logo-box">
+                        <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M20 16V7a2 2 0 0 0-2-2H6a2 2 0 0 0-2 2v9m16 0H4m16 0 1.28 2.55a1 1 0 0 1-.9 1.45H3.62a1 1 0 0 1-.9-1.45L4 16"></path>
+                            <circle cx="12" cy="11" r="1"></circle>
+                            <circle cx="8" cy="11" r="1"></circle>
+                            <circle cx="16" cy="11" r="1"></circle>
+                        </svg>
+                    </div>
+                    <h1>ETL CORE</h1>
+                    <p class="tagline">Data Pipeline System</p>
+                </div>
+                
+                <div class="stats">
+                    <div class="stat-item">
+                        <div class="stat-value">99.9%</div>
+                        <div class="stat-label">Uptime</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value">2.4M</div>
+                        <div class="stat-label">Records/Hour</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value">24/7</div>
+                        <div class="stat-label">Monitoring</div>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="form-panel">
+                <div class="form-header">
+                    <h2>Access Terminal</h2>
+                    <p>Enter credentials to continue</p>
+                </div>
+                
+                <form>
+                    <div class="form-group">
+                        <label for="email">User ID</label>
+                        <div class="input-wrapper">
+                            <input type="email" id="email" placeholder="user@domain.com" required>
+                        </div>
+                    </div>
+                    
+                    <div class="form-group">
+                        <label for="password">Access Code</label>
+                        <div class="input-wrapper">
+                            <input type="password" id="password" placeholder="••••••••••••" required>
+                        </div>
+                    </div>
+                    
+                    <div class="checkbox-group">
+                        <input type="checkbox" id="remember">
+                        <label for="remember">Maintain session</label>
+                    </div>
+                    
+                    <button type="submit" class="btn-login">Initialize Access</button>
+                    
+                    <div class="divider">or authenticate with</div>
+                    
+                    <button type="button" class="biometric-btn">
+                        <svg viewBox="0 0 24 24" stroke-linecap="round" stroke-linejoin="round">
+                            <path d="M12 2a5 5 0 0 0-5 5v3H5a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-8a2 2 0 0 0-2-2h-2V7a5 5 0 0 0-5-5z"></path>
+                            <circle cx="12" cy="15" r="1"></circle>
+                        </svg>
+                        Biometric Authentication
+                    </button>
+                </form>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Animated Grid Background
+        const canvas = document.getElementById('grid-canvas');
+        const ctx = canvas.getContext('2d');
+        
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+        
+        const gridSize = 50;
+        let offset = 0;
+        
+        function drawGrid() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Vertical lines
+            for (let x = 0; x < canvas.width; x += gridSize) {
+                const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+                gradient.addColorStop(0, 'rgba(40, 98, 235, 0)');
+                gradient.addColorStop(0.5, 'rgba(40, 98, 235, 0.3)');
+                gradient.addColorStop(1, 'rgba(40, 98, 235, 0)');
+                
+                ctx.strokeStyle = gradient;
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(x, 0);
+                ctx.lineTo(x, canvas.height);
+                ctx.stroke();
+            }
+            
+            // Horizontal lines with perspective
+            for (let y = offset; y < canvas.height + gridSize; y += gridSize) {
+                const alpha = Math.max(0, Math.min(0.3, (y / canvas.height) * 0.3));
+                ctx.strokeStyle = `rgba(118, 61, 237, ${alpha})`;
+                ctx.lineWidth = 1;
+                ctx.beginPath();
+                ctx.moveTo(0, y);
+                ctx.lineTo(canvas.width, y);
+                ctx.stroke();
+            }
+            
+            offset += 0.5;
+            if (offset >= gridSize) offset = 0;
+            
+            requestAnimationFrame(drawGrid);
+        }
+        
+        drawGrid();
+        
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        });
+    </script>
+</body>
+</html>
+
