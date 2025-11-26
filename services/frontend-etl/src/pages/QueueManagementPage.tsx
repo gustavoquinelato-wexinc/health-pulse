@@ -481,10 +481,10 @@ export default function QueueManagementPage() {
           </CardContent>
         </Card>
 
-        {/* Queue Statistics - Real-time */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Queue Cards - Full Width Stacked Layout */}
+        <div className="space-y-6">
           {/* Extraction Queue */}
-          <Card className="border border-green-400"
+          <Card className="border border-green-400 transition-all duration-200 shadow-md"
             onMouseEnter={(e) => {
               e.currentTarget.style.borderColor = 'var(--color-1)'
               e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
@@ -494,38 +494,52 @@ export default function QueueManagementPage() {
               e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
             }}
           >
-            <CardHeader className="bg-green-50">
-              <CardTitle className="flex items-center gap-2 text-green-900">
-                <Inbox className="h-5 w-5" />
-                Extraction Queue
-              </CardTitle>
-              <CardDescription>Premium tier extraction queue</CardDescription>
-            </CardHeader>
-            <CardContent className="pt-6">
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Messages in Queue:</span>
-                  <Badge variant="default" className="text-lg px-3 py-1">
-                    {workerStatus?.queue_stats?.tier_queues?.premium?.extraction?.message_count ?? 0}
-                  </Badge>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Active Workers:</span>
-                  <Badge variant={workerStatus?.workers && Object.keys(workerStatus.workers).some(k => k.includes('extraction')) ? "default" : "destructive"}>
-                    {workerConfig?.current_tenant_allocation?.extraction ?? 0}
-                  </Badge>
-                </div>
-                <Separator />
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                {/* Left: Queue Info */}
+                <div className="flex items-center space-x-4 flex-1">
+                  {/* Queue Icon */}
+                  <div className="w-12 h-12 rounded-lg bg-green-100 flex items-center justify-center">
+                    <Inbox className="h-6 w-6 text-green-600" />
+                  </div>
 
-                {/* Worker Controls */}
-                <div className="flex gap-2">
+                  {/* Queue Details */}
+                  <div className="flex-1">
+                    <h3 className="text-lg font-semibold text-green-900">EXTRACTION QUEUE</h3>
+                    <div className="flex items-center space-x-4 mt-1">
+                      {/* Messages Count */}
+                      <div className="flex items-center space-x-1 text-green-700">
+                        <span className="text-sm font-medium">Messages:</span>
+                        <Badge variant="default" className="bg-green-600">
+                          {workerStatus?.queue_stats?.tier_queues?.premium?.extraction?.message_count ?? 0}
+                        </Badge>
+                      </div>
+
+                      {/* Active Workers */}
+                      <div className="flex items-center space-x-1 text-green-700">
+                        <span className="text-sm font-medium">Workers:</span>
+                        <Badge variant={workerStatus?.workers && Object.keys(workerStatus.workers).some(k => k.includes('extraction')) ? "default" : "destructive"} className="bg-green-600">
+                          {workerConfig?.current_tenant_allocation?.extraction ?? 0}
+                        </Badge>
+                      </div>
+
+                      {/* Queue Name */}
+                      <span className="text-xs text-secondary">
+                        extraction_queue_premium
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right: Action Buttons */}
+                <div className="flex items-center space-x-2">
                   <Button
                     size="sm"
                     onClick={() => performWorkerAction('start', 'extraction')}
                     disabled={actionLoading === 'start_extraction'}
-                    className="flex-1 bg-green-600 hover:bg-green-700 h-8"
+                    className="bg-green-600 hover:bg-green-700 px-4 py-2"
                   >
-                    <Play className="h-3 w-3 mr-1" />
+                    <Play className="h-4 w-4 mr-1" />
                     {actionLoading === 'start_extraction' ? 'Starting...' : 'Start'}
                   </Button>
                   <Button
@@ -533,51 +547,46 @@ export default function QueueManagementPage() {
                     variant="outline"
                     onClick={() => performWorkerAction('stop', 'extraction')}
                     disabled={actionLoading === 'stop_extraction'}
-                    className="flex-1 h-8"
+                    className="px-4 py-2"
                   >
-                    <Square className="h-3 w-3 mr-1" />
+                    <Square className="h-4 w-4 mr-1" />
                     {actionLoading === 'stop_extraction' ? 'Stopping...' : 'Stop'}
                   </Button>
                 </div>
-
-                <Separator />
-
-                {/* Worker Status List */}
-                <div className="space-y-2">
-                  <h4 className="text-xs font-semibold text-green-900">Worker Status:</h4>
-                  {workerStatus?.workers && Object.entries(workerStatus.workers)
-                    .filter(([key]) => key.includes('extraction'))
-                    .map(([key, workerData]) => (
-                      <div key={key} className="space-y-1">
-                        {workerData.instances.map((instance) => (
-                          <div key={instance.worker_key} className="flex items-center justify-between text-xs bg-white p-2 rounded border border-green-200">
-                            <div className="flex items-center gap-2">
-                              {getStatusIcon(instance.worker_running, instance.thread_alive)}
-                              <span>Worker {instance.worker_number + 1}</span>
-                            </div>
-                            <span className={instance.worker_running && instance.thread_alive ? "text-green-600 font-medium" : "text-red-600"}>
-                              {instance.worker_running && instance.thread_alive ? "Running" : "Stopped"}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    ))}
-                  {(!workerStatus?.workers || !Object.keys(workerStatus.workers).some(k => k.includes('extraction'))) && (
-                    <div className="text-xs text-secondary text-center p-2 bg-white rounded border border-green-200">
-                      No workers running
-                    </div>
-                  )}
-                </div>
-
-                <div className="text-xs text-secondary pt-2">
-                  Queue: extraction_queue_premium
-                </div>
               </div>
+
+              {/* Worker Status List - Collapsible */}
+              {workerStatus?.workers && Object.entries(workerStatus.workers)
+                .filter(([key]) => key.includes('extraction'))
+                .map(([key, workerData]) => (
+                  <div key={key} className="mt-4 pt-4 border-t border-green-200">
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
+                      {workerData.instances.map((instance) => (
+                        <div key={instance.worker_key} className="flex items-center justify-between text-xs bg-green-50 p-2 rounded border border-green-200">
+                          <div className="flex items-center gap-2">
+                            {getStatusIcon(instance.worker_running, instance.thread_alive)}
+                            <span className="font-medium">Worker {instance.worker_number + 1}</span>
+                          </div>
+                          <span className={instance.worker_running && instance.thread_alive ? "text-green-600 font-semibold" : "text-red-600"}>
+                            {instance.worker_running && instance.thread_alive ? "●" : "○"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              {(!workerStatus?.workers || !Object.keys(workerStatus.workers).some(k => k.includes('extraction'))) && (
+                <div className="mt-4 pt-4 border-t border-green-200">
+                  <div className="text-sm text-secondary text-center p-3 bg-green-50 rounded border border-green-200">
+                    No workers running
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 
           {/* Transform Queue */}
-          <Card className="border border-blue-400"
+          <Card className="border border-blue-400 transition-all duration-200 shadow-md"
             onMouseEnter={(e) => {
               e.currentTarget.style.borderColor = 'var(--color-1)'
               e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
@@ -587,38 +596,52 @@ export default function QueueManagementPage() {
               e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
             }}
           >
-            <CardHeader className="bg-blue-50">
-              <CardTitle className="flex items-center gap-2 text-blue-900">
-                <Inbox className="h-5 w-5" />
-                Transform Queue
-              </CardTitle>
-              <CardDescription>Premium tier transform queue</CardDescription>
-            </CardHeader>
-            <CardContent className="pt-6">
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Messages in Queue:</span>
-                  <Badge variant="default" className="text-lg px-3 py-1">
-                    {workerStatus?.queue_stats?.tier_queues?.premium?.transform?.message_count ?? 0}
-                  </Badge>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Active Workers:</span>
-                  <Badge variant={workerStatus?.workers && Object.keys(workerStatus.workers).some(k => k.includes('transform')) ? "default" : "destructive"}>
-                    {workerConfig?.current_tenant_allocation?.transform ?? 0}
-                  </Badge>
-                </div>
-                <Separator />
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                {/* Left: Queue Info */}
+                <div className="flex items-center space-x-4 flex-1">
+                  {/* Queue Icon */}
+                  <div className="w-12 h-12 rounded-lg bg-blue-100 flex items-center justify-center">
+                    <Inbox className="h-6 w-6 text-blue-600" />
+                  </div>
 
-                {/* Worker Controls */}
-                <div className="flex gap-2">
+                  {/* Queue Details */}
+                  <div className="flex-1">
+                    <h3 className="text-lg font-semibold text-blue-900">TRANSFORM QUEUE</h3>
+                    <div className="flex items-center space-x-4 mt-1">
+                      {/* Messages Count */}
+                      <div className="flex items-center space-x-1 text-blue-700">
+                        <span className="text-sm font-medium">Messages:</span>
+                        <Badge variant="default" className="bg-blue-600">
+                          {workerStatus?.queue_stats?.tier_queues?.premium?.transform?.message_count ?? 0}
+                        </Badge>
+                      </div>
+
+                      {/* Active Workers */}
+                      <div className="flex items-center space-x-1 text-blue-700">
+                        <span className="text-sm font-medium">Workers:</span>
+                        <Badge variant={workerStatus?.workers && Object.keys(workerStatus.workers).some(k => k.includes('transform')) ? "default" : "destructive"} className="bg-blue-600">
+                          {workerConfig?.current_tenant_allocation?.transform ?? 0}
+                        </Badge>
+                      </div>
+
+                      {/* Queue Name */}
+                      <span className="text-xs text-secondary">
+                        transform_queue_premium
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right: Action Buttons */}
+                <div className="flex items-center space-x-2">
                   <Button
                     size="sm"
                     onClick={() => performWorkerAction('start', 'transform')}
                     disabled={actionLoading === 'start_transform'}
-                    className="flex-1 bg-blue-600 hover:bg-blue-700 h-8"
+                    className="bg-blue-600 hover:bg-blue-700 px-4 py-2"
                   >
-                    <Play className="h-3 w-3 mr-1" />
+                    <Play className="h-4 w-4 mr-1" />
                     {actionLoading === 'start_transform' ? 'Starting...' : 'Start'}
                   </Button>
                   <Button
@@ -626,51 +649,46 @@ export default function QueueManagementPage() {
                     variant="outline"
                     onClick={() => performWorkerAction('stop', 'transform')}
                     disabled={actionLoading === 'stop_transform'}
-                    className="flex-1 h-8"
+                    className="px-4 py-2"
                   >
-                    <Square className="h-3 w-3 mr-1" />
+                    <Square className="h-4 w-4 mr-1" />
                     {actionLoading === 'stop_transform' ? 'Stopping...' : 'Stop'}
                   </Button>
                 </div>
-
-                <Separator />
-
-                {/* Worker Status List */}
-                <div className="space-y-2">
-                  <h4 className="text-xs font-semibold text-blue-900">Worker Status:</h4>
-                  {workerStatus?.workers && Object.entries(workerStatus.workers)
-                    .filter(([key]) => key.includes('transform'))
-                    .map(([key, workerData]) => (
-                      <div key={key} className="space-y-1">
-                        {workerData.instances.map((instance) => (
-                          <div key={instance.worker_key} className="flex items-center justify-between text-xs bg-white p-2 rounded border border-blue-200">
-                            <div className="flex items-center gap-2">
-                              {getStatusIcon(instance.worker_running, instance.thread_alive)}
-                              <span>Worker {instance.worker_number + 1}</span>
-                            </div>
-                            <span className={instance.worker_running && instance.thread_alive ? "text-blue-600 font-medium" : "text-red-600"}>
-                              {instance.worker_running && instance.thread_alive ? "Running" : "Stopped"}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    ))}
-                  {(!workerStatus?.workers || !Object.keys(workerStatus.workers).some(k => k.includes('transform'))) && (
-                    <div className="text-xs text-secondary text-center p-2 bg-white rounded border border-blue-200">
-                      No workers running
-                    </div>
-                  )}
-                </div>
-
-                <div className="text-xs text-secondary pt-2">
-                  Queue: transform_queue_premium
-                </div>
               </div>
+
+              {/* Worker Status List - Collapsible */}
+              {workerStatus?.workers && Object.entries(workerStatus.workers)
+                .filter(([key]) => key.includes('transform'))
+                .map(([key, workerData]) => (
+                  <div key={key} className="mt-4 pt-4 border-t border-blue-200">
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
+                      {workerData.instances.map((instance) => (
+                        <div key={instance.worker_key} className="flex items-center justify-between text-xs bg-blue-50 p-2 rounded border border-blue-200">
+                          <div className="flex items-center gap-2">
+                            {getStatusIcon(instance.worker_running, instance.thread_alive)}
+                            <span className="font-medium">Worker {instance.worker_number + 1}</span>
+                          </div>
+                          <span className={instance.worker_running && instance.thread_alive ? "text-blue-600 font-semibold" : "text-red-600"}>
+                            {instance.worker_running && instance.thread_alive ? "●" : "○"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              {(!workerStatus?.workers || !Object.keys(workerStatus.workers).some(k => k.includes('transform'))) && (
+                <div className="mt-4 pt-4 border-t border-blue-200">
+                  <div className="text-sm text-secondary text-center p-3 bg-blue-50 rounded border border-blue-200">
+                    No workers running
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
 
           {/* Embedding Queue */}
-          <Card className="border border-purple-400"
+          <Card className="border border-purple-400 transition-all duration-200 shadow-md"
             onMouseEnter={(e) => {
               e.currentTarget.style.borderColor = 'var(--color-1)'
               e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
@@ -680,38 +698,52 @@ export default function QueueManagementPage() {
               e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
             }}
           >
-            <CardHeader className="bg-purple-50">
-              <CardTitle className="flex items-center gap-2 text-purple-900">
-                <Inbox className="h-5 w-5" />
-                Embedding Queue
-              </CardTitle>
-              <CardDescription>Premium tier embedding queue</CardDescription>
-            </CardHeader>
-            <CardContent className="pt-6">
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Messages in Queue:</span>
-                  <Badge variant="default" className="text-lg px-3 py-1">
-                    {workerStatus?.queue_stats?.tier_queues?.premium?.embedding?.message_count ?? 0}
-                  </Badge>
-                </div>
-                <div className="flex items-center justify-between">
-                  <span className="text-sm font-medium">Active Workers:</span>
-                  <Badge variant={workerStatus?.workers && Object.keys(workerStatus.workers).some(k => k.includes('embedding')) ? "default" : "destructive"}>
-                    {workerConfig?.current_tenant_allocation?.embedding ?? 0}
-                  </Badge>
-                </div>
-                <Separator />
+            <CardContent className="p-6">
+              <div className="flex items-center justify-between">
+                {/* Left: Queue Info */}
+                <div className="flex items-center space-x-4 flex-1">
+                  {/* Queue Icon */}
+                  <div className="w-12 h-12 rounded-lg bg-purple-100 flex items-center justify-center">
+                    <Inbox className="h-6 w-6 text-purple-600" />
+                  </div>
 
-                {/* Worker Controls */}
-                <div className="flex gap-2">
+                  {/* Queue Details */}
+                  <div className="flex-1">
+                    <h3 className="text-lg font-semibold text-purple-900">EMBEDDING QUEUE</h3>
+                    <div className="flex items-center space-x-4 mt-1">
+                      {/* Messages Count */}
+                      <div className="flex items-center space-x-1 text-purple-700">
+                        <span className="text-sm font-medium">Messages:</span>
+                        <Badge variant="default" className="bg-purple-600">
+                          {workerStatus?.queue_stats?.tier_queues?.premium?.embedding?.message_count ?? 0}
+                        </Badge>
+                      </div>
+
+                      {/* Active Workers */}
+                      <div className="flex items-center space-x-1 text-purple-700">
+                        <span className="text-sm font-medium">Workers:</span>
+                        <Badge variant={workerStatus?.workers && Object.keys(workerStatus.workers).some(k => k.includes('embedding')) ? "default" : "destructive"} className="bg-purple-600">
+                          {workerConfig?.current_tenant_allocation?.embedding ?? 0}
+                        </Badge>
+                      </div>
+
+                      {/* Queue Name */}
+                      <span className="text-xs text-secondary">
+                        embedding_queue_premium
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Right: Action Buttons */}
+                <div className="flex items-center space-x-2">
                   <Button
                     size="sm"
                     onClick={() => performWorkerAction('start', 'embedding')}
                     disabled={actionLoading === 'start_embedding'}
-                    className="flex-1 bg-purple-600 hover:bg-purple-700 h-8"
+                    className="bg-purple-600 hover:bg-purple-700 px-4 py-2"
                   >
-                    <Play className="h-3 w-3 mr-1" />
+                    <Play className="h-4 w-4 mr-1" />
                     {actionLoading === 'start_embedding' ? 'Starting...' : 'Start'}
                   </Button>
                   <Button
@@ -719,46 +751,41 @@ export default function QueueManagementPage() {
                     variant="outline"
                     onClick={() => performWorkerAction('stop', 'embedding')}
                     disabled={actionLoading === 'stop_embedding'}
-                    className="flex-1 h-8"
+                    className="px-4 py-2"
                   >
-                    <Square className="h-3 w-3 mr-1" />
+                    <Square className="h-4 w-4 mr-1" />
                     {actionLoading === 'stop_embedding' ? 'Stopping...' : 'Stop'}
                   </Button>
                 </div>
-
-                <Separator />
-
-                {/* Worker Status List */}
-                <div className="space-y-2">
-                  <h4 className="text-xs font-semibold text-purple-900">Worker Status:</h4>
-                  {workerStatus?.workers && Object.entries(workerStatus.workers)
-                    .filter(([key]) => key.includes('embedding'))
-                    .map(([key, workerData]) => (
-                      <div key={key} className="space-y-1">
-                        {workerData.instances.map((instance) => (
-                          <div key={instance.worker_key} className="flex items-center justify-between text-xs bg-white p-2 rounded border border-purple-200">
-                            <div className="flex items-center gap-2">
-                              {getStatusIcon(instance.worker_running, instance.thread_alive)}
-                              <span>Worker {instance.worker_number + 1}</span>
-                            </div>
-                            <span className={instance.worker_running && instance.thread_alive ? "text-purple-600 font-medium" : "text-red-600"}>
-                              {instance.worker_running && instance.thread_alive ? "Running" : "Stopped"}
-                            </span>
-                          </div>
-                        ))}
-                      </div>
-                    ))}
-                  {(!workerStatus?.workers || !Object.keys(workerStatus.workers).some(k => k.includes('embedding'))) && (
-                    <div className="text-xs text-secondary text-center p-2 bg-white rounded border border-purple-200">
-                      No workers running
-                    </div>
-                  )}
-                </div>
-
-                <div className="text-xs text-secondary pt-2">
-                  Queue: embedding_queue_premium
-                </div>
               </div>
+
+              {/* Worker Status List - Collapsible */}
+              {workerStatus?.workers && Object.entries(workerStatus.workers)
+                .filter(([key]) => key.includes('embedding'))
+                .map(([key, workerData]) => (
+                  <div key={key} className="mt-4 pt-4 border-t border-purple-200">
+                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
+                      {workerData.instances.map((instance) => (
+                        <div key={instance.worker_key} className="flex items-center justify-between text-xs bg-purple-50 p-2 rounded border border-purple-200">
+                          <div className="flex items-center gap-2">
+                            {getStatusIcon(instance.worker_running, instance.thread_alive)}
+                            <span className="font-medium">Worker {instance.worker_number + 1}</span>
+                          </div>
+                          <span className={instance.worker_running && instance.thread_alive ? "text-purple-600 font-semibold" : "text-red-600"}>
+                            {instance.worker_running && instance.thread_alive ? "●" : "○"}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              {(!workerStatus?.workers || !Object.keys(workerStatus.workers).some(k => k.includes('embedding'))) && (
+                <div className="mt-4 pt-4 border-t border-purple-200">
+                  <div className="text-sm text-secondary text-center p-3 bg-purple-50 rounded border border-purple-200">
+                    No workers running
+                  </div>
+                </div>
+              )}
             </CardContent>
           </Card>
         </div>
