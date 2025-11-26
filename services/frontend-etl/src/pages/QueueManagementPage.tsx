@@ -516,7 +516,60 @@ export default function QueueManagementPage() {
                   </Badge>
                 </div>
                 <Separator />
-                <div className="text-xs text-secondary">
+
+                {/* Worker Controls */}
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => performWorkerAction('start', 'extraction')}
+                    disabled={actionLoading === 'start_extraction'}
+                    className="flex-1 bg-green-600 hover:bg-green-700 h-8"
+                  >
+                    <Play className="h-3 w-3 mr-1" />
+                    {actionLoading === 'start_extraction' ? 'Starting...' : 'Start'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => performWorkerAction('stop', 'extraction')}
+                    disabled={actionLoading === 'stop_extraction'}
+                    className="flex-1 h-8"
+                  >
+                    <Square className="h-3 w-3 mr-1" />
+                    {actionLoading === 'stop_extraction' ? 'Stopping...' : 'Stop'}
+                  </Button>
+                </div>
+
+                <Separator />
+
+                {/* Worker Status List */}
+                <div className="space-y-2">
+                  <h4 className="text-xs font-semibold text-green-900">Worker Status:</h4>
+                  {workerStatus?.workers && Object.entries(workerStatus.workers)
+                    .filter(([key]) => key.includes('extraction'))
+                    .map(([key, workerData]) => (
+                      <div key={key} className="space-y-1">
+                        {workerData.instances.map((instance) => (
+                          <div key={instance.worker_key} className="flex items-center justify-between text-xs bg-white p-2 rounded border border-green-200">
+                            <div className="flex items-center gap-2">
+                              {getStatusIcon(instance.worker_running, instance.thread_alive)}
+                              <span>Worker {instance.worker_number + 1}</span>
+                            </div>
+                            <span className={instance.worker_running && instance.thread_alive ? "text-green-600 font-medium" : "text-red-600"}>
+                              {instance.worker_running && instance.thread_alive ? "Running" : "Stopped"}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  {(!workerStatus?.workers || !Object.keys(workerStatus.workers).some(k => k.includes('extraction'))) && (
+                    <div className="text-xs text-secondary text-center p-2 bg-white rounded border border-green-200">
+                      No workers running
+                    </div>
+                  )}
+                </div>
+
+                <div className="text-xs text-secondary pt-2">
                   Queue: extraction_queue_premium
                 </div>
               </div>
@@ -556,7 +609,60 @@ export default function QueueManagementPage() {
                   </Badge>
                 </div>
                 <Separator />
-                <div className="text-xs text-secondary">
+
+                {/* Worker Controls */}
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => performWorkerAction('start', 'transform')}
+                    disabled={actionLoading === 'start_transform'}
+                    className="flex-1 bg-blue-600 hover:bg-blue-700 h-8"
+                  >
+                    <Play className="h-3 w-3 mr-1" />
+                    {actionLoading === 'start_transform' ? 'Starting...' : 'Start'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => performWorkerAction('stop', 'transform')}
+                    disabled={actionLoading === 'stop_transform'}
+                    className="flex-1 h-8"
+                  >
+                    <Square className="h-3 w-3 mr-1" />
+                    {actionLoading === 'stop_transform' ? 'Stopping...' : 'Stop'}
+                  </Button>
+                </div>
+
+                <Separator />
+
+                {/* Worker Status List */}
+                <div className="space-y-2">
+                  <h4 className="text-xs font-semibold text-blue-900">Worker Status:</h4>
+                  {workerStatus?.workers && Object.entries(workerStatus.workers)
+                    .filter(([key]) => key.includes('transform'))
+                    .map(([key, workerData]) => (
+                      <div key={key} className="space-y-1">
+                        {workerData.instances.map((instance) => (
+                          <div key={instance.worker_key} className="flex items-center justify-between text-xs bg-white p-2 rounded border border-blue-200">
+                            <div className="flex items-center gap-2">
+                              {getStatusIcon(instance.worker_running, instance.thread_alive)}
+                              <span>Worker {instance.worker_number + 1}</span>
+                            </div>
+                            <span className={instance.worker_running && instance.thread_alive ? "text-blue-600 font-medium" : "text-red-600"}>
+                              {instance.worker_running && instance.thread_alive ? "Running" : "Stopped"}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  {(!workerStatus?.workers || !Object.keys(workerStatus.workers).some(k => k.includes('transform'))) && (
+                    <div className="text-xs text-secondary text-center p-2 bg-white rounded border border-blue-200">
+                      No workers running
+                    </div>
+                  )}
+                </div>
+
+                <div className="text-xs text-secondary pt-2">
                   Queue: transform_queue_premium
                 </div>
               </div>
@@ -596,257 +702,62 @@ export default function QueueManagementPage() {
                   </Badge>
                 </div>
                 <Separator />
-                <div className="text-xs text-secondary">
-                  Queue: embedding_queue_premium
-                </div>
-              </div>
-            </CardContent>
-          </Card>
-        </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          {/* Worker Status Card */}
-          <Card className="border border-gray-400"
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = 'var(--color-1)'
-              e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = '#9ca3af'
-              e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
-            }}
-          >
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Activity className="h-5 w-5" />
-                Worker Status
-              </CardTitle>
-              <CardDescription>
-                Current status of ETL background workers
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <span className="font-medium">Manager Running:</span>
-                  <Badge variant={workerStatus?.running ? "default" : "destructive"}>
-                    {workerStatus?.running ? "Active" : "Inactive"}
-                  </Badge>
+                {/* Worker Controls */}
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    onClick={() => performWorkerAction('start', 'embedding')}
+                    disabled={actionLoading === 'start_embedding'}
+                    className="flex-1 bg-purple-600 hover:bg-purple-700 h-8"
+                  >
+                    <Play className="h-3 w-3 mr-1" />
+                    {actionLoading === 'start_embedding' ? 'Starting...' : 'Start'}
+                  </Button>
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onClick={() => performWorkerAction('stop', 'embedding')}
+                    disabled={actionLoading === 'stop_embedding'}
+                    className="flex-1 h-8"
+                  >
+                    <Square className="h-3 w-3 mr-1" />
+                    {actionLoading === 'stop_embedding' ? 'Stopping...' : 'Stop'}
+                  </Button>
                 </div>
 
                 <Separator />
 
-                <div className="space-y-3">
-                  <h4 className="font-medium text-sm">Worker Status (Your Tier):</h4>
-
-                  {/* Dynamically render workers by type (tier-based keys like premium_extraction) */}
-                  {workerStatus?.workers && Object.keys(workerStatus.workers).length > 0 ? (
-                    <>
-                      {/* Extraction Workers */}
-                      {Object.entries(workerStatus.workers)
-                        .filter(([key]) => key.includes('extraction'))
-                        .map(([key, workerData]) => (
-                          <div key={key} className="p-3 bg-green-50 rounded-lg border border-green-200">
-                            <div className="flex items-center justify-between mb-3">
-                              <span className="text-sm font-semibold text-green-900">Extraction Workers</span>
-                              <Badge variant={workerData.instances.some(w => w.worker_running && w.thread_alive) ? "default" : "destructive"}>
-                                {workerData.instances.filter(w => w.worker_running && w.thread_alive).length} / {workerData.count} Running
-                              </Badge>
+                {/* Worker Status List */}
+                <div className="space-y-2">
+                  <h4 className="text-xs font-semibold text-purple-900">Worker Status:</h4>
+                  {workerStatus?.workers && Object.entries(workerStatus.workers)
+                    .filter(([key]) => key.includes('embedding'))
+                    .map(([key, workerData]) => (
+                      <div key={key} className="space-y-1">
+                        {workerData.instances.map((instance) => (
+                          <div key={instance.worker_key} className="flex items-center justify-between text-xs bg-white p-2 rounded border border-purple-200">
+                            <div className="flex items-center gap-2">
+                              {getStatusIcon(instance.worker_running, instance.thread_alive)}
+                              <span>Worker {instance.worker_number + 1}</span>
                             </div>
-                            <div className="flex gap-2 mb-3">
-                              <Button
-                                size="sm"
-                                onClick={() => performWorkerAction('start', 'extraction')}
-                                disabled={actionLoading === 'start_extraction'}
-                                className="flex-1 bg-green-600 hover:bg-green-700 h-8"
-                              >
-                                <Play className="h-3 w-3 mr-1" />
-                                {actionLoading === 'start_extraction' ? 'Starting...' : 'Start'}
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => performWorkerAction('stop', 'extraction')}
-                                disabled={actionLoading === 'stop_extraction'}
-                                className="flex-1 h-8"
-                              >
-                                <Square className="h-3 w-3 mr-1" />
-                                {actionLoading === 'stop_extraction' ? 'Stopping...' : 'Stop'}
-                              </Button>
-                            </div>
-                            <div className="space-y-1">
-                              {workerData.instances.map((instance) => (
-                                <div key={instance.worker_key} className="flex items-center justify-between text-xs">
-                                  <div className="flex items-center gap-2">
-                                    {getStatusIcon(instance.worker_running, instance.thread_alive)}
-                                    <span>Worker {instance.worker_number + 1}</span>
-                                  </div>
-                                  <span className={instance.worker_running && instance.thread_alive ? "text-green-600" : "text-red-600"}>
-                                    {instance.worker_running && instance.thread_alive ? "Running" : "Stopped"}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
+                            <span className={instance.worker_running && instance.thread_alive ? "text-purple-600 font-medium" : "text-red-600"}>
+                              {instance.worker_running && instance.thread_alive ? "Running" : "Stopped"}
+                            </span>
                           </div>
                         ))}
-
-                      {/* Transform Workers */}
-                      {Object.entries(workerStatus.workers)
-                        .filter(([key]) => key.includes('transform'))
-                        .map(([key, workerData]) => (
-                          <div key={key} className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-                            <div className="flex items-center justify-between mb-3">
-                              <span className="text-sm font-semibold text-blue-900">Transform Workers</span>
-                              <Badge variant={workerData.instances.some(w => w.worker_running && w.thread_alive) ? "default" : "destructive"}>
-                                {workerData.instances.filter(w => w.worker_running && w.thread_alive).length} / {workerData.count} Running
-                              </Badge>
-                            </div>
-                            <div className="flex gap-2 mb-3">
-                              <Button
-                                size="sm"
-                                onClick={() => performWorkerAction('start', 'transform')}
-                                disabled={actionLoading === 'start_transform'}
-                                className="flex-1 bg-blue-600 hover:bg-blue-700 h-8"
-                              >
-                                <Play className="h-3 w-3 mr-1" />
-                                {actionLoading === 'start_transform' ? 'Starting...' : 'Start'}
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => performWorkerAction('stop', 'transform')}
-                                disabled={actionLoading === 'stop_transform'}
-                                className="flex-1 h-8"
-                              >
-                                <Square className="h-3 w-3 mr-1" />
-                                {actionLoading === 'stop_transform' ? 'Stopping...' : 'Stop'}
-                              </Button>
-                            </div>
-                            <div className="space-y-1">
-                              {workerData.instances.map((instance) => (
-                                <div key={instance.worker_key} className="flex items-center justify-between text-xs">
-                                  <div className="flex items-center gap-2">
-                                    {getStatusIcon(instance.worker_running, instance.thread_alive)}
-                                    <span>Worker {instance.worker_number + 1}</span>
-                                  </div>
-                                  <span className={instance.worker_running && instance.thread_alive ? "text-green-600" : "text-red-600"}>
-                                    {instance.worker_running && instance.thread_alive ? "Running" : "Stopped"}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-
-                      {/* Embedding Workers */}
-                      {Object.entries(workerStatus.workers)
-                        .filter(([key]) => key.includes('embedding'))
-                        .map(([key, workerData]) => (
-                          <div key={key} className="p-3 bg-purple-50 rounded-lg border border-purple-200">
-                            <div className="flex items-center justify-between mb-3">
-                              <span className="text-sm font-semibold text-purple-900">Embedding Workers</span>
-                              <Badge variant={workerData.instances.some(w => w.worker_running && w.thread_alive) ? "default" : "destructive"}>
-                                {workerData.instances.filter(w => w.worker_running && w.thread_alive).length} / {workerData.count} Running
-                              </Badge>
-                            </div>
-                            <div className="flex gap-2 mb-3">
-                              <Button
-                                size="sm"
-                                onClick={() => performWorkerAction('start', 'embedding')}
-                                disabled={actionLoading === 'start_embedding'}
-                                className="flex-1 bg-purple-600 hover:bg-purple-700 h-8"
-                              >
-                                <Play className="h-3 w-3 mr-1" />
-                                {actionLoading === 'start_embedding' ? 'Starting...' : 'Start'}
-                              </Button>
-                              <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => performWorkerAction('stop', 'embedding')}
-                                disabled={actionLoading === 'stop_embedding'}
-                                className="flex-1 h-8"
-                              >
-                                <Square className="h-3 w-3 mr-1" />
-                                {actionLoading === 'stop_embedding' ? 'Stopping...' : 'Stop'}
-                              </Button>
-                            </div>
-                            <div className="space-y-1">
-                              {workerData.instances.map((instance) => (
-                                <div key={instance.worker_key} className="flex items-center justify-between text-xs">
-                                  <div className="flex items-center gap-2">
-                                    {getStatusIcon(instance.worker_running, instance.thread_alive)}
-                                    <span>Worker {instance.worker_number + 1}</span>
-                                  </div>
-                                  <span className={instance.worker_running && instance.thread_alive ? "text-green-600" : "text-red-600"}>
-                                    {instance.worker_running && instance.thread_alive ? "Running" : "Stopped"}
-                                  </span>
-                                </div>
-                              ))}
-                            </div>
-                          </div>
-                        ))}
-                    </>
-                  ) : (
-                    <div className="text-center text-sm text-secondary p-4 bg-gray-50 rounded-lg">
-                      No workers running for your tier
+                      </div>
+                    ))}
+                  {(!workerStatus?.workers || !Object.keys(workerStatus.workers).some(k => k.includes('embedding'))) && (
+                    <div className="text-xs text-secondary text-center p-2 bg-white rounded border border-purple-200">
+                      No workers running
                     </div>
                   )}
                 </div>
-              </div>
-            </CardContent>
-          </Card>
 
-          {/* Queue Statistics Card */}
-          <Card className="border border-gray-400"
-            onMouseEnter={(e) => {
-              e.currentTarget.style.borderColor = 'var(--color-1)'
-              e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
-            }}
-            onMouseLeave={(e) => {
-              e.currentTarget.style.borderColor = '#9ca3af'
-              e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
-            }}
-          >
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Clock className="h-5 w-5" />
-                Processing Queue
-              </CardTitle>
-              <CardDescription>
-                Current data processing status
-              </CardDescription>
-            </CardHeader>
-            <CardContent>
-              <div className="space-y-4">
-                {workerStatus?.raw_data_stats && Object.keys(workerStatus.raw_data_stats).length > 0 ? (
-                  Object.entries(workerStatus.raw_data_stats).map(([key, stats]) => {
-                    const [status, dataType] = key.split('_', 2)
-                    return (
-                      <div key={key} className="flex items-center justify-between p-3 bg-gray-50 rounded-lg">
-                        <div className="flex items-center gap-2">
-                          {getDataStatusIcon(status)}
-                          <div>
-                            <span className="font-medium capitalize">{status}</span>
-                            <span className="text-secondary ml-1">({dataType.replace('_', ' ')})</span>
-                          </div>
-                        </div>
-                        <div className="text-right">
-                          <div className="font-medium">{stats.count} records</div>
-                          {stats.oldest && (
-                            <div className="text-xs text-secondary">
-                              Oldest: {new Date(stats.oldest).toLocaleString()}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    )
-                  })
-                ) : (
-                  <div className="text-center py-4 text-secondary">
-                    <CheckCircle className="h-8 w-8 mx-auto mb-2 text-green-500" />
-                    No pending data to process
-                  </div>
-                )}
+                <div className="text-xs text-secondary pt-2">
+                  Queue: embedding_queue_premium
+                </div>
               </div>
             </CardContent>
           </Card>
