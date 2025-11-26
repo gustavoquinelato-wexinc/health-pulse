@@ -45,6 +45,16 @@ const WorkflowsPage: React.FC<WorkflowsPageProps> = ({ embedded = false }) => {
   const { toasts, removeToast, showSuccess, showError } = useToast()
   const { confirmation, confirmDelete, hideConfirmation } = useConfirmation()
 
+  // Filter states
+  const [filters, setFilters] = useState({
+    stepName: '',
+    stepNumber: '',
+    category: '',
+    commitmentPoint: '',
+    integration: '',
+    status: ''
+  })
+
   // Edit modal state
   const [editModal, setEditModal] = useState({
     isOpen: false,
@@ -284,6 +294,47 @@ const WorkflowsPage: React.FC<WorkflowsPageProps> = ({ embedded = false }) => {
     fetchData()
   }, [])
 
+  // Filter workflows based on filter state
+  const filteredWorkflows = workflows.filter(workflow => {
+    // Step Name filter
+    if (filters.stepName && !workflow.step_name.toLowerCase().includes(filters.stepName.toLowerCase())) {
+      return false
+    }
+
+    // Step Number filter
+    if (filters.stepNumber && workflow.step_number?.toString() !== filters.stepNumber) {
+      return false
+    }
+
+    // Category filter
+    if (filters.category && workflow.step_category !== filters.category) {
+      return false
+    }
+
+    // Commitment Point filter
+    if (filters.commitmentPoint) {
+      const isCommitmentPoint = filters.commitmentPoint === 'yes'
+      if (workflow.is_commitment_point !== isCommitmentPoint) {
+        return false
+      }
+    }
+
+    // Integration filter
+    if (filters.integration && workflow.integration_id?.toString() !== filters.integration) {
+      return false
+    }
+
+    // Status filter
+    if (filters.status) {
+      const isActive = filters.status === 'active'
+      if (workflow.active !== isActive) {
+        return false
+      }
+    }
+
+    return true
+  })
+
   // Queue all workflows for embedding
   const handleQueueForEmbedding = async () => {
     try {
@@ -390,41 +441,86 @@ const WorkflowsPage: React.FC<WorkflowsPageProps> = ({ embedded = false }) => {
               <>
                   {/* Filters Section */}
                   <div className="mb-6 p-6 rounded-lg shadow-md border border-gray-400">
-                    <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
-                      {/* Workflow Name Filter */}
+                    <div className="grid grid-cols-1 md:grid-cols-3 lg:grid-cols-6 gap-4">
+                      {/* Step Name Filter */}
                       <div>
-                        <label className="block text-sm font-medium mb-2 text-primary">Workflow Name</label>
+                        <label className="block text-sm font-medium mb-2 text-primary">Step Name</label>
                         <input
                           type="text"
-                          placeholder="Filter by workflow name..."
+                          placeholder="Filter by step name..."
+                          value={filters.stepName}
+                          onChange={(e) => setFilters({ ...filters, stepName: e.target.value })}
                           className="w-full px-3 py-2 border border-tertiary/20 rounded-lg bg-primary text-primary"
                         />
                       </div>
 
-                      {/* Description Filter */}
+                      {/* Step # Filter */}
                       <div>
-                        <label className="block text-sm font-medium mb-2 text-primary">Description</label>
+                        <label className="block text-sm font-medium mb-2 text-primary">Step #</label>
                         <input
                           type="text"
-                          placeholder="Filter by description..."
+                          placeholder="Filter by step #..."
+                          value={filters.stepNumber}
+                          onChange={(e) => setFilters({ ...filters, stepNumber: e.target.value })}
                           className="w-full px-3 py-2 border border-tertiary/20 rounded-lg bg-primary text-primary"
                         />
+                      </div>
+
+                      {/* Category Filter */}
+                      <div>
+                        <label className="block text-sm font-medium mb-2 text-primary">Category</label>
+                        <select
+                          value={filters.category}
+                          onChange={(e) => setFilters({ ...filters, category: e.target.value })}
+                          className="w-full px-3 py-2 border border-tertiary/20 rounded-lg bg-primary text-primary"
+                        >
+                          <option value="">All Categories</option>
+                          <option value="To Do">To Do</option>
+                          <option value="In Progress">In Progress</option>
+                          <option value="Done">Done</option>
+                          <option value="Blocked">Blocked</option>
+                        </select>
+                      </div>
+
+                      {/* Commitment Point Filter */}
+                      <div>
+                        <label className="block text-sm font-medium mb-2 text-primary">Commitment Point</label>
+                        <select
+                          value={filters.commitmentPoint}
+                          onChange={(e) => setFilters({ ...filters, commitmentPoint: e.target.value })}
+                          className="w-full px-3 py-2 border border-tertiary/20 rounded-lg bg-primary text-primary"
+                        >
+                          <option value="">All</option>
+                          <option value="yes">Yes</option>
+                          <option value="no">No</option>
+                        </select>
                       </div>
 
                       {/* Integration Filter */}
                       <div>
                         <label className="block text-sm font-medium mb-2 text-primary">Integration</label>
-                        <select className="w-full px-3 py-2 border border-tertiary/20 rounded-lg bg-primary text-primary">
+                        <select
+                          value={filters.integration}
+                          onChange={(e) => setFilters({ ...filters, integration: e.target.value })}
+                          className="w-full px-3 py-2 border border-tertiary/20 rounded-lg bg-primary text-primary"
+                        >
                           <option value="">All Integrations</option>
-                          <option value="GitHub">GitHub</option>
-                          <option value="Jira">Jira</option>
+                          {integrations.map(integration => (
+                            <option key={integration.id} value={integration.id.toString()}>
+                              {integration.name}
+                            </option>
+                          ))}
                         </select>
                       </div>
 
                       {/* Status Filter */}
                       <div>
                         <label className="block text-sm font-medium mb-2 text-primary">Status</label>
-                        <select className="w-full px-3 py-2 border border-tertiary/20 rounded-lg bg-primary text-primary">
+                        <select
+                          value={filters.status}
+                          onChange={(e) => setFilters({ ...filters, status: e.target.value })}
+                          className="w-full px-3 py-2 border border-tertiary/20 rounded-lg bg-primary text-primary"
+                        >
                           <option value="">All Statuses</option>
                           <option value="active">Active</option>
                           <option value="inactive">Inactive</option>
@@ -469,7 +565,7 @@ const WorkflowsPage: React.FC<WorkflowsPageProps> = ({ embedded = false }) => {
                             </tr>
                           </thead>
                           <tbody>
-                            {workflows.map((workflow, index) => (
+                            {filteredWorkflows.map((workflow, index) => (
                               <tr
                                 key={workflow.id}
                                 className={`${index % 2 === 0 ? 'bg-table-row-even' : 'bg-table-row-odd'} ${!workflow.active ? 'opacity-50' : ''}`}
