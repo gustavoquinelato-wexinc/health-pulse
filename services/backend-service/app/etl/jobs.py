@@ -588,6 +588,61 @@ async def run_job_now(
             logger.warning(f"⚠️ JOB FINISHING: Job '{job_name}' is FINISHED and resetting - rejecting request")
             raise HTTPException(status_code=400, detail=f"Job {job_name} is resetting. Please wait a moment and try again.")
 
+        # 🔑 Check if workers are running BEFORE setting job to RUNNING
+        # This prevents the job from being set to RUNNING and then immediately to FAILED
+        workers_running, worker_message = _check_workers_running()
+        if not workers_running:
+            logger.error(f"❌ Cannot run job: {worker_message}")
+
+            # Update job status to FAILED and store error message in database
+            from app.core.utils import DateTimeHelper
+            import json
+            now = DateTimeHelper.now_default()
+
+            # Create the status JSON with error message
+            status_update = json.dumps({
+                'overall': 'FAILED',
+                'error': worker_message
+            })
+
+            # Use CAST() instead of :: to avoid syntax conflicts with named parameters
+            update_query = text("""
+                UPDATE etl_jobs
+                SET status = status || CAST(:status_update AS jsonb),
+                    error_message = :error_message,
+                    last_updated_at = :now
+                WHERE id = :job_id AND tenant_id = :tenant_id
+            """)
+
+            db.execute(update_query, {
+                'job_id': job_id,
+                'tenant_id': tenant_id,
+                'status_update': status_update,
+                'error_message': worker_message,
+                'now': now
+            })
+            db.commit()
+
+            # Send WebSocket update to notify UI
+            try:
+                from app.api.websocket_routes import get_job_websocket_manager
+                job_websocket_manager = get_job_websocket_manager()
+
+                # Send the same JSON structure that's in the database
+                await job_websocket_manager.send_job_status_update(
+                    tenant_id=tenant_id,
+                    job_id=job_id,
+                    status_json={
+                        'overall': 'FAILED',
+                        'error': worker_message
+                    }
+                )
+            except Exception as ws_error:
+                logger.warning(f"Failed to send WebSocket update: {ws_error}")
+
+            logger.info(f"📝 Job {job_id} marked as FAILED: {worker_message}")
+            raise HTTPException(status_code=400, detail=worker_message)
+
         # Set to RUNNING and record start time with proper timezone
         # Use atomic update to prevent race conditions
         from app.core.utils import DateTimeHelper
@@ -668,63 +723,29 @@ async def run_job_now(
             logger.info(f"🚀 Queuing Jira extraction job for background processing (integration {integration_id})")
 
             # Queue the job for extraction
-            success = await _queue_jira_extraction_job(tenant_id, integration_id, job_id)
+            # Queue the job for extraction (raises HTTPException if workers not running)
+            await _queue_jira_extraction_job(tenant_id, integration_id, job_id)
 
-            if success:
-                # Return HTTP 202 Accepted for non-blocking response
-
-                return JobActionResponse(
-                    success=True,
-                    message=f"Job {job_name} queued successfully - extraction will begin shortly",
-                    job_id=job_id,
-                    new_status="QUEUED"
-                )
-            else:
-                # Update job status to failed
-                update_query = text("""
-                    UPDATE etl_jobs
-                    SET status = jsonb_set(status, ARRAY['overall'], to_jsonb('FAILED'::text)),
-                        error_message = 'Failed to queue extraction job',
-                        last_updated_at = NOW()
-                    WHERE id = :job_id AND tenant_id = :tenant_id
-                """)
-                db.execute(update_query, {'job_id': job_id, 'tenant_id': tenant_id})
-                db.commit()
-
-                raise HTTPException(
-                    status_code=500,
-                    detail="Failed to queue extraction job"
-                )
+            # Return HTTP 202 Accepted for non-blocking response
+            return JobActionResponse(
+                success=True,
+                message=f"Job {job_name} queued successfully - extraction will begin shortly",
+                job_id=job_id,
+                new_status="QUEUED"
+            )
         elif job_name.lower() == 'github':
             logger.info(f"🚀 Queuing GitHub extraction job for background processing (integration {integration_id})")
 
-            # Queue the job for extraction
-            success = await _queue_github_extraction_job(tenant_id, integration_id, job_id)
+            # Queue the job for extraction (raises HTTPException if workers not running)
+            await _queue_github_extraction_job(tenant_id, integration_id, job_id)
 
-            if success:
-                # Return HTTP 202 Accepted for non-blocking response
-                return JobActionResponse(
-                    success=True,
-                    message=f"Job {job_name} queued successfully - extraction will begin shortly",
-                    job_id=job_id,
-                    new_status="QUEUED"
-                )
-            else:
-                # Update job status to failed
-                update_query = text("""
-                    UPDATE etl_jobs
-                    SET status = jsonb_set(status, ARRAY['overall'], to_jsonb('FAILED'::text)),
-                        error_message = 'Failed to queue extraction job',
-                        last_updated_at = NOW()
-                    WHERE id = :job_id AND tenant_id = :tenant_id
-                """)
-                db.execute(update_query, {'job_id': job_id, 'tenant_id': tenant_id})
-                db.commit()
-
-                raise HTTPException(
-                    status_code=500,
-                    detail="Failed to queue extraction job"
-                )
+            # Return HTTP 202 Accepted for non-blocking response
+            return JobActionResponse(
+                success=True,
+                message=f"Job {job_name} queued successfully - extraction will begin shortly",
+                job_id=job_id,
+                new_status="QUEUED"
+            )
         else:
             # For other jobs, set back to FINISHED with message
             finish_query = text("""
@@ -893,6 +914,35 @@ async def update_job_settings(
         raise HTTPException(status_code=500, detail=f"Failed to update job settings: {str(e)}")
 
 
+def _check_workers_running() -> tuple[bool, str]:
+    """
+    Check if extraction workers are currently running.
+
+    Returns:
+        tuple: (workers_running: bool, message: str)
+    """
+    try:
+        from app.etl.workers.worker_manager import get_worker_manager
+
+        manager = get_worker_manager()
+        status = manager.get_worker_status()
+
+        workers_running = status.get('running', False)
+
+        if not workers_running:
+            message = "No workers are currently running. Please start workers from the Queue Management page before running jobs."
+            logger.warning(f"⚠️ Worker check failed: {message}")
+            return False, message
+
+        logger.info(f"✅ Worker check passed: Workers are running")
+        return True, "Workers are running"
+
+    except Exception as e:
+        logger.error(f"❌ Error checking worker status: {e}")
+        # If we can't check status, assume workers are running to avoid blocking jobs
+        return True, "Worker status check failed - proceeding anyway"
+
+
 async def _queue_jira_extraction_job(tenant_id: int, integration_id: int, job_id: int) -> bool:
     """
     Queue Jira extraction job for background processing.
@@ -911,6 +961,7 @@ async def _queue_jira_extraction_job(tenant_id: int, integration_id: int, job_id
         from app.core.database import get_database
         import json
 
+        # Note: Worker check is now done in run_job_now() before setting status to RUNNING
         # Note: Job status is already set to 'RUNNING' by run_job_now function
         # No need to update it again here to avoid database locks
 
@@ -973,6 +1024,9 @@ async def _queue_jira_extraction_job(tenant_id: int, integration_id: int, job_id
             logger.error(f"❌ Failed to publish extraction message to {tier_queue}")
             return False
 
+    except HTTPException:
+        # Re-raise HTTPException (e.g., workers not running)
+        raise
     except Exception as e:
         logger.error(f"Error queuing Jira extraction: {e}")
         import traceback
@@ -1007,6 +1061,7 @@ async def _queue_github_extraction_job(tenant_id: int, integration_id: int, job_
         from app.models.unified_models import EtlJob
         import json
 
+        # Note: Worker check is now done in run_job_now() before setting status to RUNNING
         # Note: Job status is already set to 'RUNNING' by run_job_now function
         # No need to update it again here to avoid database locks
 
@@ -1191,6 +1246,9 @@ async def _queue_github_extraction_job(tenant_id: int, integration_id: int, job_
             logger.error(f"❌ Failed to publish extraction message to {tier_queue}")
             return False
 
+    except HTTPException:
+        # Re-raise HTTPException (e.g., workers not running)
+        raise
     except Exception as e:
         logger.error(f"Error queuing GitHub extraction: {e}")
         import traceback

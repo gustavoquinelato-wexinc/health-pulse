@@ -605,6 +605,34 @@ class IndividualJobTimer:
         except Exception as db_error:
             logger.error(f"Error updating job status to FAILED: {db_error}")
 
+    def _check_workers_running(self) -> tuple[bool, str]:
+        """
+        Check if extraction workers are currently running.
+
+        Returns:
+            tuple: (workers_running: bool, message: str)
+        """
+        try:
+            from app.etl.workers.worker_manager import get_worker_manager
+
+            manager = get_worker_manager()
+            status = manager.get_worker_status()
+
+            workers_running = status.get('running', False)
+
+            if not workers_running:
+                message = "No workers are currently running. Please start workers from the Queue Management page before running jobs."
+                logger.warning(f"⚠️ Worker check failed: {message}")
+                return False, message
+
+            logger.info(f"✅ Worker check passed: Workers are running")
+            return True, "Workers are running"
+
+        except Exception as e:
+            logger.error(f"❌ Error checking worker status: {e}")
+            # If we can't check status, assume workers are running to avoid blocking jobs
+            return True, "Worker status check failed - proceeding anyway"
+
     async def _queue_jira_extraction(self, integration_id: int) -> bool:
         """
         Queue Jira extraction job for background processing.
@@ -617,6 +645,14 @@ class IndividualJobTimer:
         """
         try:
             from app.etl.workers.queue_manager import QueueManager
+
+            # 🔑 Check if workers are running before queuing
+            workers_running, worker_message = self._check_workers_running()
+            if not workers_running:
+                logger.error(f"❌ Cannot queue Jira extraction job: {worker_message}")
+                # Mark job as FAILED
+                await self._mark_job_failed(worker_message)
+                return False
 
             # Note: Job status is already set to 'RUNNING' by _trigger_job method
             # No need to update it again here to avoid database locks and constraint violations
