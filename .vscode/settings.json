@@ -40,6 +40,14 @@
   // Python settings - controlled by pyrightconfig.json
   // "python.analysis.typeCheckingMode": "basic",
   "python.analysis.autoImportCompletions": true,
+  "python.analysis.extraPaths": [
+    "${workspaceFolder}/services/backend-service",
+    "${workspaceFolder}/services/auth-service"
+  ],
+  "python.autoComplete.extraPaths": [
+    "${workspaceFolder}/services/backend-service",
+    "${workspaceFolder}/services/auth-service"
+  ],
   
   // Recommended extensions
   "recommendations": [
