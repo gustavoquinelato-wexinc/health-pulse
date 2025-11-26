@@ -498,7 +498,7 @@ export default function QueueManagementPage() {
                 {/* Left: Queue Info */}
                 <div className="flex items-center space-x-4 flex-1">
                   {/* Queue Icon */}
-                  <div className="w-12 h-12 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'var(--color-1)', opacity: 0.15 }}>
+                  <div className="w-12 h-12 rounded-lg flex items-center justify-center bg-gray-100">
                     <Download className="h-6 w-6" style={{ color: 'var(--color-1)' }} />
                   </div>
 
@@ -537,41 +537,13 @@ export default function QueueManagementPage() {
                   <button
                     onClick={() => performWorkerAction('stop', 'extraction')}
                     disabled={actionLoading === 'stop_extraction'}
-                    className="px-4 py-2 rounded-lg flex items-center space-x-2 transition-all border border-gray-300 hover:bg-gray-50"
+                    className="px-4 py-2 rounded-lg flex items-center space-x-2 transition-all border border-gray-300 bg-white hover:bg-gray-50"
                   >
                     <Square className="w-4 h-4" />
                     <span>{actionLoading === 'stop_extraction' ? 'Stopping...' : 'Stop'}</span>
                   </button>
                 </div>
               </div>
-
-              {/* Worker Status List */}
-              {workerStatus?.workers && Object.entries(workerStatus.workers)
-                .filter(([key]) => key.includes('extraction'))
-                .map(([key, workerData]) => (
-                  <div key={key} className="mt-4 pt-4 border-t border-gray-200">
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
-                      {workerData.instances.map((instance) => (
-                        <div key={instance.worker_key} className="flex items-center justify-between text-xs p-2 rounded border border-gray-200 bg-gray-50">
-                          <div className="flex items-center gap-2">
-                            {getStatusIcon(instance.worker_running, instance.thread_alive)}
-                            <span className="font-medium">Worker {instance.worker_number + 1}</span>
-                          </div>
-                          <span className="font-semibold" style={{ color: instance.worker_running && instance.thread_alive ? 'var(--color-1)' : '#ef4444' }}>
-                            {instance.worker_running && instance.thread_alive ? "●" : "○"}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              {(!workerStatus?.workers || !Object.keys(workerStatus.workers).some(k => k.includes('extraction'))) && (
-                <div className="mt-4 pt-4 border-t border-gray-200">
-                  <div className="text-sm text-secondary text-center p-3 rounded border border-gray-200 bg-gray-50">
-                    No workers running
-                  </div>
-                </div>
-              )}
             </CardContent>
           </Card>
 
@@ -590,7 +562,7 @@ export default function QueueManagementPage() {
                 {/* Left: Queue Info */}
                 <div className="flex items-center space-x-4 flex-1">
                   {/* Queue Icon */}
-                  <div className="w-12 h-12 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'var(--color-2)', opacity: 0.15 }}>
+                  <div className="w-12 h-12 rounded-lg flex items-center justify-center bg-gray-100">
                     <RefreshCw className="h-6 w-6" style={{ color: 'var(--color-2)' }} />
                   </div>
 
@@ -629,41 +601,13 @@ export default function QueueManagementPage() {
                   <button
                     onClick={() => performWorkerAction('stop', 'transform')}
                     disabled={actionLoading === 'stop_transform'}
-                    className="px-4 py-2 rounded-lg flex items-center space-x-2 transition-all border border-gray-300 hover:bg-gray-50"
+                    className="px-4 py-2 rounded-lg flex items-center space-x-2 transition-all border border-gray-300 bg-white hover:bg-gray-50"
                   >
                     <Square className="w-4 h-4" />
                     <span>{actionLoading === 'stop_transform' ? 'Stopping...' : 'Stop'}</span>
                   </button>
                 </div>
               </div>
-
-              {/* Worker Status List */}
-              {workerStatus?.workers && Object.entries(workerStatus.workers)
-                .filter(([key]) => key.includes('transform'))
-                .map(([key, workerData]) => (
-                  <div key={key} className="mt-4 pt-4 border-t border-gray-200">
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
-                      {workerData.instances.map((instance) => (
-                        <div key={instance.worker_key} className="flex items-center justify-between text-xs p-2 rounded border border-gray-200 bg-gray-50">
-                          <div className="flex items-center gap-2">
-                            {getStatusIcon(instance.worker_running, instance.thread_alive)}
-                            <span className="font-medium">Worker {instance.worker_number + 1}</span>
-                          </div>
-                          <span className="font-semibold" style={{ color: instance.worker_running && instance.thread_alive ? 'var(--color-2)' : '#ef4444' }}>
-                            {instance.worker_running && instance.thread_alive ? "●" : "○"}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              {(!workerStatus?.workers || !Object.keys(workerStatus.workers).some(k => k.includes('transform'))) && (
-                <div className="mt-4 pt-4 border-t border-gray-200">
-                  <div className="text-sm text-secondary text-center p-3 rounded border border-gray-200 bg-gray-50">
-                    No workers running
-                  </div>
-                </div>
-              )}
             </CardContent>
           </Card>
 
@@ -682,7 +626,7 @@ export default function QueueManagementPage() {
                 {/* Left: Queue Info */}
                 <div className="flex items-center space-x-4 flex-1">
                   {/* Queue Icon */}
-                  <div className="w-12 h-12 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'var(--color-3)', opacity: 0.15 }}>
+                  <div className="w-12 h-12 rounded-lg flex items-center justify-center bg-gray-100">
                     <Sparkles className="h-6 w-6" style={{ color: 'var(--color-3)' }} />
                   </div>
 
@@ -721,41 +665,13 @@ export default function QueueManagementPage() {
                   <button
                     onClick={() => performWorkerAction('stop', 'embedding')}
                     disabled={actionLoading === 'stop_embedding'}
-                    className="px-4 py-2 rounded-lg flex items-center space-x-2 transition-all border border-gray-300 hover:bg-gray-50"
+                    className="px-4 py-2 rounded-lg flex items-center space-x-2 transition-all border border-gray-300 bg-white hover:bg-gray-50"
                   >
                     <Square className="w-4 h-4" />
                     <span>{actionLoading === 'stop_embedding' ? 'Stopping...' : 'Stop'}</span>
                   </button>
                 </div>
               </div>
-
-              {/* Worker Status List */}
-              {workerStatus?.workers && Object.entries(workerStatus.workers)
-                .filter(([key]) => key.includes('embedding'))
-                .map(([key, workerData]) => (
-                  <div key={key} className="mt-4 pt-4 border-t border-gray-200">
-                    <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-2">
-                      {workerData.instances.map((instance) => (
-                        <div key={instance.worker_key} className="flex items-center justify-between text-xs p-2 rounded border border-gray-200 bg-gray-50">
-                          <div className="flex items-center gap-2">
-                            {getStatusIcon(instance.worker_running, instance.thread_alive)}
-                            <span className="font-medium">Worker {instance.worker_number + 1}</span>
-                          </div>
-                          <span className="font-semibold" style={{ color: instance.worker_running && instance.thread_alive ? 'var(--color-3)' : '#ef4444' }}>
-                            {instance.worker_running && instance.thread_alive ? "●" : "○"}
-                          </span>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-              {(!workerStatus?.workers || !Object.keys(workerStatus.workers).some(k => k.includes('embedding'))) && (
-                <div className="mt-4 pt-4 border-t border-gray-200">
-                  <div className="text-sm text-secondary text-center p-3 rounded border border-gray-200 bg-gray-50">
-                    No workers running
-                  </div>
-                </div>
-              )}
             </CardContent>
           </Card>
         </div>
