@@ -949,10 +949,10 @@ export default function QueueManagementPage() {
                 <button
                   onClick={updateWorkerCounts}
                   disabled={saveLoading || !hasUnsavedChanges}
-                  className="btn-crud-create disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="btn-crud-create disabled:opacity-50 disabled:cursor-not-allowed min-w-[180px] flex items-center gap-2"
                 >
-                  <Save className="h-4 w-4" />
-                  <span>{saveLoading ? 'Saving...' : 'Save Configuration'}</span>
+                  <Save className="h-4 w-4 flex-shrink-0" />
+                  <span className="whitespace-nowrap">{saveLoading ? 'Saving...' : 'Save Configuration'}</span>
                 </button>
               </div>
             </CardHeader>
@@ -985,7 +985,9 @@ export default function QueueManagementPage() {
                     <div className="p-3 bg-green-50 rounded-lg border border-green-200">
                       <div className="text-xs text-secondary">Available for Workers</div>
                       <div className="text-xl font-bold text-green-600">{dbCapacity.available_for_workers}</div>
-                      <div className="text-xs text-secondary mt-1">Max: {dbCapacity.max_recommended_workers}</div>
+                      <div className="text-xs text-secondary mt-1">
+                        Recommended: {dbCapacity.max_recommended_workers} <span className="text-gray-400">(20% buffer)</span>
+                      </div>
                     </div>
                     <div className={`p-3 rounded-lg border ${dbCapacity.current_usage_percent > 80 ? 'bg-red-50 border-red-200' : dbCapacity.current_usage_percent > 60 ? 'bg-yellow-50 border-yellow-200' : 'bg-green-50 border-green-200'}`}>
                       <div className="text-xs text-secondary">Current Usage</div>
@@ -999,10 +1001,10 @@ export default function QueueManagementPage() {
 
                 {/* Worker Count Configuration */}
                 <div className="p-4 bg-white rounded-lg border border-gray-200">
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+                  <div className="flex items-center gap-6">
                     {/* Extraction Workers */}
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-700 mb-2">
+                    <div className="flex items-center gap-3 flex-1">
+                      <label className="text-sm font-semibold text-gray-700 whitespace-nowrap">
                         Extraction Workers
                       </label>
                       <input
@@ -1012,16 +1014,13 @@ export default function QueueManagementPage() {
                         value={extractionWorkers}
                         onChange={(e) => setExtractionWorkers(parseInt(e.target.value) || 1)}
                         disabled={saveLoading}
-                        className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-semibold text-center"
+                        className="w-20 p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-semibold text-center"
                       />
-                      <div className="text-xs text-secondary mt-1">
-                        Current: {originalExtractionWorkers}
-                      </div>
                     </div>
 
                     {/* Transform Workers */}
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-700 mb-2">
+                    <div className="flex items-center gap-3 flex-1">
+                      <label className="text-sm font-semibold text-gray-700 whitespace-nowrap">
                         Transform Workers
                       </label>
                       <input
@@ -1031,16 +1030,13 @@ export default function QueueManagementPage() {
                         value={transformWorkers}
                         onChange={(e) => setTransformWorkers(parseInt(e.target.value) || 1)}
                         disabled={saveLoading}
-                        className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-semibold text-center"
+                        className="w-20 p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-semibold text-center"
                       />
-                      <div className="text-xs text-secondary mt-1">
-                        Current: {originalTransformWorkers}
-                      </div>
                     </div>
 
                     {/* Embedding Workers */}
-                    <div>
-                      <label className="block text-xs font-semibold text-gray-700 mb-2">
+                    <div className="flex items-center gap-3 flex-1">
+                      <label className="text-sm font-semibold text-gray-700 whitespace-nowrap">
                         Embedding Workers
                       </label>
                       <input
@@ -1050,11 +1046,8 @@ export default function QueueManagementPage() {
                         value={embeddingWorkers}
                         onChange={(e) => setEmbeddingWorkers(parseInt(e.target.value) || 1)}
                         disabled={saveLoading}
-                        className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-semibold text-center"
+                        className="w-20 p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-semibold text-center"
                       />
-                      <div className="text-xs text-secondary mt-1">
-                        Current: {originalEmbeddingWorkers}
-                      </div>
                     </div>
                   </div>
 
