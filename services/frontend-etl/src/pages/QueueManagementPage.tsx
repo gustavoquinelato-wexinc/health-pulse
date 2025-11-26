@@ -11,7 +11,7 @@ import ToastContainer from '../components/ToastContainer'
 import ConfirmationModal from '../components/ConfirmationModal'
 import { useToast } from '../hooks/useToast'
 import { useConfirmation } from '../hooks/useConfirmation'
-import { Play, Square, RotateCcw, Activity, Clock, CheckCircle, XCircle, AlertCircle, Settings, Save } from 'lucide-react'
+import { Play, Square, RotateCcw, Activity, Clock, CheckCircle, XCircle, AlertCircle, Settings, Save, Database, Inbox } from 'lucide-react'
 
 interface WorkerInstance {
   worker_key: string
@@ -58,6 +58,24 @@ interface WorkerPoolConfig {
   }
 }
 
+interface DatabaseCapacity {
+  total_connections: number
+  pool_size: number
+  max_overflow: number
+  reserved_for_ui: number
+  available_for_workers: number
+  current_worker_count: number
+  max_recommended_workers: number
+  current_usage_percent: number
+  can_add_workers: boolean
+  warning_message: string | null
+}
+
+interface QueueStats {
+  message_count: number
+  consumer_count: number
+}
+
 type Tab = 'overview' | 'configuration'
 
 export default function QueueManagementPage() {
@@ -67,18 +85,28 @@ export default function QueueManagementPage() {
 
   const [workerStatus, setWorkerStatus] = useState<WorkerStatus | null>(null)
   const [workerConfig, setWorkerConfig] = useState<WorkerPoolConfig | null>(null)
+  const [dbCapacity, setDbCapacity] = useState<DatabaseCapacity | null>(null)
   const [loading, setLoading] = useState(true)
   const [actionLoading, setActionLoading] = useState<string | null>(null)
-  const [scaleLoading, setScaleLoading] = useState(false)
+  const [saveLoading, setSaveLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
 
-  // Local state for tier selector
-  const [selectedTier, setSelectedTier] = useState<string>('free')
-  const [originalTier, setOriginalTier] = useState<string>('free')
+  // Local state for worker counts (editable)
+  const [extractionWorkers, setExtractionWorkers] = useState<number>(5)
+  const [transformWorkers, setTransformWorkers] = useState<number>(5)
+  const [embeddingWorkers, setEmbeddingWorkers] = useState<number>(15)
+
+  // Original values to detect changes
+  const [originalExtractionWorkers, setOriginalExtractionWorkers] = useState<number>(5)
+  const [originalTransformWorkers, setOriginalTransformWorkers] = useState<number>(5)
+  const [originalEmbeddingWorkers, setOriginalEmbeddingWorkers] = useState<number>(15)
 
   // Check if there are unsaved changes
-  const hasUnsavedChanges = selectedTier !== originalTier
+  const hasUnsavedChanges =
+    extractionWorkers !== originalExtractionWorkers ||
+    transformWorkers !== originalTransformWorkers ||
+    embeddingWorkers !== originalEmbeddingWorkers
 
   // Initialize active tab from URL or default to 'overview'
   const [activeTab, setActiveTab] = useState<Tab>(() => {
@@ -146,46 +174,76 @@ export default function QueueManagementPage() {
 
       // Only update local state on initial load or after successful save
       if (updateLocalState) {
-        setSelectedTier(data.current_tenant_tier)
-        setOriginalTier(data.current_tenant_tier)
+        const allocation = data.current_tenant_allocation
+        setExtractionWorkers(allocation.extraction)
+        setTransformWorkers(allocation.transform)
+        setEmbeddingWorkers(allocation.embedding)
+        setOriginalExtractionWorkers(allocation.extraction)
+        setOriginalTransformWorkers(allocation.transform)
+        setOriginalEmbeddingWorkers(allocation.embedding)
       }
     } catch (err) {
       console.error('Failed to fetch worker config:', err)
     }
   }
 
-  const setTenantTier = async (tier: string) => {
-    setScaleLoading(true)
+  const fetchDatabaseCapacity = async () => {
+    try {
+      const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
+      const response = await fetch(`${API_BASE_URL}/api/v1/admin/workers/db-capacity`, {
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`,
+          'Content-Type': 'application/json'
+        }
+      })
+
+      if (!response.ok) {
+        throw new Error(`Failed to fetch database capacity: ${response.statusText}`)
+      }
+
+      const data = await response.json()
+      setDbCapacity(data)
+    } catch (err) {
+      console.error('Failed to fetch database capacity:', err)
+    }
+  }
+
+  const updateWorkerCounts = async () => {
+    setSaveLoading(true)
     setError(null)
 
     try {
       const API_BASE_URL = import.meta.env.VITE_API_BASE_URL || 'http://localhost:3001'
-      const response = await fetch(`${API_BASE_URL}/api/v1/admin/workers/config/tier`, {
+      const response = await fetch(`${API_BASE_URL}/api/v1/admin/workers/config/update`, {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${localStorage.getItem('pulse_token')}`,
           'Content-Type': 'application/json'
         },
         body: JSON.stringify({
-          tier: tier
+          extraction_workers: extractionWorkers,
+          transform_workers: transformWorkers,
+          embedding_workers: embeddingWorkers
         })
       })
 
       if (!response.ok) {
-        throw new Error(`Failed to set tenant tier: ${response.statusText}`)
+        const errorData = await response.json()
+        throw new Error(errorData.detail || `Failed to update worker counts: ${response.statusText}`)
       }
 
       // Refresh config and update local state to match saved values
       await fetchWorkerConfig(true)
+      await fetchDatabaseCapacity()
 
       // Show success message
       setError(null)
-      showSuccess('Tier Changed', `Tenant tier changed to ${tier}. Restart worker pools to apply changes.`)
+      showSuccess('Worker Counts Updated', 'Worker counts updated successfully. Restart worker pools to apply changes.')
 
       // Ask if user wants to restart workers using confirmation modal
       confirmAction(
         'Restart Worker Pools?',
-        `Tenant tier changed to ${tier} successfully! Changes will NOT take effect until worker pools are restarted. Would you like to restart all worker pools now? (This affects all tenants)`,
+        'Worker counts updated successfully! Changes will NOT take effect until worker pools are restarted. Would you like to restart all worker pools now?',
         async () => {
           // Automatically restart workers
           await performWorkerAction('restart')
@@ -193,11 +251,11 @@ export default function QueueManagementPage() {
         'Restart Pools'
       )
     } catch (err) {
-      const errorMessage = err instanceof Error ? err.message : 'Failed to change tenant tier'
+      const errorMessage = err instanceof Error ? err.message : 'Failed to update worker counts'
       setError(errorMessage)
-      showError('Tier Change Failed', errorMessage)
+      showError('Update Failed', errorMessage)
     } finally {
-      setScaleLoading(false)
+      setSaveLoading(false)
     }
   }
 
@@ -241,17 +299,22 @@ export default function QueueManagementPage() {
   useEffect(() => {
     const loadData = async () => {
       setLoading(true)
-      await Promise.all([fetchWorkerStatus(), fetchWorkerConfig(true)]) // Update local state on initial load
+      await Promise.all([
+        fetchWorkerStatus(),
+        fetchWorkerConfig(true), // Update local state on initial load
+        fetchDatabaseCapacity()
+      ])
       setLoading(false)
     }
 
     loadData()
 
-    // Auto-refresh every 10 seconds (don't update local state on refresh)
+    // Auto-refresh every 5 seconds for real-time queue stats (don't update local state on refresh)
     const interval = setInterval(() => {
       fetchWorkerStatus()
       fetchWorkerConfig(false) // Don't reset user's selections
-    }, 10000)
+      fetchDatabaseCapacity()
+    }, 5000)
 
     return () => clearInterval(interval)
   }, [])
@@ -358,7 +421,7 @@ export default function QueueManagementPage() {
         {activeTab === 'overview' && (
           <div className="space-y-6">
 
-        {/* Worker Controls */}
+        {/* Global Worker Controls */}
         <Card className="border border-gray-400"
           onMouseEnter={(e) => {
             e.currentTarget.style.borderColor = 'var(--color-1)'
@@ -370,9 +433,9 @@ export default function QueueManagementPage() {
           }}
         >
           <CardHeader>
-            <CardTitle>Worker Controls</CardTitle>
+            <CardTitle>Global Worker Controls</CardTitle>
             <CardDescription>
-              Start, stop, or restart ETL background workers for your tenant
+              Control all ETL background workers (affects all queue types)
             </CardDescription>
           </CardHeader>
           <CardContent>
@@ -383,7 +446,7 @@ export default function QueueManagementPage() {
                 className="flex items-center gap-2"
               >
                 <Play className="h-4 w-4" />
-                {actionLoading === 'start' ? 'Starting...' : 'Start Workers'}
+                {actionLoading === 'start' ? 'Starting...' : 'Start All Workers'}
               </Button>
 
               <Button
@@ -393,7 +456,7 @@ export default function QueueManagementPage() {
                 className="flex items-center gap-2"
               >
                 <Square className="h-4 w-4" />
-                {actionLoading === 'stop' ? 'Stopping...' : 'Stop Workers'}
+                {actionLoading === 'stop' ? 'Stopping...' : 'Stop All Workers'}
               </Button>
 
               <Button
@@ -403,11 +466,134 @@ export default function QueueManagementPage() {
                 className="flex items-center gap-2"
               >
                 <RotateCcw className="h-4 w-4" />
-                {actionLoading === 'restart' ? 'Restarting...' : 'Restart Workers'}
+                {actionLoading === 'restart' ? 'Restarting...' : 'Restart All Workers'}
               </Button>
             </div>
           </CardContent>
         </Card>
+
+        {/* Queue Statistics - Real-time */}
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Extraction Queue */}
+          <Card className="border border-green-400"
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = 'var(--color-1)'
+              e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = '#4ade80'
+              e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+            }}
+          >
+            <CardHeader className="bg-green-50">
+              <CardTitle className="flex items-center gap-2 text-green-900">
+                <Inbox className="h-5 w-5" />
+                Extraction Queue
+              </CardTitle>
+              <CardDescription>Premium tier extraction queue</CardDescription>
+            </CardHeader>
+            <CardContent className="pt-6">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Messages in Queue:</span>
+                  <Badge variant="default" className="text-lg px-3 py-1">
+                    {workerStatus?.queue_stats?.tier_queues?.premium?.extraction?.message_count ?? 0}
+                  </Badge>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Active Workers:</span>
+                  <Badge variant={workerStatus?.workers && Object.keys(workerStatus.workers).some(k => k.includes('extraction')) ? "default" : "destructive"}>
+                    {workerConfig?.current_tenant_allocation?.extraction ?? 0}
+                  </Badge>
+                </div>
+                <Separator />
+                <div className="text-xs text-secondary">
+                  Queue: extraction_queue_premium
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Transform Queue */}
+          <Card className="border border-blue-400"
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = 'var(--color-1)'
+              e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = '#60a5fa'
+              e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+            }}
+          >
+            <CardHeader className="bg-blue-50">
+              <CardTitle className="flex items-center gap-2 text-blue-900">
+                <Inbox className="h-5 w-5" />
+                Transform Queue
+              </CardTitle>
+              <CardDescription>Premium tier transform queue</CardDescription>
+            </CardHeader>
+            <CardContent className="pt-6">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Messages in Queue:</span>
+                  <Badge variant="default" className="text-lg px-3 py-1">
+                    {workerStatus?.queue_stats?.tier_queues?.premium?.transform?.message_count ?? 0}
+                  </Badge>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Active Workers:</span>
+                  <Badge variant={workerStatus?.workers && Object.keys(workerStatus.workers).some(k => k.includes('transform')) ? "default" : "destructive"}>
+                    {workerConfig?.current_tenant_allocation?.transform ?? 0}
+                  </Badge>
+                </div>
+                <Separator />
+                <div className="text-xs text-secondary">
+                  Queue: transform_queue_premium
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Embedding Queue */}
+          <Card className="border border-purple-400"
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = 'var(--color-1)'
+              e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = '#c084fc'
+              e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+            }}
+          >
+            <CardHeader className="bg-purple-50">
+              <CardTitle className="flex items-center gap-2 text-purple-900">
+                <Inbox className="h-5 w-5" />
+                Embedding Queue
+              </CardTitle>
+              <CardDescription>Premium tier embedding queue</CardDescription>
+            </CardHeader>
+            <CardContent className="pt-6">
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Messages in Queue:</span>
+                  <Badge variant="default" className="text-lg px-3 py-1">
+                    {workerStatus?.queue_stats?.tier_queues?.premium?.embedding?.message_count ?? 0}
+                  </Badge>
+                </div>
+                <div className="flex items-center justify-between">
+                  <span className="text-sm font-medium">Active Workers:</span>
+                  <Badge variant={workerStatus?.workers && Object.keys(workerStatus.workers).some(k => k.includes('embedding')) ? "default" : "destructive"}>
+                    {workerConfig?.current_tenant_allocation?.embedding ?? 0}
+                  </Badge>
+                </div>
+                <Separator />
+                <div className="text-xs text-secondary">
+                  Queue: embedding_queue_premium
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
           {/* Worker Status Card */}
@@ -601,22 +787,87 @@ export default function QueueManagementPage() {
         {activeTab === 'configuration' && (
           <div className="space-y-6">
 
-        {/* Configuration Header with Apply Button */}
+        {/* Configuration Header with Save Button */}
         <div className="rounded-lg bg-table-container shadow-md overflow-hidden border border-gray-400">
           <div className="px-6 py-5 flex justify-between items-center bg-table-header">
-            <h2 className="text-lg font-semibold text-table-header">Tenant Tier Configuration</h2>
+            <div>
+              <h2 className="text-lg font-semibold text-table-header">Worker Configuration</h2>
+              <p className="text-sm text-secondary mt-1">Configure worker counts for each queue type</p>
+            </div>
             <button
-              onClick={() => setTenantTier(selectedTier)}
-              disabled={scaleLoading || !hasUnsavedChanges}
+              onClick={updateWorkerCounts}
+              disabled={saveLoading || !hasUnsavedChanges}
               className="px-6 py-2.5 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors flex items-center space-x-2 font-medium shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
             >
               <Save className="h-4 w-4" />
-              <span>{scaleLoading ? 'Saving...' : 'Save Tier'}</span>
+              <span>{saveLoading ? 'Saving...' : 'Save Configuration'}</span>
             </button>
           </div>
         </div>
 
-        {/* Worker Scale Configuration Card */}
+        {/* Database Capacity Warning */}
+        {dbCapacity && dbCapacity.warning_message && (
+          <Alert className="border-yellow-200 bg-yellow-50">
+            <AlertCircle className="h-4 w-4 text-yellow-600" />
+            <AlertDescription className="text-yellow-800">
+              {dbCapacity.warning_message}
+            </AlertDescription>
+          </Alert>
+        )}
+
+        {/* Database Capacity Card */}
+        {dbCapacity && (
+          <Card className="border border-gray-400"
+            onMouseEnter={(e) => {
+              e.currentTarget.style.borderColor = 'var(--color-1)'
+              e.currentTarget.style.boxShadow = '0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05)'
+            }}
+            onMouseLeave={(e) => {
+              e.currentTarget.style.borderColor = '#9ca3af'
+              e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
+            }}
+          >
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Database className="h-5 w-5" />
+                Database Connection Pool Capacity
+              </CardTitle>
+              <CardDescription>
+                Monitor database connection usage and worker limits
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="space-y-4">
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+                  <div className="p-3 bg-gray-50 rounded-lg">
+                    <div className="text-xs text-secondary">Total Connections</div>
+                    <div className="text-2xl font-bold">{dbCapacity.total_connections}</div>
+                    <div className="text-xs text-secondary mt-1">Pool: {dbCapacity.pool_size} + Overflow: {dbCapacity.max_overflow}</div>
+                  </div>
+                  <div className="p-3 bg-blue-50 rounded-lg">
+                    <div className="text-xs text-secondary">Reserved for UI</div>
+                    <div className="text-2xl font-bold text-blue-600">{dbCapacity.reserved_for_ui}</div>
+                    <div className="text-xs text-secondary mt-1">Frontend operations</div>
+                  </div>
+                  <div className="p-3 bg-green-50 rounded-lg">
+                    <div className="text-xs text-secondary">Available for Workers</div>
+                    <div className="text-2xl font-bold text-green-600">{dbCapacity.available_for_workers}</div>
+                    <div className="text-xs text-secondary mt-1">Max recommended: {dbCapacity.max_recommended_workers}</div>
+                  </div>
+                  <div className={`p-3 rounded-lg ${dbCapacity.current_usage_percent > 80 ? 'bg-red-50' : dbCapacity.current_usage_percent > 60 ? 'bg-yellow-50' : 'bg-green-50'}`}>
+                    <div className="text-xs text-secondary">Current Usage</div>
+                    <div className={`text-2xl font-bold ${dbCapacity.current_usage_percent > 80 ? 'text-red-600' : dbCapacity.current_usage_percent > 60 ? 'text-yellow-600' : 'text-green-600'}`}>
+                      {dbCapacity.current_usage_percent.toFixed(1)}%
+                    </div>
+                    <div className="text-xs text-secondary mt-1">{dbCapacity.current_worker_count} / {dbCapacity.max_recommended_workers} workers</div>
+                  </div>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Worker Count Configuration Card */}
         <Card className="border border-gray-400"
           onMouseEnter={(e) => {
             e.currentTarget.style.borderColor = 'var(--color-1)'
@@ -627,93 +878,117 @@ export default function QueueManagementPage() {
             e.currentTarget.style.boxShadow = '0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06)'
           }}
         >
-          <CardContent className="pt-6">
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <Settings className="h-5 w-5" />
+              Worker Count Configuration
+            </CardTitle>
+            <CardDescription>
+              Configure the number of workers for each queue type
+            </CardDescription>
+          </CardHeader>
+          <CardContent>
             <div className="space-y-6">
-              {/* Current Tier Display */}
-              {workerConfig && (
-                <div className="p-4 bg-gray-50 rounded-lg">
-                  <div className="grid grid-cols-2 gap-4 text-sm">
-                    <div>
-                      <span className="text-secondary">Current Tier:</span>
-                      <div className="font-semibold text-lg mt-1 capitalize">{workerConfig.current_tenant_tier}</div>
-                    </div>
-                    <div>
-                      <span className="text-secondary">Worker Allocation (Shared Pool):</span>
-                      <div className="font-semibold text-sm mt-1">
-                        {workerConfig.current_tenant_allocation.extraction} Extraction + {' '}
-                        {workerConfig.current_tenant_allocation.transform} Transform + {' '}
-                        {workerConfig.current_tenant_allocation.embedding} Embedding
-                      </div>
-                    </div>
+              {/* Worker Count Inputs */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+                {/* Extraction Workers */}
+                <div className="p-4 bg-green-50 rounded-lg border border-green-200">
+                  <label className="block text-sm font-semibold text-green-900 mb-2">
+                    Extraction Workers
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max={dbCapacity?.max_recommended_workers ?? 100}
+                    value={extractionWorkers}
+                    onChange={(e) => setExtractionWorkers(parseInt(e.target.value) || 1)}
+                    disabled={saveLoading}
+                    className="w-full p-3 border border-green-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-green-500 text-lg font-semibold text-center"
+                  />
+                  <div className="text-xs text-secondary mt-2">
+                    Current: {originalExtractionWorkers} workers
                   </div>
                 </div>
-              )}
 
-              {/* Tier Selector */}
-              <div className="space-y-4">
-                <h4 className="font-medium">Select Tenant Tier:</h4>
-
-                <div className="space-y-4">
-                  <select
-                    value={selectedTier}
-                    onChange={(e) => setSelectedTier(e.target.value)}
-                    disabled={scaleLoading}
-                    className="w-full p-3 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg"
-                  >
-                    <option value="free">Free (1 worker per pool)</option>
-                    <option value="basic">Basic (3 workers per pool)</option>
-                    <option value="premium">Premium (5 workers per pool)</option>
-                    <option value="enterprise">Enterprise (10 workers per pool)</option>
-                  </select>
-                  <p className="text-xs text-secondary">
-                    Workers are shared across all tenants in the same tier. Changing tier affects worker pool allocation.
-                  </p>
+                {/* Transform Workers */}
+                <div className="p-4 bg-blue-50 rounded-lg border border-blue-200">
+                  <label className="block text-sm font-semibold text-blue-900 mb-2">
+                    Transform Workers
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max={dbCapacity?.max_recommended_workers ?? 100}
+                    value={transformWorkers}
+                    onChange={(e) => setTransformWorkers(parseInt(e.target.value) || 1)}
+                    disabled={saveLoading}
+                    className="w-full p-3 border border-blue-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg font-semibold text-center"
+                  />
+                  <div className="text-xs text-secondary mt-2">
+                    Current: {originalTransformWorkers} workers
+                  </div>
                 </div>
 
-                {/* Tier Comparison Table */}
-                {workerConfig && (
-                  <div className="mt-6 overflow-hidden rounded-lg border border-gray-300">
-                    <table className="w-full text-sm">
-                      <thead className="bg-gray-100">
-                        <tr>
-                          <th className="px-4 py-2 text-left font-semibold">Tier</th>
-                          <th className="px-4 py-2 text-center font-semibold">Extraction</th>
-                          <th className="px-4 py-2 text-center font-semibold">Transform</th>
-                          <th className="px-4 py-2 text-center font-semibold">Embedding</th>
-                          <th className="px-4 py-2 text-center font-semibold">Total Workers</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {Object.entries(workerConfig.tier_configs).map(([tier, config]) => (
-                          <tr key={tier} className={tier === selectedTier ? 'bg-blue-50' : ''}>
-                            <td className="px-4 py-2 font-medium capitalize">{tier}</td>
-                            <td className="px-4 py-2 text-center">{config.extraction}</td>
-                            <td className="px-4 py-2 text-center">{config.transform}</td>
-                            <td className="px-4 py-2 text-center">{config.embedding}</td>
-                            <td className="px-4 py-2 text-center font-semibold">
-                              {config.extraction + config.transform + config.embedding}
-                            </td>
-                          </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                {/* Embedding Workers */}
+                <div className="p-4 bg-purple-50 rounded-lg border border-purple-200">
+                  <label className="block text-sm font-semibold text-purple-900 mb-2">
+                    Embedding Workers
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    max={dbCapacity?.max_recommended_workers ?? 100}
+                    value={embeddingWorkers}
+                    onChange={(e) => setEmbeddingWorkers(parseInt(e.target.value) || 1)}
+                    disabled={saveLoading}
+                    className="w-full p-3 border border-purple-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-purple-500 text-lg font-semibold text-center"
+                  />
+                  <div className="text-xs text-secondary mt-2">
+                    Current: {originalEmbeddingWorkers} workers
+                  </div>
+                </div>
+              </div>
+
+              {/* Total Workers Summary */}
+              <div className="p-4 bg-gray-50 rounded-lg border border-gray-300">
+                <div className="flex items-center justify-between">
+                  <span className="font-semibold">Total Workers:</span>
+                  <div className="flex items-center gap-4">
+                    <span className="text-2xl font-bold">
+                      {extractionWorkers + transformWorkers + embeddingWorkers}
+                    </span>
+                    {dbCapacity && (
+                      <Badge variant={
+                        (extractionWorkers + transformWorkers + embeddingWorkers) > dbCapacity.max_recommended_workers
+                          ? "destructive"
+                          : "default"
+                      }>
+                        {(extractionWorkers + transformWorkers + embeddingWorkers) > dbCapacity.max_recommended_workers
+                          ? "Exceeds Limit!"
+                          : "Within Limits"}
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+                {dbCapacity && (extractionWorkers + transformWorkers + embeddingWorkers) > dbCapacity.max_recommended_workers && (
+                  <div className="mt-2 text-sm text-red-600">
+                    ⚠️ Total workers ({extractionWorkers + transformWorkers + embeddingWorkers}) exceeds recommended maximum ({dbCapacity.max_recommended_workers}).
+                    Reduce worker counts or increase DB_POOL_SIZE and DB_MAX_OVERFLOW in .env file.
                   </div>
                 )}
-
               </div>
 
               {/* Important Notes */}
               <Alert className="border-blue-200 bg-blue-50">
                 <AlertCircle className="h-4 w-4 text-blue-600" />
                 <AlertDescription className="text-blue-800 space-y-2">
-                  <div><strong>Shared Pool Architecture:</strong></div>
+                  <div><strong>Important Notes:</strong></div>
                   <ul className="list-disc list-inside space-y-1 text-xs">
-                    <li><strong>Shared Workers:</strong> Workers are shared across ALL tenants in the same tier (not per-tenant)</li>
-                    <li><strong>Tier-Based Allocation:</strong> Free=1, Basic=3, Premium=5, Enterprise=10 workers per pool</li>
-                    <li><strong>Restart Required:</strong> Changing tier requires restarting ALL worker pools (affects all tenants)</li>
-                    <li><strong>Round-Robin Processing:</strong> Workers consume from all tenant queues in their tier</li>
-                    <li><strong>Scalability:</strong> Shared pools scale to 10,000+ tenants vs per-tenant limit of ~50 tenants</li>
-                    <li><strong>Resource Efficiency:</strong> 92% reduction in resource usage compared to per-tenant workers</li>
+                    <li><strong>Restart Required:</strong> Changes will NOT take effect until worker pools are restarted</li>
+                    <li><strong>Database Connections:</strong> Each worker uses 1 database connection. Monitor capacity above.</li>
+                    <li><strong>Recommended Limits:</strong> Stay within {dbCapacity?.max_recommended_workers ?? 64} workers to maintain 20% buffer</li>
+                    <li><strong>Scaling Up:</strong> To add more workers, increase DB_POOL_SIZE and DB_MAX_OVERFLOW in .env file</li>
+                    <li><strong>Premium Tier:</strong> All workers are in the premium tier shared pool</li>
                   </ul>
                 </AlertDescription>
               </Alert>

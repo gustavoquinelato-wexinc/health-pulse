@@ -94,6 +94,34 @@ class WorkerActionResponse(BaseModel):
     worker_status: Optional[WorkerStatusResponse] = None
 
 
+class UpdateWorkerCountsRequest(BaseModel):
+    """Request model for updating worker counts."""
+    extraction_workers: int
+    transform_workers: int
+    embedding_workers: int
+
+
+class UpdateWorkerCountsResponse(BaseModel):
+    """Response model for updating worker counts."""
+    success: bool
+    message: str
+    updated_config: Dict[str, int]
+
+
+class DatabaseCapacityResponse(BaseModel):
+    """Response model for database capacity analysis."""
+    total_connections: int
+    pool_size: int
+    max_overflow: int
+    reserved_for_ui: int
+    available_for_workers: int
+    current_worker_count: int
+    max_recommended_workers: int
+    current_usage_percent: float
+    can_add_workers: bool
+    warning_message: Optional[str] = None
+
+
 # 🚀 ETL Service Notification Functions
 async def notify_etl_color_schema_change(tenant_id: int, colors: dict):
     """Notify ETL service of color schema changes"""
@@ -2107,7 +2135,7 @@ async def set_tenant_tier(
     """Set tenant tier (free, basic, premium, enterprise) - requires worker pool restart."""
     try:
         from app.core.database import get_database
-        from app.workers.worker_manager import get_worker_manager
+        from app.etl.workers.worker_manager import get_worker_manager
         from sqlalchemy import text
 
         tenant_id = current_user.tenant_id
@@ -2161,13 +2189,173 @@ async def set_tenant_tier(
 # To change tenant's worker allocation, change their tier using /workers/config/tier
 
 
+@router.get("/workers/db-capacity", response_model=DatabaseCapacityResponse)
+async def get_database_capacity(
+    current_user: User = Depends(require_authentication)
+):
+    """
+    Analyze database connection pool capacity and calculate max workers.
+
+    Returns:
+        DatabaseCapacityResponse with capacity analysis
+    """
+    try:
+        from app.core.config import get_settings
+        from app.etl.workers.worker_manager import get_worker_manager
+
+        settings = get_settings()
+        manager = get_worker_manager()
+
+        # Get current worker configuration
+        premium_config = manager.get_premium_worker_config(current_user.tenant_id)
+        current_worker_count = sum(premium_config.values())
+
+        # Database connection pool settings
+        pool_size = settings.DB_POOL_SIZE  # 50
+        max_overflow = settings.DB_MAX_OVERFLOW  # 50
+        total_connections = pool_size + max_overflow  # 100
+
+        # Reserve connections for UI operations (estimated)
+        reserved_for_ui = 20
+        available_for_workers = total_connections - reserved_for_ui  # 80
+
+        # Calculate max recommended workers (leave 20% buffer)
+        max_recommended_workers = int(available_for_workers * 0.8)  # 64
+
+        # Calculate current usage
+        current_usage_percent = (current_worker_count / available_for_workers) * 100
+
+        # Check if we can add more workers
+        can_add_workers = current_worker_count < max_recommended_workers
+
+        # Generate warning message if approaching limits
+        warning_message = None
+        if current_usage_percent > 80:
+            warning_message = f"⚠️ High worker usage ({current_usage_percent:.1f}%). Consider increasing DB_POOL_SIZE and DB_MAX_OVERFLOW in .env file."
+        elif current_usage_percent > 60:
+            warning_message = f"⚠️ Moderate worker usage ({current_usage_percent:.1f}%). Monitor database connection pool."
+
+        return DatabaseCapacityResponse(
+            total_connections=total_connections,
+            pool_size=pool_size,
+            max_overflow=max_overflow,
+            reserved_for_ui=reserved_for_ui,
+            available_for_workers=available_for_workers,
+            current_worker_count=current_worker_count,
+            max_recommended_workers=max_recommended_workers,
+            current_usage_percent=round(current_usage_percent, 2),
+            can_add_workers=can_add_workers,
+            warning_message=warning_message
+        )
+
+    except Exception as e:
+        logger.error(f"Error analyzing database capacity: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to analyze database capacity: {str(e)}")
+
+
+@router.post("/workers/config/update", response_model=UpdateWorkerCountsResponse)
+async def update_worker_counts(
+    request: UpdateWorkerCountsRequest,
+    current_user: User = Depends(require_authentication)
+):
+    """
+    Update premium worker counts in system_settings table.
+    Validates against database connection pool capacity.
+
+    Args:
+        request: UpdateWorkerCountsRequest with new worker counts
+
+    Returns:
+        UpdateWorkerCountsResponse with updated configuration
+    """
+    try:
+        from app.core.database import get_database
+        from app.core.config import get_settings
+        from app.core.utils import DateTimeHelper
+        from sqlalchemy import text
+
+        settings = get_settings()
+        database = get_database()
+        tenant_id = current_user.tenant_id
+
+        # Validate worker counts are positive
+        if request.extraction_workers < 1 or request.transform_workers < 1 or request.embedding_workers < 1:
+            raise HTTPException(
+                status_code=400,
+                detail="Worker counts must be at least 1"
+            )
+
+        # Calculate total workers
+        total_workers = request.extraction_workers + request.transform_workers + request.embedding_workers
+
+        # Check against database capacity
+        pool_size = settings.DB_POOL_SIZE
+        max_overflow = settings.DB_MAX_OVERFLOW
+        total_connections = pool_size + max_overflow
+        reserved_for_ui = 20
+        available_for_workers = total_connections - reserved_for_ui
+        max_recommended_workers = int(available_for_workers * 0.8)
+
+        if total_workers > max_recommended_workers:
+            raise HTTPException(
+                status_code=400,
+                detail=f"Total workers ({total_workers}) exceeds recommended maximum ({max_recommended_workers}). "
+                       f"Increase DB_POOL_SIZE and DB_MAX_OVERFLOW in .env file or reduce worker counts."
+            )
+
+        # Update system_settings
+        now = DateTimeHelper.now_default()
+
+        with database.get_write_session_context() as session:
+            # Update extraction workers
+            session.execute(text("""
+                UPDATE system_settings
+                SET setting_value = :value, last_updated_at = :now
+                WHERE tenant_id = :tenant_id AND setting_key = 'premium_extraction_workers'
+            """), {'value': str(request.extraction_workers), 'tenant_id': tenant_id, 'now': now})
+
+            # Update transform workers
+            session.execute(text("""
+                UPDATE system_settings
+                SET setting_value = :value, last_updated_at = :now
+                WHERE tenant_id = :tenant_id AND setting_key = 'premium_transform_workers'
+            """), {'value': str(request.transform_workers), 'tenant_id': tenant_id, 'now': now})
+
+            # Update embedding workers
+            session.execute(text("""
+                UPDATE system_settings
+                SET setting_value = :value, last_updated_at = :now
+                WHERE tenant_id = :tenant_id AND setting_key = 'premium_embedding_workers'
+            """), {'value': str(request.embedding_workers), 'tenant_id': tenant_id, 'now': now})
+
+            session.commit()
+
+        logger.info(f"Worker counts updated by user {current_user.email}: extraction={request.extraction_workers}, transform={request.transform_workers}, embedding={request.embedding_workers}")
+
+        return UpdateWorkerCountsResponse(
+            success=True,
+            message="Worker counts updated successfully. Restart worker pools to apply changes.",
+            updated_config={
+                'extraction': request.extraction_workers,
+                'transform': request.transform_workers,
+                'embedding': request.embedding_workers
+            }
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error updating worker counts: {e}")
+        raise HTTPException(status_code=500, detail=f"Failed to update worker counts: {str(e)}")
+
+
 @router.get("/debug/user-info")
 async def get_debug_user_info(
     current_user: User = Depends(require_authentication)
 ):
     """Debug endpoint to check current user's tenant assignment and worker status"""
     try:
-        from app.workers.worker_manager import get_worker_manager
+        from app.etl.workers.worker_manager import get_worker_manager
         from app.core.database import get_database
         from app.models.unified_models import Tenant
         from sqlalchemy import text
