@@ -529,7 +529,7 @@ export default function QueueManagementPage() {
                   <button
                     onClick={() => performWorkerAction('start', 'extraction')}
                     disabled={actionLoading === 'start_extraction'}
-                    className="px-4 py-2 rounded-lg flex items-center space-x-2 transition-all btn-crud-create hover:opacity-90"
+                    className="btn-crud-create flex items-center space-x-2"
                   >
                     <Play className="w-4 h-4" />
                     <span>{actionLoading === 'start_extraction' ? 'Starting...' : 'Start'}</span>
@@ -537,7 +537,7 @@ export default function QueueManagementPage() {
                   <button
                     onClick={() => performWorkerAction('stop', 'extraction')}
                     disabled={actionLoading === 'stop_extraction'}
-                    className="px-4 py-2 rounded-lg flex items-center space-x-2 transition-all border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                    className="btn-crud-cancel flex items-center space-x-2"
                   >
                     <Square className="w-4 h-4" />
                     <span>{actionLoading === 'stop_extraction' ? 'Stopping...' : 'Stop'}</span>
@@ -593,7 +593,7 @@ export default function QueueManagementPage() {
                   <button
                     onClick={() => performWorkerAction('start', 'transform')}
                     disabled={actionLoading === 'start_transform'}
-                    className="px-4 py-2 rounded-lg flex items-center space-x-2 transition-all btn-crud-create hover:opacity-90"
+                    className="btn-crud-create flex items-center space-x-2"
                   >
                     <Play className="w-4 h-4" />
                     <span>{actionLoading === 'start_transform' ? 'Starting...' : 'Start'}</span>
@@ -601,7 +601,7 @@ export default function QueueManagementPage() {
                   <button
                     onClick={() => performWorkerAction('stop', 'transform')}
                     disabled={actionLoading === 'stop_transform'}
-                    className="px-4 py-2 rounded-lg flex items-center space-x-2 transition-all border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                    className="btn-crud-cancel flex items-center space-x-2"
                   >
                     <Square className="w-4 h-4" />
                     <span>{actionLoading === 'stop_transform' ? 'Stopping...' : 'Stop'}</span>
@@ -657,7 +657,7 @@ export default function QueueManagementPage() {
                   <button
                     onClick={() => performWorkerAction('start', 'embedding')}
                     disabled={actionLoading === 'start_embedding'}
-                    className="px-4 py-2 rounded-lg flex items-center space-x-2 transition-all btn-crud-create hover:opacity-90"
+                    className="btn-crud-create flex items-center space-x-2"
                   >
                     <Play className="w-4 h-4" />
                     <span>{actionLoading === 'start_embedding' ? 'Starting...' : 'Start'}</span>
@@ -665,7 +665,7 @@ export default function QueueManagementPage() {
                   <button
                     onClick={() => performWorkerAction('stop', 'embedding')}
                     disabled={actionLoading === 'stop_embedding'}
-                    className="px-4 py-2 rounded-lg flex items-center space-x-2 transition-all border border-gray-300 bg-white text-gray-700 hover:bg-gray-50"
+                    className="btn-crud-cancel flex items-center space-x-2"
                   >
                     <Square className="w-4 h-4" />
                     <span>{actionLoading === 'stop_embedding' ? 'Stopping...' : 'Stop'}</span>
