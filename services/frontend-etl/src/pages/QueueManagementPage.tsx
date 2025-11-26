@@ -11,7 +11,7 @@ import ToastContainer from '../components/ToastContainer'
 import ConfirmationModal from '../components/ConfirmationModal'
 import { useToast } from '../hooks/useToast'
 import { useConfirmation } from '../hooks/useConfirmation'
-import { Play, Square, RotateCcw, Activity, Clock, CheckCircle, XCircle, AlertCircle, Settings, Save, Database, Inbox } from 'lucide-react'
+import { Play, Square, RotateCcw, Activity, Clock, CheckCircle, XCircle, AlertCircle, Settings, Save, Database, Inbox, Download, RefreshCw, Sparkles } from 'lucide-react'
 
 interface WorkerInstance {
   worker_key: string
@@ -499,7 +499,7 @@ export default function QueueManagementPage() {
                 <div className="flex items-center space-x-4 flex-1">
                   {/* Queue Icon */}
                   <div className="w-12 h-12 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'var(--color-1)', opacity: 0.15 }}>
-                    <Inbox className="h-6 w-6" style={{ color: 'var(--color-1)', opacity: 1 }} />
+                    <Download className="h-6 w-6" style={{ color: 'var(--color-1)' }} />
                   </div>
 
                   {/* Queue Details */}
@@ -526,25 +526,22 @@ export default function QueueManagementPage() {
 
                 {/* Right: Action Buttons */}
                 <div className="flex items-center space-x-2">
-                  <Button
-                    size="sm"
+                  <button
                     onClick={() => performWorkerAction('start', 'extraction')}
                     disabled={actionLoading === 'start_extraction'}
-                    className="px-4 py-2 btn-crud-create"
+                    className="px-4 py-2 rounded-lg flex items-center space-x-2 transition-all btn-crud-create hover:opacity-90"
                   >
-                    <Play className="h-4 w-4 mr-1" />
-                    {actionLoading === 'start_extraction' ? 'Starting...' : 'Start'}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
+                    <Play className="w-4 h-4" />
+                    <span>{actionLoading === 'start_extraction' ? 'Starting...' : 'Start'}</span>
+                  </button>
+                  <button
                     onClick={() => performWorkerAction('stop', 'extraction')}
                     disabled={actionLoading === 'stop_extraction'}
-                    className="px-4 py-2"
+                    className="px-4 py-2 rounded-lg flex items-center space-x-2 transition-all border border-gray-300 hover:bg-gray-50"
                   >
-                    <Square className="h-4 w-4 mr-1" />
-                    {actionLoading === 'stop_extraction' ? 'Stopping...' : 'Stop'}
-                  </Button>
+                    <Square className="w-4 h-4" />
+                    <span>{actionLoading === 'stop_extraction' ? 'Stopping...' : 'Stop'}</span>
+                  </button>
                 </div>
               </div>
 
@@ -594,7 +591,7 @@ export default function QueueManagementPage() {
                 <div className="flex items-center space-x-4 flex-1">
                   {/* Queue Icon */}
                   <div className="w-12 h-12 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'var(--color-2)', opacity: 0.15 }}>
-                    <Inbox className="h-6 w-6" style={{ color: 'var(--color-2)', opacity: 1 }} />
+                    <RefreshCw className="h-6 w-6" style={{ color: 'var(--color-2)' }} />
                   </div>
 
                   {/* Queue Details */}
@@ -621,25 +618,22 @@ export default function QueueManagementPage() {
 
                 {/* Right: Action Buttons */}
                 <div className="flex items-center space-x-2">
-                  <Button
-                    size="sm"
+                  <button
                     onClick={() => performWorkerAction('start', 'transform')}
                     disabled={actionLoading === 'start_transform'}
-                    className="px-4 py-2 btn-crud-create"
+                    className="px-4 py-2 rounded-lg flex items-center space-x-2 transition-all btn-crud-create hover:opacity-90"
                   >
-                    <Play className="h-4 w-4 mr-1" />
-                    {actionLoading === 'start_transform' ? 'Starting...' : 'Start'}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
+                    <Play className="w-4 h-4" />
+                    <span>{actionLoading === 'start_transform' ? 'Starting...' : 'Start'}</span>
+                  </button>
+                  <button
                     onClick={() => performWorkerAction('stop', 'transform')}
                     disabled={actionLoading === 'stop_transform'}
-                    className="px-4 py-2"
+                    className="px-4 py-2 rounded-lg flex items-center space-x-2 transition-all border border-gray-300 hover:bg-gray-50"
                   >
-                    <Square className="h-4 w-4 mr-1" />
-                    {actionLoading === 'stop_transform' ? 'Stopping...' : 'Stop'}
-                  </Button>
+                    <Square className="w-4 h-4" />
+                    <span>{actionLoading === 'stop_transform' ? 'Stopping...' : 'Stop'}</span>
+                  </button>
                 </div>
               </div>
 
@@ -689,7 +683,7 @@ export default function QueueManagementPage() {
                 <div className="flex items-center space-x-4 flex-1">
                   {/* Queue Icon */}
                   <div className="w-12 h-12 rounded-lg flex items-center justify-center" style={{ backgroundColor: 'var(--color-3)', opacity: 0.15 }}>
-                    <Inbox className="h-6 w-6" style={{ color: 'var(--color-3)', opacity: 1 }} />
+                    <Sparkles className="h-6 w-6" style={{ color: 'var(--color-3)' }} />
                   </div>
 
                   {/* Queue Details */}
@@ -716,25 +710,22 @@ export default function QueueManagementPage() {
 
                 {/* Right: Action Buttons */}
                 <div className="flex items-center space-x-2">
-                  <Button
-                    size="sm"
+                  <button
                     onClick={() => performWorkerAction('start', 'embedding')}
                     disabled={actionLoading === 'start_embedding'}
-                    className="px-4 py-2 btn-crud-create"
+                    className="px-4 py-2 rounded-lg flex items-center space-x-2 transition-all btn-crud-create hover:opacity-90"
                   >
-                    <Play className="h-4 w-4 mr-1" />
-                    {actionLoading === 'start_embedding' ? 'Starting...' : 'Start'}
-                  </Button>
-                  <Button
-                    size="sm"
-                    variant="outline"
+                    <Play className="w-4 h-4" />
+                    <span>{actionLoading === 'start_embedding' ? 'Starting...' : 'Start'}</span>
+                  </button>
+                  <button
                     onClick={() => performWorkerAction('stop', 'embedding')}
                     disabled={actionLoading === 'stop_embedding'}
-                    className="px-4 py-2"
+                    className="px-4 py-2 rounded-lg flex items-center space-x-2 transition-all border border-gray-300 hover:bg-gray-50"
                   >
-                    <Square className="h-4 w-4 mr-1" />
-                    {actionLoading === 'stop_embedding' ? 'Stopping...' : 'Stop'}
-                  </Button>
+                    <Square className="w-4 h-4" />
+                    <span>{actionLoading === 'stop_embedding' ? 'Stopping...' : 'Stop'}</span>
+                  </button>
                 </div>
               </div>
 
