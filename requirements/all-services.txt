@@ -4,8 +4,8 @@
 # Auth Service specific dependencies
 -r auth-service.txt
 
-# Backend Service specific dependencies
+# Backend Service specific dependencies (includes ETL)
 -r backend-service.txt
 
-# ETL Service specific dependencies
--r etl-service.txt
+# Note: etl-service.txt is kept for reference only
+# ETL functionality is now integrated into backend-service
