@@ -4,37 +4,49 @@ Smart requirements installer for Pulse Platform services.
 Run from root directory to install dependencies in the correct service folders.
 
 Usage:
-    python scripts/install_requirements.py backend-service
-    python scripts/install_requirements.py auth-service
+    python scripts/install_requirements.py backend
+    python scripts/install_requirements.py auth
     python scripts/install_requirements.py all
 """
 
-import subprocess
 import sys
+import subprocess
 from pathlib import Path
 
 def run_command(command, cwd=None):
-    """Run a command and return success status."""
+    """Run a shell command and return success status."""
     try:
-        print(f"🔄 Running: {command}")
-        print(f"   Working directory: {cwd}")
-
-        result = subprocess.run(command, shell=True, cwd=cwd, check=True,
-                              capture_output=True, text=True)
-        print(f"✅ Success: {command}")
-        if result.stdout.strip():
-            print(f"   Output: {result.stdout.strip()}")
+        result = subprocess.run(
+            command,
+            shell=True,
+            cwd=cwd,
+            check=True,
+            capture_output=True,
+            text=True
+        )
+        print(result.stdout)
         return True
     except subprocess.CalledProcessError as e:
-        print(f"❌ Failed: {command}")
-        print(f"   Error: {e.stderr.strip()}")
+        print(f"Error: {e.stderr}")
         return False
 
 def install_service_requirements(service_name):
     """Install requirements for a specific service in its directory."""
     root_dir = Path(__file__).parent.parent
     requirements_dir = root_dir / "requirements"
-    service_dir = root_dir / "services" / service_name
+    
+    # Map service names to directories
+    service_map = {
+        'backend': 'backend-service',
+        'auth': 'auth-service'
+    }
+    
+    service_dir_name = service_map.get(service_name)
+    if not service_dir_name:
+        print(f"❌ Unknown service: {service_name}")
+        return False
+    
+    service_dir = root_dir / "services" / service_dir_name
 
     if not service_dir.exists():
         print(f"❌ Service directory not found: {service_dir}")
@@ -45,11 +57,11 @@ def install_service_requirements(service_name):
         print(f"❌ Requirements file not found: {requirements_file}")
         return False
 
-    print(f"\n📦 Installing requirements for {service_name}...")
-    print(f"   Requirements file: {requirements_file}")
+    print(f"\n📦 Installing {service_name} requirements...")
     print(f"   Service directory: {service_dir}")
+    print(f"   Requirements file: {requirements_file}")
 
-    # Create virtual environment in service directory if it doesn't exist
+    # Create virtual environment if it doesn't exist
     venv_dir = service_dir / "venv"
     if not venv_dir.exists():
         print(f"🔧 Creating virtual environment for {service_name}...")
@@ -112,15 +124,15 @@ def install_all_requirements_root():
     if not run_command(f"{python_cmd} -m pip install --upgrade pip", cwd=root_dir):
         print(f"⚠️  Failed to upgrade pip, continuing with installation...")
 
-    # Install all requirements using the all-services.txt file
-    all_services_file = requirements_dir / "all-services.txt"
+    # Install all requirements using the all.txt file
+    all_file = requirements_dir / "all.txt"
 
-    if not all_services_file.exists():
-        print(f"❌ All-services requirements file not found: {all_services_file}")
+    if not all_file.exists():
+        print(f"❌ All requirements file not found: {all_file}")
         return False
 
-    print(f"📦 Installing all dependencies from {all_services_file}...")
-    command = f"{pip_cmd} install -r {all_services_file}"
+    print(f"📦 Installing all dependencies from {all_file}...")
+    command = f"{pip_cmd} install -r {all_file}"
     return run_command(command, cwd=root_dir)
 
 def main():
@@ -128,15 +140,16 @@ def main():
     if len(sys.argv) < 2:
         print("📋 Pulse Platform Requirements Installer")
         print()
-        print("Usage: python scripts/install_requirements.py <service_name|all>")
+        print("Usage: python scripts/install_requirements.py <service|all>")
         print()
-        print("Available services:")
-        print("  • backend-service  - Backend Service dependencies (includes ETL) (individual venv)")
-        print("  • auth-service     - Auth Service dependencies (individual venv)")
-        print("  • all              - Install all dependencies in root venv")
+        print("Available options:")
+        print("  • backend  - Backend Service (includes ETL & AI)")
+        print("  • auth     - Auth Service (JWT authentication)")
+        print("  • all      - Install all dependencies in root venv")
         print()
         print("Examples:")
-        print("  python scripts/install_requirements.py backend-service")
+        print("  python scripts/install_requirements.py backend")
+        print("  python scripts/install_requirements.py auth")
         print("  python scripts/install_requirements.py all")
         sys.exit(1)
 
@@ -154,7 +167,7 @@ def main():
         else:
             print("❌ Installation failed! Check the output above.")
 
-    elif target in ["backend-service", "auth-service"]:
+    elif target in ["backend", "auth"]:
         success = install_service_requirements(target)
         print("=" * 50)
         if success:
@@ -163,8 +176,8 @@ def main():
             print(f"❌ {target} installation failed!")
 
     else:
-        print(f"❌ Unknown service: {target}")
-        print("Available services: backend-service, auth-service, all")
+        print(f"❌ Unknown option: {target}")
+        print("Available options: backend, auth, all")
         sys.exit(1)
 
 if __name__ == "__main__":

@@ -1,11 +1,38 @@
-# Backend Service specific dependencies (includes ETL)
--r common.txt
+# Backend Service Dependencies (includes ETL and AI)
+# All dependencies needed for the backend service
+
+# Web Framework
+fastapi
+uvicorn[standard]
+
+# Database
+psycopg2-binary
+sqlalchemy
+pgvector
+
+# Configuration and Environment
+python-dotenv
+pydantic[email]
+pydantic-settings
+email-validator
+dnspython
+
+# Logging
+structlog
+colorama
+
+# Utilities
+python-dateutil
+requests
+pytz
+
+# Security and Authentication
+PyJWT
+bcrypt
+cryptography
 
 # HTTP client for service communication
 httpx
-
-# Additional security and encryption
-cryptography
 
 # Redis for session management and caching
 redis
@@ -13,9 +40,6 @@ redis
 # Data processing and analytics
 pandas
 numpy
-
-# Timezone support
-pytz
 
 # System monitoring
 psutil
