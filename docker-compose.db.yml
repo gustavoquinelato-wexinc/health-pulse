@@ -144,19 +144,14 @@ services:
 volumes:
   postgres_primary_data:
     name: pulse_postgres_primary_data
-    external: true
   postgres_replica_data:
     name: pulse_postgres_replica_data
-    external: true
   redis_data:
     name: pulse_redis_data
-    external: true
   rabbitmq_data:
     name: pulse_rabbitmq_data
-    external: true
   qdrant_data:
     name: pulse_qdrant_data
-    external: true
 
 networks:
   pulse-network:
