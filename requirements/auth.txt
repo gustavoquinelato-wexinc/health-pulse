@@ -1,6 +1,5 @@
-# Centralized Authentication Service Requirements (moved from services/auth-service/requirements.txt)
-# Keep version pins aligned with backend-service where applicable.
-# Updated to use versions with pre-built wheels for Python 3.13 compatibility
+# Authentication Service Dependencies
+# Minimal dependencies for JWT-based authentication
 
 # FastAPI and ASGI server
 fastapi==0.104.1
@@ -13,7 +12,6 @@ pyjwt==2.8.0
 httpx==0.25.2
 
 # Configuration and environment
-# Using newer pydantic versions that have pre-built wheels for Python 3.13
 pydantic>=2.8.0
 pydantic-settings>=2.4.0
 python-dotenv==1.0.0
@@ -21,4 +19,3 @@ python-dotenv==1.0.0
 # Development and testing
 pytest==7.4.3
 pytest-asyncio==0.21.1
-

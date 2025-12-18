@@ -1,0 +1,8 @@
+# All Services Dependencies
+# Install all dependencies for both backend and auth services
+
+# Backend Service
+-r backend.txt
+
+# Auth Service
+-r auth.txt

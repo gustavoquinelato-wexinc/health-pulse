@@ -87,7 +87,9 @@ def setup_python_service(service_name, root_dir, skip_venv=False):
     print(f"\n📦 Setting up {service_name}...")
     
     service_dir = root_dir / "services" / service_name
-    requirements_file = root_dir / "requirements" / f"{service_name}.txt"
+    service_req_map = {"backend-service": "backend", "auth-service": "auth"}
+    req_name = service_req_map.get(service_name, service_name)
+    requirements_file = root_dir / "requirements" / f"{req_name}.txt"
     
     if not service_dir.exists():
         print(f"   ⚠️  Service directory not found: {service_dir}")
@@ -179,6 +181,9 @@ def setup_environment_files(root_dir):
 
     for service in services:
         service_dir = root_dir / "services" / service
+    service_req_map = {"backend-service": "backend", "auth-service": "auth"}
+    req_name = service_req_map.get(service_name, service_name)
+    requirements_file = root_dir / "requirements" / f"{req_name}.txt"
         service_env_example = service_dir / ".env.example"
         service_env_file = service_dir / ".env"
 
@@ -267,7 +272,7 @@ def main():
         sys.exit(1)
     
     # Setup Python services
-    python_services = ["backend-service", "auth-service"]
+    python_services = ["backend-service", "auth-service"]  # Maps to backend.txt and auth.txt
     success_count = 0
 
     for service in python_services:
@@ -293,3 +298,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
