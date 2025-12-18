@@ -8,7 +8,7 @@ import ToastContainer from '../components/ToastContainer'
 import ConfirmationModal from '../components/ConfirmationModal'
 import { useToast } from '../hooks/useToast'
 import { useConfirmation } from '../hooks/useConfirmation'
-import { Play, Square, Activity, AlertCircle, Settings, Save, Download, Sparkles, TrendingUp, Database } from 'lucide-react'
+import { Play, Square, Activity, AlertCircle, Settings, Save, Download, Sparkles, TrendingUp, Database, HelpCircle, X } from 'lucide-react'
 
 interface QueueMessageStats {
   publish: number
@@ -100,6 +100,7 @@ export default function QueueManagementPage() {
   const [saveLoading, setSaveLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date())
+  const [showHelpModal, setShowHelpModal] = useState(false)
 
   // Local state for worker counts (editable)
   const [extractionWorkers, setExtractionWorkers] = useState<number>(5)
@@ -937,23 +938,24 @@ export default function QueueManagementPage() {
           >
             <CardHeader className="border-b border-gray-200">
               <div className="flex items-center justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <Settings className="h-5 w-5" />
-                    Worker Configuration
-                  </CardTitle>
-                  <CardDescription className="mt-1">
-                    Configure worker counts for each queue type
-                  </CardDescription>
+                <div className="flex items-center gap-2">
+                  <div>
+                    <CardTitle className="flex items-center gap-2">
+                      <Settings className="h-5 w-5" />
+                      Worker Configuration
+                    </CardTitle>
+                    <CardDescription className="mt-1">
+                      Configure worker counts for each queue type
+                    </CardDescription>
+                  </div>
+                  <button
+                    onClick={() => setShowHelpModal(true)}
+                    className="p-1.5 hover:bg-gray-100 rounded-lg transition-colors"
+                    title="Help"
+                  >
+                    <HelpCircle className="h-5 w-5 text-gray-500" />
+                  </button>
                 </div>
-                <button
-                  onClick={updateWorkerCounts}
-                  disabled={saveLoading || !hasUnsavedChanges}
-                  className="btn-crud-create disabled:opacity-50 disabled:cursor-not-allowed min-w-[180px] flex items-center gap-2"
-                >
-                  <Save className="h-4 w-4 flex-shrink-0" />
-                  <span className="whitespace-nowrap">{saveLoading ? 'Saving...' : 'Save Configuration'}</span>
-                </button>
               </div>
             </CardHeader>
 
@@ -969,124 +971,163 @@ export default function QueueManagementPage() {
                   </Alert>
                 )}
 
-                {/* Database Capacity Stats */}
+                {/* Worker Count Configuration - MOVED TO TOP */}
+                <div className="p-4 bg-white rounded-lg border border-gray-200">
+                  <h3 className="text-sm font-semibold text-primary mb-3">Worker Pool Allocation</h3>
+                  <div className="flex items-end gap-4">
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 flex-1">
+                      {/* Extraction Workers */}
+                      <div>
+                        <label className="text-xs text-secondary mb-2 block">Extraction Workers</label>
+                        <input
+                          type="number"
+                          min="1"
+                          max={dbCapacity?.max_recommended_workers ?? 100}
+                          value={extractionWorkers}
+                          onChange={(e) => setExtractionWorkers(parseInt(e.target.value) || 1)}
+                          disabled={saveLoading}
+                          className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg font-semibold text-center"
+                        />
+                      </div>
+
+                      {/* Transform Workers */}
+                      <div>
+                        <label className="text-xs text-secondary mb-2 block">Transform Workers</label>
+                        <input
+                          type="number"
+                          min="1"
+                          max={dbCapacity?.max_recommended_workers ?? 100}
+                          value={transformWorkers}
+                          onChange={(e) => setTransformWorkers(parseInt(e.target.value) || 1)}
+                          disabled={saveLoading}
+                          className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg font-semibold text-center"
+                        />
+                      </div>
+
+                      {/* Embedding Workers */}
+                      <div>
+                        <label className="text-xs text-secondary mb-2 block">Embedding Workers</label>
+                        <input
+                          type="number"
+                          min="1"
+                          max={dbCapacity?.max_recommended_workers ?? 100}
+                          value={embeddingWorkers}
+                          onChange={(e) => setEmbeddingWorkers(parseInt(e.target.value) || 1)}
+                          disabled={saveLoading}
+                          className="w-full p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-lg font-semibold text-center"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Total Workers Summary - Compact */}
+                    <div className="flex items-center gap-2 px-3 py-2 bg-gray-50 rounded-lg border border-gray-200 h-[42px]">
+                      <span className="text-xs text-secondary whitespace-nowrap">Total:</span>
+                      <span className="text-sm font-bold">
+                        {extractionWorkers + transformWorkers + embeddingWorkers}
+                      </span>
+                    </div>
+
+                    {/* Capacity Status Indicator */}
+                    {dbCapacity && (() => {
+                      const totalWorkers = extractionWorkers + transformWorkers + embeddingWorkers;
+                      const maxWorkers = dbCapacity.max_recommended_workers;
+                      const availableWorkers = dbCapacity.available_for_workers;
+
+                      // Calculate percentage of available capacity (before 20% buffer)
+                      const usagePercent = (totalWorkers / availableWorkers) * 100;
+
+                      let status: 'SAFE' | 'WARNING' | 'CRITICAL';
+                      let variant: 'default' | 'destructive';
+                      let bgColor: string;
+
+                      if (totalWorkers > maxWorkers) {
+                        // Above the 80% buffer threshold (max_recommended_workers already has 20% buffer)
+                        status = 'CRITICAL';
+                        variant = 'destructive';
+                        bgColor = 'bg-red-50 border-red-300';
+                      } else if (usagePercent > 80) {
+                        // Between 80% and the buffer threshold
+                        status = 'WARNING';
+                        variant = 'default';
+                        bgColor = 'bg-yellow-50 border-yellow-300';
+                      } else {
+                        // Under 80%
+                        status = 'SAFE';
+                        variant = 'default';
+                        bgColor = 'bg-green-50 border-green-300';
+                      }
+
+                      return (
+                        <div className={`flex items-center gap-2 px-3 py-2 rounded-lg border h-[42px] ${bgColor}`}>
+                          <Badge
+                            variant={variant}
+                            className="text-xs px-2 py-0.5 font-semibold"
+                          >
+                            {status}
+                          </Badge>
+                          <span className="text-xs text-secondary">
+                            {totalWorkers}/{maxWorkers}
+                          </span>
+                        </div>
+                      );
+                    })()}
+
+
+                    {/* Save Button */}
+                    <button
+                      onClick={updateWorkerCounts}
+                      disabled={saveLoading || !hasUnsavedChanges}
+                      className="btn-crud-create disabled:opacity-50 disabled:cursor-not-allowed min-w-[180px] flex items-center gap-2 h-[42px]"
+                    >
+                      <Save className="h-4 w-4 flex-shrink-0" />
+                      <span className="whitespace-nowrap">{saveLoading ? 'Saving...' : 'Save Configuration'}</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Database Capacity Stats - Consolidated */}
                 {dbCapacity && (
-                  <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-                    <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
-                      <div className="text-xs text-secondary">Total Connections</div>
-                      <div className="text-xl font-bold">{dbCapacity.total_connections}</div>
-                      <div className="text-xs text-secondary mt-1">Pool: {dbCapacity.pool_size} + Overflow: {dbCapacity.max_overflow}</div>
+                  <div className="p-4 bg-gray-50 rounded-lg border border-gray-200">
+                    <div className="flex items-center gap-2 mb-3">
+                      <Database className="h-4 w-4 text-gray-600" />
+                      <h3 className="text-sm font-semibold text-primary">Database Connection Pool</h3>
                     </div>
-                    <div className="p-3 bg-blue-50 rounded-lg border border-blue-200">
-                      <div className="text-xs text-secondary">Reserved for UI</div>
-                      <div className="text-xl font-bold text-blue-600">{dbCapacity.reserved_for_ui}</div>
-                      <div className="text-xs text-secondary mt-1">Frontend operations</div>
-                    </div>
-                    <div className="p-3 bg-green-50 rounded-lg border border-green-200">
-                      <div className="text-xs text-secondary">Available for Workers</div>
-                      <div className="text-xl font-bold text-green-600">{dbCapacity.available_for_workers}</div>
-                      <div className="text-xs text-secondary mt-1">
-                        Recommended: {dbCapacity.max_recommended_workers} <span className="text-gray-400">(20% buffer)</span>
+                    <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 text-sm">
+                      <div>
+                        <div className="text-xs text-secondary mb-1">Total Connections</div>
+                        <div className="font-bold text-lg">{dbCapacity.total_connections}</div>
+                        <div className="text-xs text-secondary mt-0.5">Pool: {dbCapacity.pool_size} + Overflow: {dbCapacity.max_overflow}</div>
                       </div>
-                    </div>
-                    <div className={`p-3 rounded-lg border ${dbCapacity.current_usage_percent > 80 ? 'bg-red-50 border-red-200' : dbCapacity.current_usage_percent > 60 ? 'bg-yellow-50 border-yellow-200' : 'bg-green-50 border-green-200'}`}>
-                      <div className="text-xs text-secondary">Current Usage</div>
-                      <div className={`text-xl font-bold ${dbCapacity.current_usage_percent > 80 ? 'text-red-600' : dbCapacity.current_usage_percent > 60 ? 'text-yellow-600' : 'text-green-600'}`}>
-                        {dbCapacity.current_usage_percent.toFixed(1)}%
+                      <div>
+                        <div className="text-xs text-secondary mb-1">Reserved for UI</div>
+                        <div className="font-bold text-lg">{dbCapacity.reserved_for_ui}</div>
+                        <div className="text-xs text-secondary mt-0.5">Frontend operations</div>
                       </div>
-                      <div className="text-xs text-secondary mt-1">{dbCapacity.current_worker_count} / {dbCapacity.max_recommended_workers} workers</div>
+                      <div>
+                        <div className="text-xs text-secondary mb-1">Available for Workers</div>
+                        <div className="font-bold text-lg">{dbCapacity.available_for_workers}</div>
+                        <div className="text-xs text-secondary mt-0.5">
+                          Max: {dbCapacity.max_recommended_workers} <span className="text-gray-400">(20% buffer)</span>
+                        </div>
+                      </div>
+                      <div>
+                        <div className="text-xs text-secondary mb-1">Current Usage</div>
+                        <div className={`font-bold text-lg ${dbCapacity.current_usage_percent > 80 ? 'text-red-600' : dbCapacity.current_usage_percent > 60 ? 'text-yellow-600' : 'text-green-600'}`}>
+                          {dbCapacity.current_usage_percent.toFixed(1)}%
+                        </div>
+                        <div className="text-xs text-secondary mt-0.5">{dbCapacity.current_worker_count} / {dbCapacity.max_recommended_workers} workers</div>
+                      </div>
                     </div>
                   </div>
                 )}
 
-                {/* Worker Count Configuration */}
-                <div className="p-4 bg-white rounded-lg border border-gray-200">
-                  <div className="flex items-center gap-6">
-                    {/* Extraction Workers */}
-                    <div className="flex items-center gap-3 flex-1">
-                      <label className="text-sm font-semibold text-gray-700 whitespace-nowrap">
-                        Extraction Workers
-                      </label>
-                      <input
-                        type="number"
-                        min="1"
-                        max={dbCapacity?.max_recommended_workers ?? 100}
-                        value={extractionWorkers}
-                        onChange={(e) => setExtractionWorkers(parseInt(e.target.value) || 1)}
-                        disabled={saveLoading}
-                        className="w-20 p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-semibold text-center"
-                      />
-                    </div>
-
-                    {/* Transform Workers */}
-                    <div className="flex items-center gap-3 flex-1">
-                      <label className="text-sm font-semibold text-gray-700 whitespace-nowrap">
-                        Transform Workers
-                      </label>
-                      <input
-                        type="number"
-                        min="1"
-                        max={dbCapacity?.max_recommended_workers ?? 100}
-                        value={transformWorkers}
-                        onChange={(e) => setTransformWorkers(parseInt(e.target.value) || 1)}
-                        disabled={saveLoading}
-                        className="w-20 p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-semibold text-center"
-                      />
-                    </div>
-
-                    {/* Embedding Workers */}
-                    <div className="flex items-center gap-3 flex-1">
-                      <label className="text-sm font-semibold text-gray-700 whitespace-nowrap">
-                        Embedding Workers
-                      </label>
-                      <input
-                        type="number"
-                        min="1"
-                        max={dbCapacity?.max_recommended_workers ?? 100}
-                        value={embeddingWorkers}
-                        onChange={(e) => setEmbeddingWorkers(parseInt(e.target.value) || 1)}
-                        disabled={saveLoading}
-                        className="w-20 p-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm font-semibold text-center"
-                      />
-                    </div>
-                  </div>
-
-                  {/* Total Workers Summary */}
-                  <div className="mt-4 p-3 bg-gray-50 rounded-lg border border-gray-200">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm font-semibold">Total Workers:</span>
-                      <div className="flex items-center gap-3">
-                        <span className="text-lg font-bold">
-                          {extractionWorkers + transformWorkers + embeddingWorkers}
-                        </span>
-                        {dbCapacity && (
-                          <Badge variant={
-                            (extractionWorkers + transformWorkers + embeddingWorkers) > dbCapacity.max_recommended_workers
-                              ? "destructive"
-                              : "default"
-                          }>
-                            {(extractionWorkers + transformWorkers + embeddingWorkers) > dbCapacity.max_recommended_workers
-                              ? "Exceeds Limit!"
-                              : "Within Limits"}
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-                    {dbCapacity && (extractionWorkers + transformWorkers + embeddingWorkers) > dbCapacity.max_recommended_workers && (
-                      <div className="mt-2 text-xs text-red-600">
-                        ⚠️ Total workers ({extractionWorkers + transformWorkers + embeddingWorkers}) exceeds recommended maximum ({dbCapacity.max_recommended_workers}).
-                      </div>
-                    )}
-                  </div>
-
-                  {/* Important Notes */}
-                  <Alert className="border-blue-200 bg-blue-50 mt-4">
-                    <AlertCircle className="h-3.5 w-3.5 text-blue-600" />
-                    <AlertDescription className="text-blue-800">
-                      <div className="text-xs"><strong>Important:</strong> Changes require worker pool restart to take effect. Each worker uses 1 database connection.</div>
-                    </AlertDescription>
-                  </Alert>
-                </div>
+                {/* Important Notes */}
+                <Alert className="border-blue-200 bg-blue-50 mt-4">
+                  <AlertCircle className="h-3.5 w-3.5 text-blue-600" />
+                  <AlertDescription className="text-blue-800">
+                    <div className="text-xs"><strong>Important:</strong> Changes require worker pool restart to take effect. Each worker uses 1 database connection.</div>
+                  </AlertDescription>
+                </Alert>
               </div>
             </CardContent>
           </Card>
@@ -1109,6 +1150,117 @@ export default function QueueManagementPage() {
         type={confirmation.type}
         icon={confirmation.icon}
       />
+
+      {/* Help Modal */}
+      {showHelpModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+          <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+            <div className="sticky top-0 bg-white border-b border-gray-200 p-4 flex items-center justify-between">
+              <h2 className="text-xl font-bold text-primary flex items-center gap-2">
+                <HelpCircle className="h-5 w-5" />
+                Worker Configuration Help
+              </h2>
+              <button
+                onClick={() => setShowHelpModal(false)}
+                className="p-1 hover:bg-gray-100 rounded-lg transition-colors"
+              >
+                <X className="h-5 w-5 text-gray-500" />
+              </button>
+            </div>
+            <div className="p-6 space-y-6">
+              {/* Database Connection Pool */}
+              <div>
+                <h3 className="text-lg font-semibold text-primary mb-2 flex items-center gap-2">
+                  <Database className="h-4 w-4" />
+                  Database Connection Pool
+                </h3>
+                <p className="text-sm text-secondary mb-3">
+                  The database has a limited number of connections available. Workers consume these connections to process data.
+                </p>
+                <div className="space-y-2 text-sm">
+                  <div className="flex gap-2">
+                    <span className="font-semibold min-w-[140px]">Total Connections:</span>
+                    <span className="text-secondary">Maximum database connections (pool + overflow)</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <span className="font-semibold min-w-[140px]">Reserved for UI:</span>
+                    <span className="text-secondary">Connections reserved for frontend operations</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <span className="font-semibold min-w-[140px]">Available for Workers:</span>
+                    <span className="text-secondary">Connections available for background workers</span>
+                  </div>
+                  <div className="flex gap-2">
+                    <span className="font-semibold min-w-[140px]">Current Usage:</span>
+                    <span className="text-secondary">Percentage of worker connections currently in use</span>
+                  </div>
+                </div>
+              </div>
+
+              {/* Worker Types */}
+              <div>
+                <h3 className="text-lg font-semibold text-primary mb-2">Worker Types</h3>
+                <div className="space-y-3">
+                  <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Download className="h-4 w-4 text-gray-600" />
+                      <h4 className="font-semibold text-sm">Extraction Workers</h4>
+                    </div>
+                    <p className="text-xs text-secondary">
+                      Fetch data from external sources (Jira, GitHub). Each worker handles API requests and stores raw data.
+                    </p>
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                    <div className="flex items-center gap-2 mb-1">
+                      <TrendingUp className="h-4 w-4 text-gray-600" />
+                      <h4 className="font-semibold text-sm">Transform Workers</h4>
+                    </div>
+                    <p className="text-xs text-secondary">
+                      Process and transform raw data into structured format. Maps custom fields and prepares data for storage.
+                    </p>
+                  </div>
+                  <div className="p-3 bg-gray-50 rounded-lg border border-gray-200">
+                    <div className="flex items-center gap-2 mb-1">
+                      <Sparkles className="h-4 w-4 text-gray-600" />
+                      <h4 className="font-semibold text-sm">Embedding Workers</h4>
+                    </div>
+                    <p className="text-xs text-secondary">
+                      Generate AI embeddings for semantic search. Processes transformed data and stores vectors in Qdrant.
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Best Practices */}
+              <div>
+                <h3 className="text-lg font-semibold text-primary mb-2">Best Practices</h3>
+                <ul className="space-y-2 text-sm text-secondary">
+                  <li className="flex gap-2">
+                    <span className="text-blue-500 font-bold">•</span>
+                    <span><strong>Stay within limits:</strong> Keep total workers below the recommended maximum to maintain system stability</span>
+                  </li>
+                  <li className="flex gap-2">
+                    <span className="text-blue-500 font-bold">•</span>
+                    <span><strong>Each worker = 1 connection:</strong> Every worker uses one database connection while active</span>
+                  </li>
+                  <li className="flex gap-2">
+                    <span className="text-blue-500 font-bold">•</span>
+                    <span><strong>Restart required:</strong> Changes only take effect after restarting worker pools</span>
+                  </li>
+                  <li className="flex gap-2">
+                    <span className="text-blue-500 font-bold">•</span>
+                    <span><strong>Monitor usage:</strong> Watch the current usage percentage to avoid overloading the database</span>
+                  </li>
+                  <li className="flex gap-2">
+                    <span className="text-blue-500 font-bold">•</span>
+                    <span><strong>Balance allocation:</strong> Distribute workers based on your workload (more extraction for large syncs, more embedding for AI features)</span>
+                  </li>
+                </ul>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -107,6 +107,24 @@ function run-pgadmin {
     Start-Process "http://localhost:5050"
 }
 
+# === DOCKER COMMANDS ===
+
+# Start all Docker services from docker-compose.db.yml
+function dkup {
+    pulse
+    Write-Host "[DOCKER] Starting all Docker services..." -ForegroundColor Green
+    docker-compose -f docker-compose.db.yml up -d
+    Write-Host "[SUCCESS] Docker services started!" -ForegroundColor Green
+}
+
+# Stop and remove all Docker services from docker-compose.db.yml
+function dkdown {
+    pulse
+    Write-Host "[DOCKER] Stopping and removing all Docker services..." -ForegroundColor Red
+    docker-compose -f docker-compose.db.yml down
+    Write-Host "[SUCCESS] Docker services stopped and removed!" -ForegroundColor Green
+}
+
 # === DATABASE COMMANDS ===
 
 # Rolls back all database migrations

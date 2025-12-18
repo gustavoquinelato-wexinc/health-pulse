@@ -4,8 +4,8 @@ Smart requirements installer for Pulse Platform services.
 Run from root directory to install dependencies in the correct service folders.
 
 Usage:
-    python scripts/install_requirements.py etl-service
     python scripts/install_requirements.py backend-service
+    python scripts/install_requirements.py auth-service
     python scripts/install_requirements.py all
 """
 
@@ -131,13 +131,12 @@ def main():
         print("Usage: python scripts/install_requirements.py <service_name|all>")
         print()
         print("Available services:")
-        print("  • etl-service      - ETL Service dependencies (individual venv)")
-        print("  • backend-service  - Backend Service dependencies (individual venv)")
+        print("  • backend-service  - Backend Service dependencies (includes ETL) (individual venv)")
         print("  • auth-service     - Auth Service dependencies (individual venv)")
         print("  • all              - Install all dependencies in root venv")
         print()
         print("Examples:")
-        print("  python scripts/install_requirements.py etl-service")
+        print("  python scripts/install_requirements.py backend-service")
         print("  python scripts/install_requirements.py all")
         sys.exit(1)
 
@@ -155,7 +154,7 @@ def main():
         else:
             print("❌ Installation failed! Check the output above.")
 
-    elif target in ["etl-service", "backend-service", "auth-service"]:
+    elif target in ["backend-service", "auth-service"]:
         success = install_service_requirements(target)
         print("=" * 50)
         if success:
@@ -165,7 +164,7 @@ def main():
 
     else:
         print(f"❌ Unknown service: {target}")
-        print("Available services: etl-service, backend-service, auth-service, all")
+        print("Available services: backend-service, auth-service, all")
         sys.exit(1)
 
 if __name__ == "__main__":
