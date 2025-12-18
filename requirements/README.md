@@ -7,9 +7,9 @@ This directory contains centralized dependency management for the Pulse Platform
 ## 📁 Files
 
 - **`common.txt`** - Shared dependencies across all services (FastAPI, SQLAlchemy, etc.)
-- **`etl-service.txt`** - ETL Service specific dependencies (includes common.txt)
-- **`backend-service.txt`** - Backend Service specific dependencies (includes common.txt)
+- **`backend-service.txt`** - Backend Service specific dependencies (includes ETL and common.txt)
 - **`auth-service.txt`** - Auth Service specific dependencies (API-only; includes minimal web + JWT)
+- **`etl-service.txt`** - Legacy ETL dependencies (kept for reference, ETL now integrated in backend-service)
 
 ## 🚀 Installation
 
@@ -30,7 +30,6 @@ python scripts/setup_development.py
 
 ```bash
 # Install for specific service
-python scripts/install_requirements.py etl-service
 python scripts/install_requirements.py backend-service
 python scripts/install_requirements.py auth-service
 
@@ -42,10 +41,10 @@ python scripts/install_requirements.py all
 
 ```bash
 # From service directory
-cd services/etl-service
+cd services/backend-service
 pip install -r requirements.txt
 
-cd services/backend-service  
+cd services/auth-service
 pip install -r requirements.txt
 ```
 
@@ -66,20 +65,23 @@ pip install -r requirements.txt
 - Structlog - Logging
 - PyJWT, bcrypt - Security
 
-### ETL Service Specific
-- APScheduler - Job scheduling
-- Jira - Jira API client
-- Redis - Caching
-- Jinja2 - Web templates
-- psutil - System monitoring
-- **websockets** - Real-time progress updates *(recently added)*
-
-### Backend Service Specific
+### Backend Service Specific (includes ETL)
 - httpx - HTTP client for service communication
 - cryptography - Additional encryption utilities
-- **pandas** - Data processing and analytics *(recently added)*
-- **numpy** - Numerical computing *(recently added)*
-- **websockets** - Real-time updates and notifications *(recently added)*
+- **pandas** - Data processing and analytics
+- **numpy** - Numerical computing
+- **websockets** - Real-time updates and notifications
+- **pika** - RabbitMQ client for ETL queue management
+- **qdrant-client** - Qdrant vector database client for AI/embeddings
+- **pika** - RabbitMQ client for ETL queue management
+- **qdrant-client** - Qdrant vector database client for AI/embeddings
+- APScheduler - Job scheduling (ETL)
+- Jira - Jira API client (ETL)
+- Redis - Caching (ETL)
+- psutil - System monitoring (ETL)
+
+### Auth Service Specific
+- Minimal dependencies for authentication and JWT handling
 
 ## 🔧 Adding New Dependencies
 
@@ -87,17 +89,22 @@ pip install -r requirements.txt
 2. **Service-specific**: Add to appropriate service file
 3. **Reinstall**: Run installation script to update
 
-### Recent Additions (2025-01-14)
+### Recent Changes (2025-12-18)
 
-**Backend Service:**
-- `pandas` - Added for data processing and statistical analysis
-- `numpy` - Added for numerical computing operations
-- `websockets` - Added for real-time WebSocket communication
+**Architecture Update:**
+- ETL functionality has been integrated into `backend-service`
+- All ETL dependencies are now part of `backend-service.txt`
+- The `etl-service.txt` file is kept for reference only
 
-**ETL Service:**
-- `websockets` - Added for real-time progress updates and notifications
-
-These dependencies were added to support enhanced analytics capabilities and real-time monitoring features.
+**Backend Service (includes ETL):**
+- `pandas` - Data processing and statistical analysis
+- `numpy` - Numerical computing operations
+- `websockets` - Real-time WebSocket communication
+- `pika` - RabbitMQ Python client for queue management
+- `qdrant-client` - Qdrant vector database client for embeddings
+- `APScheduler` - Job scheduling for ETL
+- `Jira` - Jira API client for ETL
+- `psutil` - System monitoring for ETL
 
 ## 🚨 Important Notes
 
@@ -105,3 +112,4 @@ These dependencies were added to support enhanced analytics capabilities and rea
 - Each service can have its own virtual environment
 - Dependencies are installed in the service directory, not root
 - Common dependencies are automatically included via `-r common.txt`
+

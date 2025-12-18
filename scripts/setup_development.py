@@ -175,7 +175,7 @@ def setup_environment_files(root_dir):
             success_count += 1
 
     # Setup service-specific .env files
-    services = ["backend-service", "etl-service", "frontend-app"]
+    services = ["backend-service", "auth-service", "frontend-app", "frontend-etl"]
 
     for service in services:
         service_dir = root_dir / "services" / service
@@ -217,26 +217,31 @@ def print_next_steps(root_dir):
     print(f"   python services/backend-service/scripts/migration_runner.py --apply-all")
     print(f"")
     print(f"4. 🚀 Start the services:")
-    print(f"   # Backend Service")
+    print(f"   # Backend Service (includes ETL)")
     print(f"   cd services/backend-service")
     print(f"   venv/Scripts/activate  # Windows")
     print(f"   source venv/bin/activate  # Unix/Linux/macOS")
     print(f"   uvicorn app.main:app --reload --port 3001")
     print(f"")
-    print(f"   # ETL Service")
-    print(f"   cd services/etl-service")
+    print(f"   # Auth Service")
+    print(f"   cd services/auth-service")
     print(f"   venv/Scripts/activate  # Windows")
     print(f"   source venv/bin/activate  # Unix/Linux/macOS")
-    print(f"   uvicorn app.main:app --reload --port 8000")
+    print(f"   uvicorn app.main:app --reload --port 4000")
     print(f"")
-    print(f"   # Frontend")
+    print(f"   # Frontend App")
     print(f"   cd services/frontend-app")
     print(f"   npm run dev")
     print(f"")
+    print(f"   # Frontend ETL")
+    print(f"   cd services/frontend-etl")
+    print(f"   npm run dev")
+    print(f"")
     print(f"5. 🌐 Access the application:")
-    print(f"   Frontend: http://localhost:3000")
+    print(f"   Frontend App: http://localhost:3000")
+    print(f"   Frontend ETL: http://localhost:3333")
     print(f"   Backend API: http://localhost:3001/docs")
-    print(f"   ETL Service: http://localhost:8000/home")
+    print(f"   Auth API: http://localhost:4000/docs")
     print(f"")
     print(f"🎯 Happy coding!")
 
@@ -262,9 +267,9 @@ def main():
         sys.exit(1)
     
     # Setup Python services
-    python_services = ["backend-service", "etl-service", "auth-service"]
+    python_services = ["backend-service", "auth-service"]
     success_count = 0
-    
+
     for service in python_services:
         if setup_python_service(service, root_dir, args.skip_venv):
             success_count += 1
